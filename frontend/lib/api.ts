@@ -66,6 +66,13 @@ export const api = {
       request(`/api/sectors/etfs?sector=${encodeURIComponent(sector)}&sort_by=${sortBy}`),
   },
 
+  krx: {
+    dashboard:    () => request("/api/krx/"),
+    investor:     () => request("/api/krx/investor"),
+    sector:       () => request("/api/krx/sector"),
+    shortSelling: () => request("/api/krx/short-selling"),
+  },
+
   push: {
     vapidKey: () => request<{ public_key: string }>("/api/push/vapid-public-key"),
     subscribe: (body: object) =>
