@@ -16,7 +16,7 @@ async def get_rotation():
     return await SectorService.get_rotation()
 
 
-@router.get("/{sector}/etfs")
+@router.get("/etfs")
 async def get_sector_etfs(sector: str, sort_by: str = "1m"):
-    """특정 섹터 관련 ETF 랭킹."""
+    """특정 섹터 관련 ETF 랭킹. sector는 쿼리 파라미터로 전달 (슬래시 포함 섹터명 처리)."""
     return await SectorService.get_sector_etfs(sector, sort_by)

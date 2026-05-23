@@ -48,7 +48,8 @@ SECTOR_ETF_MAP: dict[str, list[dict]] = {
     "인터넷/IT": [
         {"ticker": "139260", "name": "KODEX 인터넷"},
         {"ticker": "157490", "name": "TIGER 소프트웨어"},
-        {"ticker": "364990", "name": "KODEX K-IT"},
+        {"ticker": "381175", "name": "KBSTAR IT플러스"},
+        {"ticker": "371460", "name": "TIGER KRX IT"},
     ],
     "자동차": [
         {"ticker": "091180", "name": "KODEX 자동차"},
@@ -73,8 +74,9 @@ SECTOR_ETF_MAP: dict[str, list[dict]] = {
     ],
     "AI/로봇": [
         {"ticker": "364980", "name": "KODEX K-로봇액티브"},
+        {"ticker": "462870", "name": "KODEX AI반도체핵심장비"},
         {"ticker": "445090", "name": "TIGER AI코리아그로스액티브"},
-        {"ticker": "453810", "name": "TIGER AI반도체핵심공정"},
+        {"ticker": "411600", "name": "TIGER 글로벌AI&로봇"},
     ],
 }
 
@@ -180,7 +182,10 @@ def _fetch_sector_etfs_sync(sector: str, sort_by: str = "1m") -> list[dict]:
                 "change_ytd": round(ytd_return, 2),
             })
         except Exception as e:
-            logger.warning(f"ETF [{etf['ticker']}] fetch error: {e}")
+            logger.info(f"ETF [{etf['ticker']} {etf['name']}] 스킵 (데이터 없음 또는 미상장): {e}")
+
+    if not results:
+        logger.warning(f"섹터 [{sector}] ETF 전체 로딩 실패 — 티커 목록: {[e['ticker'] for e in etf_list]}")
 
     _etf_cache[sector] = (now_ts, results)
     field = _SORT_FIELDS.get(sort_by, "change_1m")

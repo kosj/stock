@@ -63,7 +63,7 @@ export const api = {
     list: () => request("/api/sectors/"),
     rotation: () => request("/api/sectors/rotation"),
     etfs: (sector: string, sortBy = "1m") =>
-      request(`/api/sectors/${encodeURIComponent(sector)}/etfs?sort_by=${sortBy}`),
+      request(`/api/sectors/etfs?sector=${encodeURIComponent(sector)}&sort_by=${sortBy}`),
   },
 
   push: {
