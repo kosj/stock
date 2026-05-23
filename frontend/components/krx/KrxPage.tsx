@@ -3,8 +3,21 @@ import { useState } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatPercent, colorByChange } from "@/lib/utils";
 import { RefreshCw, TrendingUp, TrendingDown, Minus, AlertCircle } from "lucide-react";
+
+// 한국 주식 컨벤션: 상승=빨간, 하락=파란
+function krxColor(n: number | null | undefined): string {
+  if (n == null) return "text-muted-foreground";
+  if (n > 0) return "text-red-400";
+  if (n < 0) return "text-blue-400";
+  return "text-muted-foreground";
+}
+
+function krxChangePct(n: number | null | undefined): string {
+  if (n == null) return "-";
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -164,36 +177,33 @@ function InvestorSection({ data }: { data: any }) {
 
 // ── 섹션: 업종별 수익률 ──────────────────────────────────────────────────────
 
-function SectorSection({ data }: { data: any }) {
-  const [market, setMarket] = useState<"kospi" | "kosdaq">("kospi");
-  const [sortField, setSortField] = useState<"change_pct" | "value" | "market_cap">("change_pct");
-  const raw: any[] = data?.sector_index?.[market] ?? [];
-  const rows = [...raw].sort((a, b) => b[sortField] - a[sortField]);
+type Period = "change_1d" | "change_1w" | "change_1m" | "change_3m" | "change_ytd";
 
-  const maxAbsPct = Math.max(...rows.map((r) => Math.abs(r.change_pct)), 0.1);
+const PERIOD_LABELS: { key: Period; label: string }[] = [
+  { key: "change_1d",  label: "1일" },
+  { key: "change_1w",  label: "1주" },
+  { key: "change_1m",  label: "1개월" },
+  { key: "change_3m",  label: "3개월" },
+  { key: "change_ytd", label: "YTD" },
+];
+
+function SectorSection({ data }: { data: any }) {
+  const [period, setPeriod] = useState<Period>("change_1d");
+  const raw: any[] = data?.sector_index?.kospi ?? [];
+  const rows = [...raw].sort((a, b) => (b[period] ?? 0) - (a[period] ?? 0));
+
+  const maxAbsPct = Math.max(...rows.map((r) => Math.abs(r[period] ?? 0)), 0.1);
 
   return (
     <div className="space-y-4">
-      {/* 필터 바 */}
+      {/* 기간 선택 */}
       <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">기간:</span>
         <div className="flex gap-1">
-          {(["kospi", "kosdaq"] as const).map((m) => (
-            <button key={m} onClick={() => setMarket(m)}
+          {PERIOD_LABELS.map(({ key, label }) => (
+            <button key={key} onClick={() => setPeriod(key)}
               className={`text-xs px-3 py-1.5 rounded transition-colors ${
-                market === m ? "bg-blue-600/30 text-blue-400 font-semibold" : "text-muted-foreground hover:bg-white/5"
-              }`}>{m.toUpperCase()}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-1 ml-auto">
-          {([
-            { key: "change_pct", label: "등락률" },
-            { key: "value",      label: "거래대금" },
-            { key: "market_cap", label: "시가총액" },
-          ] as const).map(({ key, label }) => (
-            <button key={key} onClick={() => setSortField(key)}
-              className={`text-xs px-2 py-1 rounded transition-colors ${
-                sortField === key ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"
+                period === key ? "bg-blue-600/30 text-blue-400 font-semibold" : "text-muted-foreground hover:bg-white/5"
               }`}>{label}
             </button>
           ))}
@@ -202,25 +212,24 @@ function SectorSection({ data }: { data: any }) {
 
       <Card className="p-0 overflow-hidden">
         <div
-          className="grid grid-cols-[1fr_120px_80px_80px] px-4 py-2 text-xs font-semibold text-muted-foreground border-b hidden md:grid"
+          className="grid grid-cols-[1fr_100px_80px] px-4 py-2 text-xs font-semibold text-muted-foreground border-b hidden md:grid"
           style={{ borderColor: "var(--border)", background: "var(--muted)" }}
         >
-          <span>업종</span>
-          <span className="text-right">지수</span>
-          <span className="text-right">등락률</span>
-          <span className="text-right">거래대금</span>
+          <span>업종 (KODEX ETF 기준)</span>
+          <span className="text-right">현재가</span>
+          <span className="text-right">수익률</span>
         </div>
         {rows.length === 0 ? (
           <div className="py-8 text-center text-xs text-muted-foreground">데이터 없음</div>
         ) : (
           rows.map((r) => {
-            const pct = r.change_pct;
+            const pct = r[period] ?? 0;
             const barPct = (Math.abs(pct) / maxAbsPct) * 40;
             const barColor = pct >= 0 ? "bg-red-500/60" : "bg-blue-500/60";
             return (
               <div
                 key={r.name}
-                className="flex md:grid md:grid-cols-[1fr_120px_80px_80px] items-center gap-2 md:gap-0 px-4 py-2.5 border-b last:border-0 hover:bg-white/3 transition-colors"
+                className="flex md:grid md:grid-cols-[1fr_100px_80px] items-center gap-2 md:gap-0 px-4 py-2.5 border-b last:border-0 hover:bg-white/3 transition-colors"
                 style={{ borderColor: "var(--border)" }}
               >
                 {/* 업종명 + 바 */}
@@ -239,19 +248,17 @@ function SectorSection({ data }: { data: any }) {
                   </div>
                 </div>
                 <span className="text-right text-sm tabular-nums text-muted-foreground hidden md:block">
-                  {r.index ? r.index.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "-"}
+                  {r.index ? r.index.toLocaleString() : "-"}
                 </span>
-                <span className={`text-right text-sm tabular-nums font-semibold ${colorByChange(pct)}`}>
-                  {pct ? `${pct > 0 ? "+" : ""}${pct.toFixed(2)}%` : "-"}
-                </span>
-                <span className="text-right text-xs tabular-nums text-muted-foreground hidden md:block">
-                  {fmtVal(r.value)}
+                <span className={`text-right text-sm tabular-nums font-semibold ${krxColor(pct)}`}>
+                  {krxChangePct(pct)}
                 </span>
               </div>
             );
           })
         )}
       </Card>
+      <p className="text-xs text-muted-foreground">* KODEX 대표 ETF 가격 기준 수익률 (실시간 아님)</p>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from app.services import krx_service
 
 router = APIRouter()
@@ -38,3 +38,18 @@ async def get_short_selling():
         return await krx_service.get_short_selling()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"KRX API 오류: {e}")
+
+
+@router.get("/debug")
+async def debug_raw(
+    bld: str = Query("dbms/MDC/STAT/standard/MDCSTAT02301"),
+    trd_dd: str = Query(""),
+):
+    """KRX 원시 응답 확인용 (개발/디버그). ?bld=...&trd_dd=YYYYMMDD"""
+    extra = {}
+    if trd_dd:
+        extra["trdDd"] = trd_dd
+    else:
+        extra["trdDd"] = krx_service._last_trading_day()
+        extra["mktId"]  = "STK"
+    return await krx_service.get_raw(bld, extra)
