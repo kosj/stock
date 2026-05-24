@@ -1,72 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
+import { supabase } from "@/lib/server/supabase";
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+export const dynamic = "force-dynamic";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
+type Ctx = { params: Promise<{ id: string }> };
 
-    // 샘플 포지션 데이터
-    const positions = [
-      {
-        id: 1,
-        portfolio_id: parseInt(id),
-        ticker: "000660",
-        name: "SK하이닉스",
-        quantity: 10,
-        price: 62500,
-        value: 625000,
-        gain: 25000,
-        gain_rate: 4.17,
-        buy_date: "2024-01-15T00:00:00Z"
-      },
-      {
-        id: 2,
-        portfolio_id: parseInt(id),
-        ticker: "005930",
-        name: "삼성전자",
-        quantity: 5,
-        price: 70000,
-        value: 350000,
-        gain: 10000,
-        gain_rate: 2.94,
-        buy_date: "2024-02-01T00:00:00Z"
-      }
-    ];
+export async function GET(_: NextRequest, { params }: Ctx) {
+  const { id } = await params;
+  const { data, error } = await supabase
+    .from("positions")
+    .select("*")
+    .eq("portfolio_id", id)
+    .order("created_at", { ascending: true });
 
-    return NextResponse.json(positions);
-  } catch (error) {
-    console.error("Portfolio positions API error:", error);
-    return NextResponse.json(
-      { error: String(error) },
-      { status: 500 }
-    );
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data ?? []);
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const body = await request.json();
+export async function POST(req: NextRequest, { params }: Ctx) {
+  const { id } = await params;
+  const body = await req.json();
 
-    return NextResponse.json({
-      id: Math.floor(Math.random() * 1000),
-      portfolio_id: parseInt(id),
-      ...body,
-      buy_date: new Date().toISOString()
-    }, { status: 201 });
-  } catch (error) {
-    console.error("Portfolio add position API error:", error);
-    return NextResponse.json(
-      { error: String(error) },
-      { status: 500 }
-    );
-  }
+  const { data: pf } = await supabase.from("portfolios").select("id").eq("id", id).single();
+  if (!pf) return NextResponse.json({ error: "포트폴리오를 찾을 수 없습니다." }, { status: 404 });
+
+  const { data, error } = await supabase
+    .from("positions")
+    .insert({
+      portfolio_id: Number(id),
+      ticker:       body.ticker,
+      name:         body.name,
+      quantity:     body.quantity,
+      avg_price:    body.avg_price,
+      stop_loss:    body.stop_loss ?? null,
+      take_profit:  body.take_profit ?? null,
+      strategy:     body.strategy ?? null,
+      notes:        body.notes ?? null,
+    })
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data, { status: 201 });
 }
