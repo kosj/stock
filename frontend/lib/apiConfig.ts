@@ -18,9 +18,18 @@ export interface StoredBrokerConfig {
 }
 
 export class BrokerConfigManager {
+  // 클라이언트 환경 확인
+  private static isClient(): boolean {
+    return typeof window !== 'undefined' && typeof sessionStorage !== 'undefined';
+  }
+
   // 마스터 패스워드 설정 (해시로 저장, 복호화할 때는 원본 필요)
   static setMasterPassword(password: string): void {
     try {
+      if (!this.isClient()) {
+        throw new Error('클라이언트 환경에서만 사용 가능합니다');
+      }
+
       if (!password || password.length < 8) {
         throw new Error('마스터 패스워드는 최소 8자 이상이어야 합니다');
       }
@@ -51,6 +60,10 @@ export class BrokerConfigManager {
   // 마스터 패스워드 확인
   static verifyMasterPassword(password: string): boolean {
     try {
+      if (!this.isClient()) {
+        return false;
+      }
+
       const hash = require('crypto').createHash('sha256').update(password).digest('hex');
       const storedHash = sessionStorage.getItem(MASTER_PASSWORD_HASH_KEY);
       return hash === storedHash;
@@ -62,11 +75,17 @@ export class BrokerConfigManager {
 
   // 마스터 패스워드 설정 여부 확인
   static isMasterPasswordSet(): boolean {
+    if (!this.isClient()) {
+      return false;
+    }
     return sessionStorage.getItem('__master_password_set__') === 'true';
   }
 
   // 마스터 패스워드 초기화 (로그아웃 시 호출)
   static clearMasterPassword(): void {
+    if (!this.isClient()) {
+      return;
+    }
     sessionStorage.removeItem('__master_password__');
     sessionStorage.removeItem('__master_password_set__');
     sessionStorage.removeItem(MASTER_PASSWORD_HASH_KEY);
@@ -100,6 +119,10 @@ export class BrokerConfigManager {
   // 특정 증권사 설정 조회
   static getBrokerConfig(type: BrokerType): BrokerCredentials | null {
     try {
+      if (!this.isClient()) {
+        return null;
+      }
+
       const storageKey = `${STORAGE_KEY_PREFIX}${type}`;
       const configStr = localStorage.getItem(storageKey);
       if (!configStr) return null;
@@ -113,7 +136,7 @@ export class BrokerConfigManager {
         return null;
       }
 
-      // AES-256-GCM으로 복호화
+      // AES-256-CBC으로 복호화
       const decrypted = decryptWithPassword(config.encrypted, masterPassword);
       return JSON.parse(decrypted);
     } catch (error) {

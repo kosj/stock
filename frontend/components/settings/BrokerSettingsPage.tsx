@@ -76,10 +76,13 @@ export function BrokerSettingsPage() {
   const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
   const [masterPasswordInput, setMasterPasswordInput] = useState('');
   const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
-  const [isLocked, setIsLocked] = useState(!BrokerConfigManager.isMasterPasswordSet());
+  const [isLocked, setIsLocked] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
-  // 초기 로드
+  // 초기 로드 - 클라이언트에서만 실행
   useEffect(() => {
+    setMounted(true);
+
     const isMasterSet = BrokerConfigManager.isMasterPasswordSet();
     setIsLocked(!isMasterSet);
     if (!isMasterSet) {
@@ -195,6 +198,15 @@ export function BrokerSettingsPage() {
       setEditingBroker(null);
     }
   };
+
+  // 클라이언트 사이드 마운트 전까지 로딩 상태 표시
+  if (!mounted) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-screen">
+        <div className="text-muted-foreground">로딩 중...</div>
+      </div>
+    );
+  }
 
   if (isLocked) {
     return (
