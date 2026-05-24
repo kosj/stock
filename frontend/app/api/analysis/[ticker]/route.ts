@@ -13,7 +13,13 @@ export async function GET(
         ticker: "000660",
         name: "SK하이닉스",
         recommendation: "STRONG_BUY",
-        score: 8.2,
+        score: 82,
+        score_breakdown: {
+          valuation_score: 22,
+          growth_score: 20,
+          technical_score: 23,
+          sector_score: 17
+        },
         rsi: 65.4,
         macd: 2.34,
         macd_signal: 2.18,
@@ -27,7 +33,13 @@ export async function GET(
         ticker: "005930",
         name: "삼성전자",
         recommendation: "BUY",
-        score: 7.5,
+        score: 75,
+        score_breakdown: {
+          valuation_score: 18,
+          growth_score: 19,
+          technical_score: 20,
+          sector_score: 18
+        },
         rsi: 58.2,
         macd: 1.45,
         macd_signal: 1.32,
@@ -48,11 +60,18 @@ export async function GET(
     }
 
     // 요청된 티커가 없으면 샘플 데이터 반환
+    const score = Math.floor(Math.random() * 100);
     return NextResponse.json({
       ticker,
       name: `주식 ${ticker}`,
       recommendation: ["STRONG_BUY", "BUY", "HOLD", "SELL", "STRONG_SELL"][Math.floor(Math.random() * 5)],
-      score: parseFloat((Math.random() * 10).toFixed(1)),
+      score: score,
+      score_breakdown: {
+        valuation_score: Math.floor(Math.random() * 25),
+        growth_score: Math.floor(Math.random() * 25),
+        technical_score: Math.floor(Math.random() * 25),
+        sector_score: Math.floor(Math.random() * 25)
+      },
       rsi: parseFloat((Math.random() * 100).toFixed(1)),
       macd: parseFloat((Math.random() * 5 - 2.5).toFixed(2)),
       macd_signal: parseFloat((Math.random() * 5 - 2.5).toFixed(2)),
