@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { BrokerConfigManager, type BrokerType, isBrokerConfigured, getConfiguredBrokersList } from "@/lib/apiConfig";
-import { CheckCircle, AlertCircle, Eye, EyeOff, Trash2 } from "lucide-react";
+import { CheckCircle, AlertCircle, Eye, EyeOff, Trash2, Lock, LockOpen } from "lucide-react";
 
 const BROKER_INFO: Record<BrokerType, { name: string; description: string }> = {
   kis: {
@@ -23,6 +23,29 @@ const BROKER_INFO: Record<BrokerType, { name: string; description: string }> = {
     description: "준비 중..."
   }
 };
+
+// 패스워드 강도 검증
+function validateMasterPassword(password: string): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (password.length < 8) {
+    errors.push("최소 8자 이상이어야 합니다");
+  }
+  if (!/[A-Z]/.test(password)) {
+    errors.push("대문자를 포함해야 합니다");
+  }
+  if (!/[a-z]/.test(password)) {
+    errors.push("소문자를 포함해야 합니다");
+  }
+  if (!/[0-9]/.test(password)) {
+    errors.push("숫자를 포함해야 합니다");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
 
 export function BrokerSettingsPage() {
   const [brokers, setBrokers] = useState<BrokerType[]>(['kis', 'kb', 'shinhan', 'meritz']);
@@ -47,14 +70,92 @@ export function BrokerSettingsPage() {
   const [editingBroker, setEditingBroker] = useState<BrokerType | null>(null);
   const [formData, setFormData] = useState({ appKey: '', appSecret: '' });
 
+  // 마스터 패스워드 관련
+  const [masterPasswordMode, setMasterPasswordMode] = useState<'setup' | 'verify' | 'none'>('none');
+  const [masterPassword, setMasterPassword] = useState('');
+  const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
+  const [masterPasswordInput, setMasterPasswordInput] = useState('');
+  const [passwordErrors, setPasswordErrors] = useState<string[]>([]);
+  const [isLocked, setIsLocked] = useState(!BrokerConfigManager.isMasterPasswordSet());
+
   // 초기 로드
   useEffect(() => {
-    const allConfigs = BrokerConfigManager.getAllBrokerConfigs();
-    setConfigs(allConfigs);
+    const isMasterSet = BrokerConfigManager.isMasterPasswordSet();
+    setIsLocked(!isMasterSet);
+    if (!isMasterSet) {
+      setMasterPasswordMode('setup');
+    } else {
+      setMasterPasswordMode('verify');
+    }
+
+    if (!isMasterSet) {
+      setConfigs({
+        kis: null,
+        kb: null,
+        shinhan: null,
+        meritz: null
+      });
+    } else {
+      const allConfigs = BrokerConfigManager.getAllBrokerConfigs();
+      setConfigs(allConfigs);
+    }
   }, []);
+
+  // 마스터 패스워드 설정
+  const handleSetMasterPassword = () => {
+    const validation = validateMasterPassword(masterPassword);
+    if (!validation.valid) {
+      setPasswordErrors(validation.errors);
+      return;
+    }
+
+    if (masterPassword !== masterPasswordConfirm) {
+      alert('마스터 패스워드가 일치하지 않습니다');
+      return;
+    }
+
+    try {
+      BrokerConfigManager.setMasterPassword(masterPassword);
+      const allConfigs = BrokerConfigManager.getAllBrokerConfigs();
+      setConfigs(allConfigs);
+      setIsLocked(false);
+      setMasterPasswordMode('none');
+      setMasterPassword('');
+      setMasterPasswordConfirm('');
+      setPasswordErrors([]);
+      alert('마스터 패스워드가 설정되었습니다');
+    } catch (error) {
+      alert(`설정 실패: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  // 마스터 패스워드 검증
+  const handleVerifyMasterPassword = () => {
+    if (BrokerConfigManager.verifyMasterPassword(masterPasswordInput)) {
+      const allConfigs = BrokerConfigManager.getAllBrokerConfigs();
+      setConfigs(allConfigs);
+      setIsLocked(false);
+      setMasterPasswordMode('none');
+      setMasterPasswordInput('');
+      alert('인증되었습니다');
+    } else {
+      alert('마스터 패스워드가 일치하지 않습니다');
+    }
+  };
+
+  // 마스터 패스워드 잠금
+  const handleLock = () => {
+    BrokerConfigManager.clearMasterPassword();
+    setIsLocked(true);
+    setMasterPasswordMode('verify');
+  };
 
   // 편집 시작
   const handleEditStart = (type: BrokerType) => {
+    if (isLocked) {
+      alert('마스터 패스워드로 인증 후 사용할 수 있습니다');
+      return;
+    }
     const config = BrokerConfigManager.getBrokerConfig(type);
     if (config) {
       setFormData({ appKey: config.appKey, appSecret: config.appSecret });
@@ -73,12 +174,10 @@ export function BrokerSettingsPage() {
 
     setLoading({ ...loading, [type]: true });
     try {
-      // 여기서 백엔드로 credentials 검증 요청 가능
-      // const isValid = await api.validateBrokerCredentials(type, formData);
-      // if (!isValid) throw new Error('Invalid credentials');
-
-      BrokerConfigManager.saveBrokerConfig(type, formData);
-      setConfigs({ ...configs, [type]: formData });
+      const currentPassword = sessionStorage.getItem('__master_password__') || '';
+      BrokerConfigManager.saveBrokerConfig(type, formData, currentPassword);
+      const updatedConfigs = BrokerConfigManager.getAllBrokerConfigs();
+      setConfigs(updatedConfigs);
       setEditingBroker(null);
       alert('설정이 저장되었습니다');
     } catch (error) {
@@ -97,13 +196,124 @@ export function BrokerSettingsPage() {
     }
   };
 
+  if (isLocked) {
+    return (
+      <div className="p-6 max-w-2xl">
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold mb-2 flex items-center gap-2">
+              <Lock className="w-6 h-6 text-red-400" />
+              보안: 마스터 패스워드
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              API Key는 마스터 패스워드로 암호화되어 저장됩니다. AES-256-GCM + PBKDF2 사용
+            </p>
+          </div>
+
+          {masterPasswordMode === 'setup' && (
+            <Card className="border-blue-500/20 bg-blue-500/5 p-6">
+              <h2 className="text-lg font-semibold mb-4">마스터 패스워드 설정</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-2 block">
+                    마스터 패스워드
+                  </label>
+                  <input
+                    type="password"
+                    value={masterPassword}
+                    onChange={(e) => {
+                      setMasterPassword(e.target.value);
+                      const validation = validateMasterPassword(e.target.value);
+                      setPasswordErrors(validation.errors);
+                    }}
+                    placeholder="대문자, 소문자, 숫자를 포함한 8자 이상"
+                    className="w-full px-3 py-2 rounded border border-border bg-muted text-sm"
+                  />
+                  {passwordErrors.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {passwordErrors.map((error) => (
+                        <p key={error} className="text-xs text-red-400">• {error}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-2 block">
+                    패스워드 확인
+                  </label>
+                  <input
+                    type="password"
+                    value={masterPasswordConfirm}
+                    onChange={(e) => setMasterPasswordConfirm(e.target.value)}
+                    placeholder="패스워드 다시 입력"
+                    className="w-full px-3 py-2 rounded border border-border bg-muted text-sm"
+                  />
+                </div>
+
+                <Button onClick={handleSetMasterPassword} className="w-full">
+                  마스터 패스워드 설정
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {masterPasswordMode === 'verify' && (
+            <Card className="border-yellow-500/20 bg-yellow-500/5 p-6">
+              <h2 className="text-lg font-semibold mb-4">마스터 패스워드 인증</h2>
+              <div className="space-y-4">
+                <input
+                  type="password"
+                  value={masterPasswordInput}
+                  onChange={(e) => setMasterPasswordInput(e.target.value)}
+                  placeholder="마스터 패스워드 입력"
+                  className="w-full px-3 py-2 rounded border border-border bg-muted text-sm"
+                  onKeyDown={(e) => e.key === 'Enter' && handleVerifyMasterPassword()}
+                />
+                <Button onClick={handleVerifyMasterPassword} className="w-full">
+                  인증
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          <Card className="border-green-500/20 bg-green-500/5 p-4">
+            <div className="space-y-2 text-sm">
+              <div className="font-semibold text-green-400 flex items-center gap-2">
+                <CheckCircle size={16} />
+                보안 사양
+              </div>
+              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                <li><strong>암호화:</strong> AES-256-GCM (AEAD)</li>
+                <li><strong>키 유도:</strong> PBKDF2 (310,000 iterations, SHA-256)</li>
+                <li><strong>Salt:</strong> 128비트 난수</li>
+                <li><strong>IV:</strong> 128비트 난수 (매번 새로 생성)</li>
+                <li><strong>인증:</strong> 128비트 GCM 태그</li>
+                <li><strong>패스워드 강도:</strong> 대소문자, 숫자 필수, 최소 8자</li>
+              </ul>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold mb-2">증권사 API 설정</h1>
-        <p className="text-sm text-muted-foreground">
-          실시간 시장 데이터를 수집하기 위해 증권사 API를 설정하세요. API Key는 로컬에서만 사용되며, 암호화하여 저장됩니다.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold mb-2 flex items-center gap-2">
+            <LockOpen className="w-6 h-6 text-green-400" />
+            증권사 API 설정
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            실시간 시장 데이터를 수집하기 위해 증권사 API를 설정하세요. API Key는 AES-256-GCM으로 암호화하여 저장됩니다.
+          </p>
+        </div>
+        <Button onClick={handleLock} variant="ghost" className="text-yellow-400 hover:text-yellow-300">
+          <Lock size={16} />
+          잠금
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-4">
@@ -240,6 +450,23 @@ export function BrokerSettingsPage() {
               <li>저장하면 실시간 시장 데이터가 수집됩니다</li>
             </ol>
           </div>
+        </div>
+      </Card>
+
+      <Card className="border-green-500/20 bg-green-500/5 p-4">
+        <div className="space-y-2 text-sm">
+          <div className="font-semibold text-green-400 flex items-center gap-2">
+            <CheckCircle size={16} />
+            보안 기능
+          </div>
+          <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+            <li><strong>마스터 패스워드:</strong> 모든 API Key를 마스터 패스워드로 암호화</li>
+            <li><strong>AES-256-GCM:</strong> 인증 암호화 (AEAD, 위조 방지)</li>
+            <li><strong>PBKDF2:</strong> 310,000 iterations로 마스터 패스워드로부터 키 유도</li>
+            <li><strong>Random Salt & IV:</strong> 각 저장마다 새로운 128비트 난수 생성</li>
+            <li><strong>GCM 태그:</strong> 128비트 인증 태그로 무결성 보증</li>
+            <li><strong>세션 저장:</strong> 마스터 패스워드는 sessionStorage에만 저장 (탭 닫으면 삭제)</li>
+          </ul>
         </div>
       </Card>
     </div>

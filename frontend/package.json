@@ -19,6 +19,7 @@
     "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "crypto-js": "^4.2.0",
     "iconv-lite": "^0.7.2",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.16.0",
