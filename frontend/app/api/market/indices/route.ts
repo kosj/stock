@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // 초 단위 기반 의사난수 생성 (매 요청마다 다른 값 반환 - 10초 단위)
 function timeBasedRandom(seed: string): number {
   const now = new Date();
