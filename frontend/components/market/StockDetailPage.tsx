@@ -22,12 +22,10 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
   const swrConfig = {
-    refreshInterval: 5_000,
-    revalidateOnFocus: true,
-    revalidateOnReconnect: true,
-    revalidateIfStale: true,
-    dedupingInterval: 0,
-    compare: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    revalidateIfStale: false,
+    dedupingInterval: 0
   };
 
   const { data: quote, mutate: refreshQuote } = useSWR(

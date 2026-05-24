@@ -11,12 +11,10 @@ export function DashboardPage() {
     "market-indices",
     () => api.market.indices(),
     {
-      refreshInterval: 5_000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      revalidateIfStale: true,
-      dedupingInterval: 0,
-      compare: (a, b) => JSON.stringify(a) === JSON.stringify(b)
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      dedupingInterval: 0
     },
   );
   const indices = indicesRaw as any;
@@ -25,12 +23,10 @@ export function DashboardPage() {
     "portfolios",
     () => api.portfolio.list(),
     {
-      refreshInterval: 5_000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      revalidateIfStale: true,
-      dedupingInterval: 0,
-      compare: (a, b) => JSON.stringify(a) === JSON.stringify(b)
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      dedupingInterval: 0
     },
   );
   const portfolios = portfoliosRaw as any[];
@@ -39,12 +35,10 @@ export function DashboardPage() {
     firstPortfolioId ? `portfolio-summary-${firstPortfolioId}` : null,
     () => api.portfolio.summary(firstPortfolioId!),
     {
-      refreshInterval: 5_000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      revalidateIfStale: true,
-      dedupingInterval: 0,
-      compare: (a, b) => JSON.stringify(a) === JSON.stringify(b)
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      dedupingInterval: 0
     },
   );
   const summary = summaryRaw as any;

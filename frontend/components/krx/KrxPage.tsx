@@ -382,12 +382,10 @@ export function KrxPage() {
     "krx-dashboard",
     () => api.krx.dashboard(),
     {
-      refreshInterval: 5_000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      revalidateIfStale: true,
-      dedupingInterval: 0,
-      compare: (a, b) => JSON.stringify(a) === JSON.stringify(b)
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      dedupingInterval: 0
     },
   );
 
