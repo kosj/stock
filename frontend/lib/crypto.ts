@@ -4,29 +4,47 @@
  *
  * - AES-256-CBC + PBKDF2-SHA256 (100,000 iterations)
  * - HMAC-SHA256 무결성 검증
- * - 암호화된 데이터는 sessionStorage에만 보관
  */
 
 const PBKDF2_ITERATIONS = 100_000;
 const KEY_LEN_BITS = 256;
 
-function bufToHex(buf: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+// TypeScript 5: Uint8Array<ArrayBufferLike>가 BufferSource 불일치 → ArrayBuffer 명시
+function toBuffer(arr: Uint8Array): Uint8Array<ArrayBuffer> {
+  const buf = new ArrayBuffer(arr.byteLength);
+  new Uint8Array(buf).set(arr);
+  return new Uint8Array(buf);
 }
 
-function hexToBuf(hex: string): Uint8Array {
-  const arr = new Uint8Array(hex.length / 2);
+function randomBytes(n: number): Uint8Array<ArrayBuffer> {
+  return toBuffer(crypto.getRandomValues(new Uint8Array(n)));
+}
+
+function encode(text: string): Uint8Array<ArrayBuffer> {
+  return toBuffer(new TextEncoder().encode(text));
+}
+
+function bufToHex(buf: ArrayBuffer | Uint8Array<ArrayBuffer>): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBuf(hex: string): Uint8Array<ArrayBuffer> {
+  const buf = new ArrayBuffer(hex.length / 2);
+  const view = new Uint8Array(buf);
   for (let i = 0; i < hex.length; i += 2) {
-    arr[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+    view[i / 2] = parseInt(hex.slice(i, i + 2), 16);
   }
-  return arr;
+  return view;
 }
 
-async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
-  const enc = new TextEncoder();
-  const base = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+async function deriveKey(
+  password: string,
+  salt: Uint8Array<ArrayBuffer>,
+): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey(
+    "raw", encode(password), "PBKDF2", false, ["deriveKey"],
+  );
   return crypto.subtle.deriveKey(
     { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
     base,
@@ -36,9 +54,13 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
   );
 }
 
-async function hmacKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
-  const enc = new TextEncoder();
-  const base = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+async function hmacKey(
+  password: string,
+  salt: Uint8Array<ArrayBuffer>,
+): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey(
+    "raw", encode(password), "PBKDF2", false, ["deriveKey"],
+  );
   return crypto.subtle.deriveKey(
     { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
     base,
@@ -58,21 +80,26 @@ export interface EncryptedData {
   timestamp: number;
 }
 
-export async function encryptWithPassword(plaintext: string, masterPassword: string): Promise<string> {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv   = crypto.getRandomValues(new Uint8Array(16));
+export async function encryptWithPassword(
+  plaintext: string,
+  masterPassword: string,
+): Promise<string> {
+  const salt = randomBytes(16);
+  const iv   = randomBytes(16);
 
-  const aesKey  = await deriveKey(masterPassword, salt);
-  const macKey  = await hmacKey(masterPassword, salt);
+  const aesKey = await deriveKey(masterPassword, salt);
+  const macKey = await hmacKey(masterPassword, salt);
 
-  const enc = new TextEncoder();
-  const cipherBuf = await crypto.subtle.encrypt({ name: "AES-CBC", iv }, aesKey, enc.encode(plaintext));
-  const cipherHex = bufToHex(cipherBuf);
+  const cipherBuf = await crypto.subtle.encrypt(
+    { name: "AES-CBC", iv }, aesKey, encode(plaintext),
+  );
   const saltHex   = bufToHex(salt);
   const ivHex     = bufToHex(iv);
+  const cipherHex = bufToHex(cipherBuf);
 
-  const macInput  = enc.encode(saltHex + ivHex + cipherHex);
-  const macBuf    = await crypto.subtle.sign("HMAC", macKey, macInput);
+  const macBuf = await crypto.subtle.sign(
+    "HMAC", macKey, encode(saltHex + ivHex + cipherHex),
+  );
 
   const payload: EncryptedData = {
     version: 2,
@@ -86,7 +113,10 @@ export async function encryptWithPassword(plaintext: string, masterPassword: str
   return btoa(JSON.stringify(payload));
 }
 
-export async function decryptWithPassword(encryptedData: string, masterPassword: string): Promise<string> {
+export async function decryptWithPassword(
+  encryptedData: string,
+  masterPassword: string,
+): Promise<string> {
   const payload: EncryptedData = JSON.parse(atob(encryptedData));
   if (payload.version !== 2) throw new Error("지원하지 않는 암호화 버전");
 
@@ -98,18 +128,17 @@ export async function decryptWithPassword(encryptedData: string, masterPassword:
   const aesKey = await deriveKey(masterPassword, salt);
   const macKey = await hmacKey(masterPassword, salt);
 
-  const enc      = new TextEncoder();
-  const macInput = enc.encode(payload.salt + payload.iv + payload.ciphertext);
-  const valid    = await crypto.subtle.verify("HMAC", macKey, hmac, macInput);
+  const valid = await crypto.subtle.verify(
+    "HMAC", macKey, hmac,
+    encode(payload.salt + payload.iv + payload.ciphertext),
+  );
   if (!valid) throw new Error("데이터 무결성 검증 실패: HMAC 불일치");
 
   const plainBuf = await crypto.subtle.decrypt({ name: "AES-CBC", iv }, aesKey, cipher);
   return new TextDecoder().decode(plainBuf);
 }
 
-// 마스터 패스워드 해시 (SHA-256) — 동기 대체 불가, Promise 반환
 export async function hashPassword(password: string): Promise<string> {
-  const enc  = new TextEncoder();
-  const buf  = await crypto.subtle.digest("SHA-256", enc.encode(password));
+  const buf = await crypto.subtle.digest("SHA-256", encode(password));
   return bufToHex(buf);
 }
