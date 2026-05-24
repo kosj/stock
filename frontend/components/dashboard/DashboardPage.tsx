@@ -10,21 +10,21 @@ export function DashboardPage() {
   const { data: indicesRaw, isLoading: idxLoading, mutate: refreshIdx } = useSWR<any>(
     "market-indices",
     () => api.market.indices(),
-    { refreshInterval: 30_000 },
+    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
   );
   const indices = indicesRaw as any;
 
   const { data: portfoliosRaw, mutate: refreshPortfolios } = useSWR<any>(
     "portfolios",
     () => api.portfolio.list(),
-    { refreshInterval: 30_000 },
+    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
   );
   const portfolios = portfoliosRaw as any[];
   const firstPortfolioId = portfolios?.[0]?.id;
   const { data: summaryRaw } = useSWR<any>(
     firstPortfolioId ? `portfolio-summary-${firstPortfolioId}` : null,
     () => api.portfolio.summary(firstPortfolioId!),
-    { refreshInterval: 30_000 },
+    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
   );
   const summary = summaryRaw as any;
 

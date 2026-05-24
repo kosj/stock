@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// 시간 기반 의사난수 생성 (같은 시간대에는 같은 값)
+// 초 단위 기반 의사난수 생성 (매 요청마다 다른 값 반환 - 10초 단위)
 function timeBasedRandom(seed: string): number {
   const now = new Date();
-  const minutes = Math.floor(now.getTime() / (1000 * 60)); // 1분 단위
+  const seconds = Math.floor(now.getTime() / (1000 * 10)); // 10초 단위
   const hash = seed.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const combined = (hash * 9301 + 49297 * minutes) % 233280;
+  const combined = (hash * 9301 + 49297 * seconds) % 233280;
   return (combined / 233280);
 }
 
 // 가격 변동 생성
 function generatePrice(basePrice: number, seed: string): number {
-  const variation = (timeBasedRandom(seed) - 0.5) * 4; // -2% ~ +2%
+  const variation = (timeBasedRandom(seed) - 0.5) * 6; // -3% ~ +3%
   return Math.round(basePrice * (1 + variation / 100) * 100) / 100;
 }
 
@@ -75,7 +75,11 @@ export async function GET(
       timestamp: new Date().toISOString()
     };
 
-    return NextResponse.json(summaryData);
+    return NextResponse.json(summaryData, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+      }
+    });
   } catch (error) {
     console.error("Portfolio summary API error:", error);
     return NextResponse.json(

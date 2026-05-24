@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// 시간 기반 의사난수 생성 (같은 시간대에는 같은 값)
+// 초 단위 기반 의사난수 생성 (매 요청마다 다른 값 반환 - 10초 단위)
 function timeBasedRandom(seed: string): number {
   const now = new Date();
-  const minutes = Math.floor(now.getTime() / (1000 * 60)); // 1분 단위
+  const seconds = Math.floor(now.getTime() / (1000 * 10)); // 10초 단위
   const hash = seed.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const combined = (hash * 9301 + 49297 * minutes) % 233280;
+  const combined = (hash * 9301 + 49297 * seconds) % 233280;
   return (combined / 233280);
 }
 
 export async function GET(request: NextRequest) {
   // 동적으로 생성된 포트폴리오 데이터
   const generatePortfolio = (id: number, name: string, baseValue: number) => {
-    const variation = (timeBasedRandom(`portfolio-${id}-pnl`) - 0.5) * 10; // -5% ~ +5%
+    const variation = (timeBasedRandom(`portfolio-${id}-pnl`) - 0.5) * 12; // -6% ~ +6%
     const total_invested = baseValue;
     const total_pnl = Math.round(baseValue * (variation / 100));
     const total_value = total_invested + total_pnl;
@@ -33,7 +33,11 @@ export async function GET(request: NextRequest) {
   return NextResponse.json([
     generatePortfolio(1, "메인 포트폴리오", 4750000),
     generatePortfolio(2, "ETF 포트폴리오", 2850000)
-  ]);
+  ], {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+    }
+  });
 }
 
 export async function POST(request: NextRequest) {

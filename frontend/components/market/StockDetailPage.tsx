@@ -24,18 +24,22 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
   const { data: quote, mutate: refreshQuote } = useSWR(
     `quote-${ticker}`,
     () => api.market.quote(ticker),
-    { refreshInterval: 10_000 },
+    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
   );
   const { data: chart, isLoading: chartLoading } = useSWR(
     `chart-${ticker}-${period}`,
     () => api.market.chart(ticker, period),
-    { refreshInterval: 30_000 },
+    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
   );
-  const { data: financials } = useSWR(`financials-${ticker}`, () => api.market.financials(ticker), { refreshInterval: 60_000 });
+  const { data: financials } = useSWR(
+    `financials-${ticker}`,
+    () => api.market.financials(ticker),
+    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 }
+  );
   const { data: analysis, mutate: refreshAnalysis, isLoading: isAnalyzing } = useSWR(
     `analysis-${ticker}`,
     () => api.analysis.get(ticker),
-    { refreshInterval: 30_000 },
+    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
   );
 
   const q = quote as any;
