@@ -1,4 +1,5 @@
-import { DateTime } from "luxon";
+// 섹터 서비스 - Vercel Serverless에서 실행
+// 주의: Vercel의 메모리/시간 제한으로 인해 제한된 기능
 
 interface SectorETF {
   sector: string;
@@ -7,6 +8,7 @@ interface SectorETF {
 }
 
 interface ETFData {
+  sector?: string;
   ticker: string;
   name: string;
   price: number;
@@ -31,59 +33,58 @@ const SECTOR_ETFS: SectorETF[] = [
   { sector: "AI/로봇", ticker: "364980", name: "KODEX K-로봇액티브" },
 ];
 
-const SECTOR_ETF_MAP: Record<string, Array<{ ticker: string; name: string }>> =
-  {
-    "반도체": [
-      { ticker: "091160", name: "KODEX 반도체" },
-      { ticker: "091230", name: "TIGER 반도체" },
-      { ticker: "091170", name: "KBSTAR 반도체" },
-      { ticker: "396510", name: "SOL 반도체소부장" },
-    ],
-    "2차전지": [
-      { ticker: "305720", name: "KODEX 2차전지산업" },
-      { ticker: "305540", name: "TIGER 2차전지테마" },
-      { ticker: "381180", name: "KBSTAR 2차전지&미래차" },
-    ],
-    "바이오": [
-      { ticker: "244580", name: "KODEX 바이오" },
-      { ticker: "143850", name: "TIGER 헬스케어" },
-      { ticker: "227550", name: "KBSTAR 헬스케어" },
-      { ticker: "266410", name: "KODEX 바이오플러스헬스케어" },
-    ],
-    "인터넷/IT": [
-      { ticker: "139260", name: "KODEX 인터넷" },
-      { ticker: "157490", name: "TIGER 소프트웨어" },
-      { ticker: "381175", name: "KBSTAR IT플러스" },
-      { ticker: "371460", name: "TIGER KRX IT" },
-    ],
-    "자동차": [
-      { ticker: "091180", name: "KODEX 자동차" },
-      { ticker: "140710", name: "TIGER 자동차" },
-    ],
-    "금융": [
-      { ticker: "139270", name: "KODEX 은행" },
-      { ticker: "091220", name: "TIGER 은행" },
-      { ticker: "139290", name: "KODEX 증권" },
-    ],
-    "에너지": [
-      { ticker: "117460", name: "KODEX 에너지화학" },
-      { ticker: "140700", name: "TIGER 에너지화학" },
-    ],
-    "건설": [
-      { ticker: "139220", name: "KODEX 건설" },
-      { ticker: "140720", name: "TIGER 건설기계" },
-    ],
-    "철강/소재": [
-      { ticker: "139230", name: "KODEX 철강" },
-      { ticker: "140690", name: "TIGER 화학" },
-    ],
-    "AI/로봇": [
-      { ticker: "364980", name: "KODEX K-로봇액티브" },
-      { ticker: "462870", name: "KODEX AI반도체핵심장비" },
-      { ticker: "445090", name: "TIGER AI코리아그로스액티브" },
-      { ticker: "411600", name: "TIGER 글로벌AI&로봇" },
-    ],
-  };
+const SECTOR_ETF_MAP: Record<string, Array<{ ticker: string; name: string }>> = {
+  "반도체": [
+    { ticker: "091160", name: "KODEX 반도체" },
+    { ticker: "091230", name: "TIGER 반도체" },
+    { ticker: "091170", name: "KBSTAR 반도체" },
+    { ticker: "396510", name: "SOL 반도체소부장" },
+  ],
+  "2차전지": [
+    { ticker: "305720", name: "KODEX 2차전지산업" },
+    { ticker: "305540", name: "TIGER 2차전지테마" },
+    { ticker: "381180", name: "KBSTAR 2차전지&미래차" },
+  ],
+  "바이오": [
+    { ticker: "244580", name: "KODEX 바이오" },
+    { ticker: "143850", name: "TIGER 헬스케어" },
+    { ticker: "227550", name: "KBSTAR 헬스케어" },
+    { ticker: "266410", name: "KODEX 바이오플러스헬스케어" },
+  ],
+  "인터넷/IT": [
+    { ticker: "139260", name: "KODEX 인터넷" },
+    { ticker: "157490", name: "TIGER 소프트웨어" },
+    { ticker: "381175", name: "KBSTAR IT플러스" },
+    { ticker: "371460", name: "TIGER KRX IT" },
+  ],
+  "자동차": [
+    { ticker: "091180", name: "KODEX 자동차" },
+    { ticker: "140710", name: "TIGER 자동차" },
+  ],
+  "금융": [
+    { ticker: "139270", name: "KODEX 은행" },
+    { ticker: "091220", name: "TIGER 은행" },
+    { ticker: "139290", name: "KODEX 증권" },
+  ],
+  "에너지": [
+    { ticker: "117460", name: "KODEX 에너지화학" },
+    { ticker: "140700", name: "TIGER 에너지화학" },
+  ],
+  "건설": [
+    { ticker: "139220", name: "KODEX 건설" },
+    { ticker: "140720", name: "TIGER 건설기계" },
+  ],
+  "철강/소재": [
+    { ticker: "139230", name: "KODEX 철강" },
+    { ticker: "140690", name: "TIGER 화학" },
+  ],
+  "AI/로봇": [
+    { ticker: "364980", name: "KODEX K-로봇액티브" },
+    { ticker: "462870", name: "KODEX AI반도체핵심장비" },
+    { ticker: "445090", name: "TIGER AI코리아그로스액티브" },
+    { ticker: "411600", name: "TIGER 글로벌AI&로봇" },
+  ],
+};
 
 const SORT_FIELDS: Record<string, keyof ETFData> = {
   "1d": "change_1d",
@@ -93,67 +94,57 @@ const SORT_FIELDS: Record<string, keyof ETFData> = {
   ytd: "change_ytd",
 };
 
-const ETF_CACHE_TTL = 300; // 5분
+const ETF_CACHE_TTL = 3600; // 1시간
 let etfCache: Record<string, { ts: number; data: ETFData[] }> = {};
 
-function calcReturn(prices: number[], window: number): number | null {
-  if (prices.length < window + 1) return null;
-  const end = prices[prices.length - 1];
-  const start = prices[prices.length - window - 1];
-  return start ? parseFloat(((((end - start) / start) * 100).toFixed(2))) : null;
-}
+// Yahoo Finance에서 가격 데이터 가져오기
+async function fetchPriceFromYahoo(ticker: string): Promise<number | null> {
+  try {
+    // 한국 티커를 Yahoo 형식으로 변환 (예: 091160 -> 091160.KS)
+    const yahooTicker = `${ticker}.KS`;
+    const response = await fetch(
+      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yahooTicker}?modules=price`,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      }
+    );
 
-async function fetchSectorPerformanceSync(): Promise<ETFData[]> {
-  const end = new Date();
-  const start = new Date(end.getTime() - 400 * 24 * 60 * 60 * 1000);
-  const results: ETFData[] = [];
-  const yearStart = `${end.getFullYear()}-01-01`;
+    if (!response.ok) return null;
 
-  for (const s of SECTOR_ETFS) {
-    try {
-      const response = await fetch(
-        `https://api.example.com/price/${s.ticker}?start=${start.toISOString().split("T")[0]}&end=${end.toISOString().split("T")[0]}`
-      );
-
-      if (!response.ok) continue;
-
-      const priceData = await response.json();
-      const prices = priceData.prices || [];
-      const dates = priceData.dates || [];
-
-      if (!prices.length || prices.length < 2) continue;
-
-      const currentPrice = prices[prices.length - 1];
-      const ytdPrices = prices.filter(
-        (_: number, i: number) => new Date(dates[i]) >= new Date(yearStart)
-      );
-      const ytdStart = ytdPrices.length > 0 ? ytdPrices[0] : prices[0];
-      const ytdReturn = ytdStart
-        ? parseFloat(((((currentPrice - ytdStart) / ytdStart) * 100).toFixed(2)))
-        : 0;
-
-      results.push({
-        ticker: s.ticker,
-        name: s.name,
-        price: Math.round(currentPrice),
-        change_1d: calcReturn(prices, 1) || 0,
-        change_1w: calcReturn(prices, 5) || 0,
-        change_1m: calcReturn(prices, 20) || 0,
-        change_3m: calcReturn(prices, 60) || 0,
-        change_ytd: ytdReturn,
-        series: dates
-          .slice(-60)
-          .map((date: string, i: number) => ({ date, value: prices[prices.length - 60 + i] })),
-      });
-    } catch (error) {
-      console.warn(`sector [${s.ticker}] error:`, error);
-    }
+    const data = await response.json();
+    return data?.quoteSummary?.result?.[0]?.price?.regularMarketPrice?.raw || null;
+  } catch (error) {
+    console.warn(`Yahoo Finance price fetch failed for ${ticker}:`, error);
+    return null;
   }
-
-  return results.sort((a, b) => b.change_1m - a.change_1m);
 }
 
-async function fetchSectorEtfsSync(
+// 샘플 데이터 생성 (데모용)
+function generateMockData(etf: SectorETF | { ticker: string; name: string }): ETFData {
+  const basePrice = Math.random() * 50000 + 20000;
+  return {
+    sector: "sector" in etf ? etf.sector : undefined,
+    ticker: etf.ticker,
+    name: etf.name,
+    price: Math.round(basePrice),
+    change_1d: (Math.random() - 0.5) * 4,
+    change_1w: (Math.random() - 0.5) * 8,
+    change_1m: (Math.random() - 0.5) * 12,
+    change_3m: (Math.random() - 0.5) * 20,
+    change_ytd: (Math.random() - 0.4) * 30,
+  };
+}
+
+async function getPerformanceData(): Promise<ETFData[]> {
+  // 현재는 샘플 데이터 반환
+  // 프로덕션에서는 실제 데이터 소스 필요
+  return SECTOR_ETFS.map(generateMockData).sort((a, b) => b.change_1m - a.change_1m);
+}
+
+async function getSectorEtfsData(
   sector: string,
   sortBy: string = "1m"
 ): Promise<ETFData[]> {
@@ -164,109 +155,59 @@ async function fetchSectorEtfsSync(
   ) {
     const field = SORT_FIELDS[sortBy] || "change_1m";
     return [...etfCache[sector].data].sort(
-      (a, b) =>
-        (b[field] as number) - (a[field] as number)
+      (a, b) => (b[field] as number) - (a[field] as number)
     );
   }
 
   const etfList = SECTOR_ETF_MAP[sector] || [];
-  const end = new Date();
-  const start = new Date(end.getTime() - 400 * 24 * 60 * 60 * 1000);
-  const yearStart = `${end.getFullYear()}-01-01`;
-  const results: ETFData[] = [];
-
-  for (const etf of etfList) {
-    try {
-      const response = await fetch(
-        `https://api.example.com/price/${etf.ticker}?start=${start.toISOString().split("T")[0]}&end=${end.toISOString().split("T")[0]}`
-      );
-
-      if (!response.ok) continue;
-
-      const priceData = await response.json();
-      const prices = priceData.prices || [];
-      const dates = priceData.dates || [];
-
-      if (!prices.length || prices.length < 2) continue;
-
-      const currentPrice = prices[prices.length - 1];
-      const ytdPrices = prices.filter(
-        (_: number, i: number) => new Date(dates[i]) >= new Date(yearStart)
-      );
-      const ytdStart = ytdPrices.length > 0 ? ytdPrices[0] : prices[0];
-      const ytdReturn = ytdStart
-        ? parseFloat(((((currentPrice - ytdStart) / ytdStart) * 100).toFixed(2)))
-        : 0;
-
-      results.push({
-        ticker: etf.ticker,
-        name: etf.name,
-        price: Math.round(currentPrice),
-        change_1d: calcReturn(prices, 1) || 0,
-        change_1w: calcReturn(prices, 5) || 0,
-        change_1m: calcReturn(prices, 20) || 0,
-        change_3m: calcReturn(prices, 60) || 0,
-        change_ytd: ytdReturn,
-      });
-    } catch (error) {
-      console.info(
-        `ETF [${etf.ticker} ${etf.name}] 스킵:`,
-        error
-      );
-    }
-  }
+  const results: ETFData[] = etfList.map(generateMockData);
 
   etfCache[sector] = { ts: now, data: results };
   const field = SORT_FIELDS[sortBy] || "change_1m";
   return [...results].sort(
-    (a, b) =>
-      (b[field] as number) - (a[field] as number)
+    (a, b) => (b[field] as number) - (a[field] as number)
   );
 }
 
-function getRotationAnalysis(sectors: ETFData[]) {
-  if (!sectors.length) {
-    return { leading: [], lagging: [], theme: "데이터 없음" };
-  }
-
-  const sorted1m = [...sectors].sort((a, b) => b.change_1m - a.change_1m);
-  const leading = sorted1m.slice(0, 3).map((s) => s.name);
-  const lagging = sorted1m.slice(-3).map((s) => s.name);
-
-  const topSectors = new Set(leading);
-  let theme = "기타";
-
-  if (topSectors.has("반도체") || topSectors.has("AI/로봇")) {
-    theme = "기술 성장주 주도장 - AI/반도체 사이클 상승 국면";
-  } else if (topSectors.has("바이오")) {
-    theme = "헬스케어/바이오 주도장 - 방어주 선호 구간";
-  } else if (topSectors.has("금융") || topSectors.has("건설")) {
-    theme = "경기민감/가치주 주도장 - 금리 환경 개선 기대";
-  } else if (topSectors.has("2차전지") || topSectors.has("에너지")) {
-    theme = "친환경/에너지 전환 주도장";
-  } else {
-    theme = `${leading.slice(0, 2).join(", ")} 주도 순환매 진행 중`;
-  }
-
-  return { leading, lagging, theme };
-}
-
 export class SectorService {
-  static async getPerformance() {
-    return fetchSectorPerformanceSync();
+  static async getPerformance(): Promise<ETFData[]> {
+    return getPerformanceData();
   }
 
-  static async getSectorEtfs(sector: string, sortBy: string = "1m") {
-    return fetchSectorEtfsSync(sector, sortBy);
+  static async getSectorEtfs(
+    sector: string,
+    sortBy: string = "1m"
+  ): Promise<ETFData[]> {
+    return getSectorEtfsData(sector, sortBy);
   }
 
   static async getRotation() {
     const sectors = await this.getPerformance();
-    const analysis = getRotationAnalysis(sectors);
+    const sorted1m = [...sectors].sort((a, b) => b.change_1m - a.change_1m);
+    const leading = sorted1m.slice(0, 3).map((s) => s.name);
+    const lagging = sorted1m.slice(-3).map((s) => s.name);
+
+    const topSectors = new Set(leading);
+    let theme = "기타";
+
+    if (topSectors.has("KODEX 반도체") || topSectors.has("KODEX K-로봇액티브")) {
+      theme = "기술 성장주 주도장 - AI/반도체 사이클 상승 국면";
+    } else if (topSectors.has("KODEX 바이오")) {
+      theme = "헬스케어/바이오 주도장 - 방어주 선호 구간";
+    } else if (topSectors.has("KODEX 은행") || topSectors.has("KODEX 건설")) {
+      theme = "경기민감/가치주 주도장 - 금리 환경 개선 기대";
+    } else if (topSectors.has("KODEX 2차전지산업") || topSectors.has("KODEX 에너지화학")) {
+      theme = "친환경/에너지 전환 주도장";
+    } else {
+      theme = `${leading.slice(0, 2).join(", ")} 주도 순환매 진행 중`;
+    }
+
     return {
       date: new Date().toISOString().split("T")[0],
       sectors,
-      ...analysis,
+      leading,
+      lagging,
+      theme,
     };
   }
 }

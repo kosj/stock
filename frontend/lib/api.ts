@@ -1,8 +1,6 @@
-// Vercel 배포: NEXT_PUBLIC_API_URL 또는 BACKEND_URL 사용
-// 로컬 개발: http://localhost:8000 (backend 서버 필요)
-const BASE = process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://localhost:8000";
+// Vercel에서는 자체 API 라우트 사용 (상대경로)
+// 로컬 개발에서는 환경변수로 backend 지정 가능
+const BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

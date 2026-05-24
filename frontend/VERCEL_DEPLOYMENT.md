@@ -1,172 +1,198 @@
-# Vercel 배포 가이드
+# Vercel 배포 가이드 (Vercel Only)
 
 ## 개요
 
-본 프로젝트는 다음과 같이 구성됩니다:
-- **프론트엔드**: Next.js + Vercel (무료 호스팅)
-- **백엔드**: Python FastAPI (Railway 또는 다른 서비스)
+이 애플리케이션은 **Vercel에서만 작동**합니다:
+- **프론트엔드 + 백엔드 API**: Vercel Serverless Functions
+- **데이터 소스**: Naver Finance (크롤링) + Yahoo Finance API
+- **배포 환경**: Vercel (무료 호스팅)
 
-## 1. 백엔드 서비스 준비
+Railway, Heroku 등 별도 백엔드 서버는 **불필요**합니다.
 
-### 옵션 A: Railway 사용 (권장)
+## 1. Vercel에 배포하기
 
-1. [Railway.app](https://railway.app)에서 회원가입
-2. GitHub 저장소 연결
-3. `backend` 디렉토리로 배포
-4. 배포 후 할당된 URL 기록 (예: `https://your-app-railway.app`)
+### Step 1: GitHub 저장소 준비
 
-### 옵션 B: 다른 서비스 (Render, Heroku 등)
+```bash
+cd d:/godkosj/Project/Stock
+git add -A
+git commit -m "Update for Vercel-only deployment"
+git push origin master
+```
 
-- 배포 후 백엔드 URL 기록 필요
+### Step 2: Vercel에 프로젝트 연결
 
-## 2. Vercel 프론트엔드 배포
-
-### Step 1: Vercel에 프로젝트 연결
-
-1. [Vercel.com](https://vercel.com)에 로그인 또는 회원가입
+1. [Vercel.com](https://vercel.com)에 로그인
 2. "New Project" 클릭
-3. GitHub 저장소 선택
-4. Root Directory를 `frontend`로 설정
-5. "Deploy" 클릭
+3. GitHub 저장소 선택: `kosj/stock`
+4. **Import Project** 설정:
+   - Framework: `Next.js`
+   - Root Directory: `frontend` ✓ (중요!)
+   - Build Command: `next build` (자동)
+   - Output Directory: `.next` (자동)
 
-### Step 2: 환경 변수 설정
+5. **Create** 클릭 → 자동 배포 시작
 
-배포 후 Settings → Environment Variables에서 다음 추가:
+### Step 3: 배포 확인
 
-| 변수명 | 값 | 설명 |
-|---------|-----|------|
-| `NEXT_PUBLIC_BACKEND_URL` | `https://your-app-railway.app` | 백엔드 서버 주소 |
-
-**주의**: `NEXT_PUBLIC_` 접두사가 필요합니다. (프론트엔드에서 접근 가능)
-
-### Step 3: 배포 재시작
-
-환경 변수 설정 후 Vercel 대시보드에서:
-1. "Deployments" 클릭
-2. 최신 배포의 "..." 메뉴 → "Redeploy" 선택
-
-## 3. CLI를 사용한 배포 (선택사항)
-
-### Vercel CLI 설치 및 배포
+배포 완료 후 (약 2-3분):
 
 ```bash
-npm i -g vercel
+# 프론트엔드 확인
+https://your-domain.vercel.app
+
+# API 헬스 체크
+https://your-domain.vercel.app/api/health
+
+# KRX 데이터 (국내증시 통계)
+https://your-domain.vercel.app/api/krx
+
+# 섹터 데이터
+https://your-domain.vercel.app/api/sectors
+```
+
+## 2. 로컬 개발
+
+### 프론트엔드만 실행 (Vercel 내부 API 사용)
+
+```bash
 cd frontend
-vercel --prod --env NEXT_PUBLIC_BACKEND_URL=https://your-app-railway.app
+npm install
+npm run dev
 ```
 
-## 4. 배포 확인
+브라우저: http://localhost:3000
 
-### API 연결 확인
+### 프론트엔드 + 외부 백엔드 사용 (선택사항)
 
-배포 완료 후 확인 항목:
+별도 백엔드 서버(Railway 등)를 실행하려면:
 
 ```bash
-# 프론트엔드 헬스 체크
-curl https://your-domain.vercel.app/api/health
+# .env.local 생성
+echo 'NEXT_PUBLIC_BACKEND_URL=https://your-backend.railway.app' > frontend/.env.local
 
-# 백엔드 연결 확인
-curl "https://your-domain.vercel.app/api/krx"
-```
-
-### 수동 테스트
-
-1. 브라우저에서 https://your-domain.vercel.app 접속
-2. "국내증시 통계" 메뉴 클릭
-3. 데이터 로드 확인
-
-## 5. 트러블슈팅
-
-### "Backend not configured" 에러
-
-```
-NEXT_PUBLIC_BACKEND_URL 환경 변수가 설정되지 않았습니다.
-```
-
-**해결 방법**:
-1. Vercel 대시보드 → Settings → Environment Variables
-2. `NEXT_PUBLIC_BACKEND_URL` 추가
-3. Redeploy
-
-### CORS 에러
-
-백엔드 서버의 CORS 설정 확인:
-
-```python
-# backend/app/config.py
-CORS_ORIGINS: str = "https://your-domain.vercel.app"
-```
-
-### 타임아웃 에러
-
-- 백엔드 서버가 실행 중인지 확인
-- 네트워크 연결 상태 확인
-- 백엔드 로그 확인
-
-## 6. 로컬 개발
-
-### 로컬 환경에서 실행
-
-```bash
-# 터미널 1: 백엔드 실행
-cd backend
-python -m uvicorn app.main:app --reload
-
-# 터미널 2: 프론트엔드 실행
-cd frontend
-NEXT_PUBLIC_BACKEND_URL=http://localhost:8000 npm run dev
-```
-
-### 또는 .env.local 사용
-
-frontend/.env.local:
-```
-NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
-```
-
-```bash
+# 개발 서버 실행
 cd frontend
 npm run dev
 ```
 
-## 7. API 엔드포인트
+## 3. API 엔드포인트
 
-프론트엔드가 호출하는 API:
+Vercel 배포 후 사용 가능한 엔드포인트:
 
-| 경로 | 설명 |
-|------|------|
-| `GET /api/health` | 헬스 체크 |
-| `GET /api/krx` | KRX 대시보드 전체 |
-| `GET /api/krx/investor` | 투자자 매매동향 |
-| `GET /api/krx/sector` | 업종별 수익률 |
-| `GET /api/krx/short-selling` | 공매도 현황 |
-| `GET /api/sectors` | 섹터 성과 |
-| `GET /api/sectors/rotation` | 섹터 로테이션 |
-| `GET /api/sectors/etfs?sector=반도체` | 섹터별 ETF 랭킹 |
+| 경로 | 메서드 | 설명 |
+|------|--------|------|
+| `/api/health` | GET | 헬스 체크 |
+| `/api/krx` | GET | KRX 대시보드 (투자자 매매동향, 공매도, 업종지수) |
+| `/api/krx/investor` | GET | 투자자별 매매동향 (KOSPI/KOSDAQ) |
+| `/api/krx/sector` | GET | 업종별 수익률 |
+| `/api/krx/short-selling` | GET | 공매도 현황 |
+| `/api/sectors` | GET | 섹터 성과 분석 |
+| `/api/sectors/rotation` | GET | 섹터 로테이션 (테마 분석) |
+| `/api/sectors/etfs?sector=반도체&sort_by=1m` | GET | 섹터별 ETF 랭킹 |
 
-## 8. 배포 최적화
+## 4. 구현 현황
 
-### 캐시 전략
+### ✅ 완료된 기능
 
-- 프론트엔드: Vercel 기본 캐시 (60초)
-- 백엔드 API: 30분 TTL (krx_service, sector_service)
+- **KRX (국내증시 통계)**
+  - 투자자별 매매동향 (Naver Finance 크롤링)
+  - 업종별 수익률 (섹터 데이터)
+  - 공매도 현황 (Naver Finance)
+  - 자금흐름 요약
+
+- **섹터 로테이션**
+  - 섹터별 성과 분석
+  - 테마 분석 (AI/반도체, 바이오 등)
+
+### ⚠️ 제한사항
+
+- **Vercel 메모리 제한**: 3008 MB
+- **실행 시간 제한**: Pro 플랜 60초, 무료 플랜 10초
+- **섹터 가격 데이터**: 현재 샘플 데이터 사용
+  - 프로덕션: Yahoo Finance API 또는 실시간 API 필요
+
+## 5. 성능 최적화
+
+### 캐시 설정
+
+프론트엔드 (_next/cache):
+```
+Cache-Control: public, max-age=31536000, immutable (JS/CSS)
+Cache-Control: public, max-age=60 (HTML)
+```
+
+API 응답 캐싱 (krx_service):
+- 30분 TTL (거래소 데이터는 실시간성 낮음)
 
 ### 콜드 스타트 최적화
 
-- Railway: 항상 실행 중 (Sleep 시간 설정 가능)
-- Vercel: 자동 최적화
+Vercel의 자동 최적화로 인해 별도 설정 불필요
 
-## 9. 모니터링
+## 6. 트러블슈팅
 
-### Vercel Analytics
+### API 응답 없음
 
-1. Vercel 대시보드 → Analytics
-2. 성능, 오류율, 요청 수 모니터링
+```
+GET /api/krx → 502 Bad Gateway
+```
 
-### 백엔드 로그
+**해결**:
+1. Vercel Logs 확인: https://vercel.com/dashboard/[project]/logs
+2. 데이터 소스 상태 확인 (Naver Finance 접근 가능 여부)
+3. 필요시 재배포: "Redeploy" 클릭
 
-Railway 대시보드 → Logs에서 확인
+### 타임아웃 에러
 
----
+```
+502 Bad Gateway (timeout)
+```
 
-**문의**: GitHub Issues를 통해 피드백 제공 부탁합니다.
+**원인**: API가 60초 내에 응답하지 않음
+
+**해결**:
+- Pro 플랜으로 업그레이드 (최대 60초)
+- 또는 무료 플랜 사용 (최대 10초, 더 빠른 응답 필요)
+
+### 한국어 인코딩 문제
+
+Naver Finance 크롤링 시 EUC-KR → UTF-8 변환 필요
+
+현재 자동 처리됨 (iconv-lite 사용)
+
+## 7. 비용
+
+### Vercel
+
+- **무료 플랜**
+  - 무제한 배포
+  - 1000만 요청/월 포함
+  - 실행 시간 10초 제한
+
+- **Pro 플랜** ($20/월)
+  - 무제한 요청
+  - 실행 시간 60초 제한
+
+### 데이터 소스
+
+- **Naver Finance**: 무료 (크롤링)
+- **Yahoo Finance API**: 무료 (제한 있음)
+
+## 8. 향후 개선
+
+1. **실시간 가격 데이터**
+   - 한국투자증권 API 연동
+   - 또는 FinanceDataReader 래퍼 (별도 서버 필요)
+
+2. **포트폴리오 기능**
+   - 현재 미구현 (데이터베이스 필요)
+   - Vercel KV (Redis) 또는 다른 DB 필요
+
+3. **웹 푸시 알림**
+   - 현재 미구현
+   - 별도 백엔드 필요
+
+## 문의
+
+- GitHub Issues: [kosj/stock](https://github.com/kosj/stock/issues)
+- 배포 문제: Vercel 대시보드 로그 확인

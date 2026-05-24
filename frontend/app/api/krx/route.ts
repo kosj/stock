@@ -1,30 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
+import { KrxService } from "@/lib/server/krx-service";
 
 export async function GET(request: NextRequest) {
   try {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-    if (!backendUrl) {
-      return NextResponse.json(
-        {
-          error: "Backend not configured",
-          message: "NEXT_PUBLIC_BACKEND_URL 환경 변수를 설정하세요",
-        },
-        { status: 502 }
-      );
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+
+    if (pathname === "/api/krx" || pathname === "/api/krx/") {
+      const data = await KrxService.getDashboard();
+      return NextResponse.json(data);
     }
 
-    const url = new URL(request.url);
-    const fullUrl = `${backendUrl}${url.pathname}${url.search}`;
+    if (pathname === "/api/krx/investor") {
+      const data = await KrxService.getInvestorTrends();
+      return NextResponse.json(data);
+    }
 
-    const response = await fetch(fullUrl, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    if (pathname === "/api/krx/sector") {
+      const data = await KrxService.getSectorIndex();
+      return NextResponse.json(data);
+    }
 
-    const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
+    if (pathname === "/api/krx/short-selling") {
+      const data = await KrxService.getShortSelling();
+      return NextResponse.json(data);
+    }
+
+    if (pathname === "/api/krx/debug") {
+      const bld =
+        url.searchParams.get("bld") ||
+        "dbms/MDC/STAT/standard/MDCSTAT02301";
+      const trdDd = url.searchParams.get("trd_dd");
+
+      const extra: Record<string, string> = {};
+      if (trdDd) {
+        extra.trdDd = trdDd;
+      } else {
+        extra.trdDd = KrxService.getLastTradingDay();
+        extra.mktId = "STK";
+      }
+
+      const data = await KrxService.getRaw(bld, extra);
+      return NextResponse.json(data);
+    }
+
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   } catch (error) {
     console.error("KRX API error:", error);
     return NextResponse.json(

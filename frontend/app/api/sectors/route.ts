@@ -1,30 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
+import { SectorService } from "@/lib/server/sector-service";
 
 export async function GET(request: NextRequest) {
   try {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-    if (!backendUrl) {
-      return NextResponse.json(
-        {
-          error: "Backend not configured",
-          message: "NEXT_PUBLIC_BACKEND_URL 환경 변수를 설정하세요",
-        },
-        { status: 502 }
-      );
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+
+    if (
+      pathname === "/api/sectors" ||
+      pathname === "/api/sectors/"
+    ) {
+      const data = await SectorService.getPerformance();
+      return NextResponse.json(data);
     }
 
-    const url = new URL(request.url);
-    const fullUrl = `${backendUrl}${url.pathname}${url.search}`;
+    if (pathname === "/api/sectors/rotation") {
+      const data = await SectorService.getRotation();
+      return NextResponse.json(data);
+    }
 
-    const response = await fetch(fullUrl, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    if (pathname === "/api/sectors/etfs") {
+      const sector = url.searchParams.get("sector");
+      const sortBy = url.searchParams.get("sort_by") || "1m";
 
-    const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
+      if (!sector) {
+        return NextResponse.json(
+          { error: "sector parameter required" },
+          { status: 400 }
+        );
+      }
+
+      const data = await SectorService.getSectorEtfs(sector, sortBy);
+      return NextResponse.json(data);
+    }
+
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   } catch (error) {
     console.error("Sectors API error:", error);
     return NextResponse.json(
