@@ -84,7 +84,7 @@ async function fetchInvestorSync(
       };
 
       for (const [colRaw, colMapped] of Object.entries(COL_MAP)) {
-        const cellIndex = cells.findIndex((cell) => {
+        const cellIndex = cells.findIndex((cell: string) => {
           const text = getCellText(cell);
           return text === colRaw || text === colRaw.replace(/\s/g, "");
         });

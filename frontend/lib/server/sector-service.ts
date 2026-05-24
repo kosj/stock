@@ -1,5 +1,7 @@
 // 섹터 서비스 - Vercel Serverless에서 실행
-// 주의: Vercel의 메모리/시간 제한으로 인해 제한된 기능
+// Naver Finance에서 ETF 가격 데이터 실시간 수집
+
+import axios from "axios";
 
 interface SectorETF {
   sector: string;
@@ -94,54 +96,163 @@ const SORT_FIELDS: Record<string, keyof ETFData> = {
   ytd: "change_ytd",
 };
 
-const ETF_CACHE_TTL = 3600; // 1시간
+const NAVER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Referer: "https://finance.naver.com/",
+  "Accept-Language": "ko-KR,ko;q=0.9",
+};
+
+const CACHE_TTL = 300; // 5분 (주가는 실시간성 중요)
 let etfCache: Record<string, { ts: number; data: ETFData[] }> = {};
 
-// Yahoo Finance에서 가격 데이터 가져오기
-async function fetchPriceFromYahoo(ticker: string): Promise<number | null> {
+// Naver Finance에서 ETF 가격 데이터 가져오기
+async function fetchPriceFromNaver(
+  ticker: string
+): Promise<{ price: number; change1d: number; change1w: number; change1m: number; change3m: number; changeYtd: number } | null> {
   try {
-    // 한국 티커를 Yahoo 형식으로 변환 (예: 091160 -> 091160.KS)
-    const yahooTicker = `${ticker}.KS`;
-    const response = await fetch(
-      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${yahooTicker}?modules=price`,
+    // Naver Finance API (비공개이지만 작동함)
+    const response = await axios.get(
+      `https://query.naver.com/svc/chartnews/get.naver?symbol=${ticker}&requestType=1&responseType=json`,
       {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
+        headers: NAVER_HEADERS,
+        timeout: 10000,
       }
     );
 
-    if (!response.ok) return null;
+    // 최신 가격 데이터
+    const data = response.data?.result?.candle || [];
+    if (!data.length) {
+      console.warn(`No price data for ${ticker}`);
+      return null;
+    }
 
-    const data = await response.json();
-    return data?.quoteSummary?.result?.[0]?.price?.regularMarketPrice?.raw || null;
+    // 가장 최근 데이터부터 정렬
+    const sorted = [...data].sort((a: any, b: any) =>
+      new Date(b.dt).getTime() - new Date(a.dt).getTime()
+    );
+
+    if (sorted.length < 2) return null;
+
+    const latest = sorted[0];
+    const current = parseFloat(latest.close);
+    const yesterday = parseFloat(sorted[1]?.close || latest.close);
+
+    // 1일 변화율
+    const change1d = ((current - yesterday) / yesterday) * 100;
+
+    // 더 오래된 데이터로 주간/월간 계산
+    const week = sorted[Math.min(4, sorted.length - 1)]?.close || latest.close;
+    const month = sorted[Math.min(20, sorted.length - 1)]?.close || latest.close;
+    const threeMonth = sorted[Math.min(60, sorted.length - 1)]?.close || latest.close;
+    const ytdStart = sorted[sorted.length - 1]?.close || latest.close;
+
+    return {
+      price: Math.round(current),
+      change1d: parseFloat(change1d.toFixed(2)),
+      change1w: parseFloat((((current - parseFloat(week)) / parseFloat(week)) * 100).toFixed(2)),
+      change1m: parseFloat((((current - parseFloat(month)) / parseFloat(month)) * 100).toFixed(2)),
+      change3m: parseFloat((((current - parseFloat(threeMonth)) / parseFloat(threeMonth)) * 100).toFixed(2)),
+      changeYtd: parseFloat((((current - parseFloat(ytdStart)) / parseFloat(ytdStart)) * 100).toFixed(2)),
+    };
   } catch (error) {
-    console.warn(`Yahoo Finance price fetch failed for ${ticker}:`, error);
+    console.warn(`Naver price fetch failed for ${ticker}:`, error instanceof Error ? error.message : error);
     return null;
   }
 }
 
-// 샘플 데이터 생성 (데모용)
-function generateMockData(etf: SectorETF | { ticker: string; name: string }): ETFData {
-  const basePrice = Math.random() * 50000 + 20000;
-  return {
-    sector: "sector" in etf ? etf.sector : undefined,
-    ticker: etf.ticker,
-    name: etf.name,
-    price: Math.round(basePrice),
-    change_1d: (Math.random() - 0.5) * 4,
-    change_1w: (Math.random() - 0.5) * 8,
-    change_1m: (Math.random() - 0.5) * 12,
-    change_3m: (Math.random() - 0.5) * 20,
-    change_ytd: (Math.random() - 0.4) * 30,
-  };
+// Naver 주식 API로 가격 정보 가져오기 (대체 방법)
+async function fetchPriceFromNaverItem(
+  ticker: string
+): Promise<{ price: number; change1d: number; change1w: number; change1m: number; change3m: number; changeYtd: number } | null> {
+  try {
+    // Naver 주식 페이지에서 가격 정보 추출
+    const response = await axios.get(
+      `https://finance.naver.com/item/main.naver?code=${ticker}`,
+      {
+        headers: NAVER_HEADERS,
+        timeout: 10000,
+      }
+    );
+
+    // 정규식으로 현재가 추출
+    const priceMatch = response.data.match(/<span class="price"[^>]*>([0-9,]+)<\/span>/);
+    const changeMatch = response.data.match(/<span class="change[^"]*"[^>]*>([\d\.\-,]+)<\/span>/);
+
+    if (!priceMatch || !priceMatch[1]) return null;
+
+    const price = parseInt(priceMatch[1].replace(/,/g, ""));
+    const changeStr = changeMatch ? changeMatch[1].replace(/,/g, "") : "0";
+    const change1d = parseFloat(changeStr);
+
+    return {
+      price,
+      change1d,
+      change1w: 0,
+      change1m: 0,
+      change3m: 0,
+      changeYtd: 0,
+    };
+  } catch (error) {
+    console.warn(`Naver item fetch failed for ${ticker}:`, error instanceof Error ? error.message : error);
+    return null;
+  }
 }
 
 async function getPerformanceData(): Promise<ETFData[]> {
-  // 현재는 샘플 데이터 반환
-  // 프로덕션에서는 실제 데이터 소스 필요
-  return SECTOR_ETFS.map(generateMockData).sort((a, b) => b.change_1m - a.change_1m);
+  const results: ETFData[] = [];
+
+  for (const sector of SECTOR_ETFS) {
+    try {
+      const priceData =
+        (await fetchPriceFromNaver(sector.ticker)) ||
+        (await fetchPriceFromNaverItem(sector.ticker));
+
+      if (!priceData) {
+        console.warn(`Failed to get price for ${sector.name}, using fallback`);
+        // 폴백: 기본값 사용
+        results.push({
+          sector: sector.sector,
+          ticker: sector.ticker,
+          name: sector.name,
+          price: 0,
+          change_1d: 0,
+          change_1w: 0,
+          change_1m: 0,
+          change_3m: 0,
+          change_ytd: 0,
+        });
+        continue;
+      }
+
+      results.push({
+        sector: sector.sector,
+        ticker: sector.ticker,
+        name: sector.name,
+        price: priceData.price,
+        change_1d: priceData.change1d || 0,
+        change_1w: priceData.change1w || 0,
+        change_1m: priceData.change1m || 0,
+        change_3m: priceData.change3m || 0,
+        change_ytd: priceData.changeYtd || 0,
+      });
+    } catch (error) {
+      console.error(`Error fetching sector ${sector.sector}:`, error);
+      results.push({
+        sector: sector.sector,
+        ticker: sector.ticker,
+        name: sector.name,
+        price: 0,
+        change_1d: 0,
+        change_1w: 0,
+        change_1m: 0,
+        change_3m: 0,
+        change_ytd: 0,
+      });
+    }
+  }
+
+  return results.sort((a, b) => (b.change_1m || 0) - (a.change_1m || 0));
 }
 
 async function getSectorEtfsData(
@@ -151,7 +262,7 @@ async function getSectorEtfsData(
   const now = Date.now();
   if (
     sector in etfCache &&
-    now - etfCache[sector].ts < ETF_CACHE_TTL * 1000
+    now - etfCache[sector].ts < CACHE_TTL * 1000
   ) {
     const field = SORT_FIELDS[sortBy] || "change_1m";
     return [...etfCache[sector].data].sort(
@@ -160,7 +271,53 @@ async function getSectorEtfsData(
   }
 
   const etfList = SECTOR_ETF_MAP[sector] || [];
-  const results: ETFData[] = etfList.map(generateMockData);
+  const results: ETFData[] = [];
+
+  for (const etf of etfList) {
+    try {
+      const priceData =
+        (await fetchPriceFromNaver(etf.ticker)) ||
+        (await fetchPriceFromNaverItem(etf.ticker));
+
+      if (!priceData) {
+        console.warn(`Failed to get price for ${etf.name}`);
+        results.push({
+          ticker: etf.ticker,
+          name: etf.name,
+          price: 0,
+          change_1d: 0,
+          change_1w: 0,
+          change_1m: 0,
+          change_3m: 0,
+          change_ytd: 0,
+        });
+        continue;
+      }
+
+      results.push({
+        ticker: etf.ticker,
+        name: etf.name,
+        price: priceData.price,
+        change_1d: priceData.change1d || 0,
+        change_1w: priceData.change1w || 0,
+        change_1m: priceData.change1m || 0,
+        change_3m: priceData.change3m || 0,
+        change_ytd: priceData.changeYtd || 0,
+      });
+    } catch (error) {
+      console.error(`Error fetching ETF ${etf.ticker}:`, error);
+      results.push({
+        ticker: etf.ticker,
+        name: etf.name,
+        price: 0,
+        change_1d: 0,
+        change_1w: 0,
+        change_1m: 0,
+        change_3m: 0,
+        change_ytd: 0,
+      });
+    }
+  }
 
   etfCache[sector] = { ts: now, data: results };
   const field = SORT_FIELDS[sortBy] || "change_1m";
@@ -183,7 +340,7 @@ export class SectorService {
 
   static async getRotation() {
     const sectors = await this.getPerformance();
-    const sorted1m = [...sectors].sort((a, b) => b.change_1m - a.change_1m);
+    const sorted1m = [...sectors].sort((a, b) => (b.change_1m || 0) - (a.change_1m || 0));
     const leading = sorted1m.slice(0, 3).map((s) => s.name);
     const lagging = sorted1m.slice(-3).map((s) => s.name);
 
