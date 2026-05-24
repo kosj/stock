@@ -1,6 +1,27 @@
-// Vercel에서는 자체 API 라우트 사용 (상대경로)
-// 로컬 개발에서는 환경변수로 backend 지정 가능
-const BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+// API 기본 경로 설정
+// Vercel 배포: 자동으로 현재 도메인 사용
+// 로컬 개발: localhost:8000 또는 환경변수
+const getBase = () => {
+  if (typeof window === 'undefined') {
+    // 서버 사이드: 환경 변수 사용
+    return process.env.NEXT_PUBLIC_BACKEND_URL || '';
+  }
+
+  // 클라이언트 사이드: 현재 도메인 사용
+  if (process.env.NEXT_PUBLIC_BACKEND_URL) {
+    return process.env.NEXT_PUBLIC_BACKEND_URL;
+  }
+
+  // 개발 환경에서는 localhost:8000 사용
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:8000';
+  }
+
+  // Vercel 배포: 상대 경로 사용 (같은 도메인의 /api 사용)
+  return '';
+};
+
+const BASE = getBase();
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
