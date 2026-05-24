@@ -24,8 +24,9 @@ class Settings(BaseSettings):
     VAPID_PRIVATE_KEY: str = ""
     VAPID_EMAIL: str = "mailto:admin@example.com"
 
-    # CORS
-    CORS_ORIGINS: str = "http://localhost:3000"
+    # CORS — 쉼표 구분 또는 * (전체 허용)
+    # Railway 환경변수: CORS_ORIGINS=* 또는 https://your-app.vercel.app
+    CORS_ORIGINS: str = "*"
 
     # 앱
     APP_ENV: str = "development"
@@ -33,7 +34,10 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> List[str]:
-        return [o.strip() for o in self.CORS_ORIGINS.split(",")]
+        raw = self.CORS_ORIGINS.strip()
+        if raw == "*":
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
     class Config:
         env_file = ".env"

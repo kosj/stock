@@ -3,9 +3,20 @@ from sqlalchemy.orm import DeclarativeBase
 from app.config import settings
 
 
+def _build_db_url(url: str) -> str:
+    """Railway가 주입하는 postgresql:// URL을 asyncpg 드라이버 형식으로 변환."""
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return url
+
+
+_DB_URL = _build_db_url(settings.DATABASE_URL)
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,  # SQL 로그 끔 - 매 분마다 alert 쿼리가 콘솔에 범람하는 것 방지
+    _DB_URL,
+    echo=False,
     pool_pre_ping=True,
 )
 

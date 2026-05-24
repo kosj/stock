@@ -1,27 +1,10 @@
 // API 기본 경로 설정
-// Vercel 배포: 자동으로 현재 도메인 사용
-// 로컬 개발: localhost:8000 또는 환경변수
-const getBase = () => {
-  if (typeof window === 'undefined') {
-    // 서버 사이드: 환경 변수 사용
-    return process.env.NEXT_PUBLIC_BACKEND_URL || '';
-  }
-
-  // 클라이언트 사이드: 현재 도메인 사용
-  if (process.env.NEXT_PUBLIC_BACKEND_URL) {
-    return process.env.NEXT_PUBLIC_BACKEND_URL;
-  }
-
-  // 개발 환경에서는 localhost:8000 사용
-  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-    return 'http://localhost:8000';
-  }
-
-  // Vercel 배포: 상대 경로 사용 (같은 도메인의 /api 사용)
-  return '';
-};
-
-const BASE = getBase();
+// 브라우저: 항상 상대 경로('') → next.config.ts rewrites가 BACKEND_URL로 프록시
+// SSR:     BACKEND_URL 환경변수로 직접 백엔드 호출 (Vercel 서버 사이드)
+// 로컬 개발: BACKEND_URL 미설정 시 next.config.ts 기본값 localhost:8000 사용
+const BASE = typeof window === 'undefined'
+  ? (process.env.BACKEND_URL || '')  // SSR
+  : '';                               // 브라우저: rewrites 경유
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

@@ -36,10 +36,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_origins = settings.cors_origins_list
+# allow_credentials=True + allow_origins=["*"] 조합은 CORS 스펙 위반 → 분기 처리
+# 이 프로젝트는 쿠키 미사용 → 와일드카드 허용 시 credentials 불필요
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
+    allow_origins=_origins,
+    allow_credentials=("*" not in _origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
