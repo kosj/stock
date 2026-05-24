@@ -28,6 +28,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
   });
+
+  // 501은 Not Implemented - 빈 데이터 반환
+  if (res.status === 501) {
+    return {} as T;
+  }
+
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || `HTTP ${res.status}`);
