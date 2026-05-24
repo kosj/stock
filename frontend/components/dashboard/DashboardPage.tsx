@@ -14,13 +14,17 @@ export function DashboardPage() {
   );
   const indices = indicesRaw as any;
 
-  const { data: portfoliosRaw } = useSWR<any>("portfolios", () => api.portfolio.list());
+  const { data: portfoliosRaw, mutate: refreshPortfolios } = useSWR<any>(
+    "portfolios",
+    () => api.portfolio.list(),
+    { refreshInterval: 30_000 },
+  );
   const portfolios = portfoliosRaw as any[];
   const firstPortfolioId = portfolios?.[0]?.id;
   const { data: summaryRaw } = useSWR<any>(
     firstPortfolioId ? `portfolio-summary-${firstPortfolioId}` : null,
     () => api.portfolio.summary(firstPortfolioId!),
-    { refreshInterval: 60_000 },
+    { refreshInterval: 30_000 },
   );
   const summary = summaryRaw as any;
 
