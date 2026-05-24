@@ -1,4 +1,5 @@
 import axios from "axios";
+import iconv from "iconv-lite";
 
 const NAVER_HEADERS = {
   "User-Agent":
@@ -67,10 +68,9 @@ async function fetchInvestorSync(
     });
 
     // EUC-KR 디코딩
-    const iconv = require("iconv-lite");
     const text = iconv.decode(Buffer.from(response.data), "euc-kr");
 
-    // 테이블 파싱 (간단한 정규식 기반)
+    // 테이블 파싱
     const rows: Array<{ name: string; buy: number; sell: number; net: number }> = [];
     const tableMatch = text.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [];
 
@@ -120,7 +120,10 @@ async function fetchInvestorSync(
       return true;
     });
   } catch (error) {
-    console.error(`네이버 투자자 스크래핑 실패 sosok=${sosok}:`, error);
+    console.error(
+      `네이버 투자자 스크래핑 실패 sosok=${sosok}:`,
+      error instanceof Error ? error.message : error
+    );
     return [];
   }
 }
@@ -157,7 +160,6 @@ export class KrxService {
   }
 
   static async getSectorIndex() {
-    // 섹터 데이터는 SectorService에서 가져옴
     return {
       date: getLastTradingDay(),
       kospi: [],
@@ -219,8 +221,7 @@ export class KrxService {
         {
           investor: "외국인",
           kospi_net: inv.kospi.find((x: any) => x.name === "외국인")?.net || 0,
-          kosdaq_net:
-            inv.kosdaq.find((x: any) => x.name === "외국인")?.net || 0,
+          kosdaq_net: inv.kosdaq.find((x: any) => x.name === "외국인")?.net || 0,
           total_net:
             (inv.kospi.find((x: any) => x.name === "외국인")?.net || 0) +
             (inv.kosdaq.find((x: any) => x.name === "외국인")?.net || 0),
@@ -228,8 +229,7 @@ export class KrxService {
         {
           investor: "기관",
           kospi_net: inv.kospi.find((x: any) => x.name === "기관계")?.net || 0,
-          kosdaq_net:
-            inv.kosdaq.find((x: any) => x.name === "기관계")?.net || 0,
+          kosdaq_net: inv.kosdaq.find((x: any) => x.name === "기관계")?.net || 0,
           total_net:
             (inv.kospi.find((x: any) => x.name === "기관계")?.net || 0) +
             (inv.kosdaq.find((x: any) => x.name === "기관계")?.net || 0),
@@ -237,8 +237,7 @@ export class KrxService {
         {
           investor: "개인",
           kospi_net: inv.kospi.find((x: any) => x.name === "개인")?.net || 0,
-          kosdaq_net:
-            inv.kosdaq.find((x: any) => x.name === "개인")?.net || 0,
+          kosdaq_net: inv.kosdaq.find((x: any) => x.name === "개인")?.net || 0,
           total_net:
             (inv.kospi.find((x: any) => x.name === "개인")?.net || 0) +
             (inv.kosdaq.find((x: any) => x.name === "개인")?.net || 0),
@@ -246,8 +245,7 @@ export class KrxService {
         {
           investor: "기타법인",
           kospi_net: inv.kospi.find((x: any) => x.name === "기타법인")?.net || 0,
-          kosdaq_net:
-            inv.kosdaq.find((x: any) => x.name === "기타법인")?.net || 0,
+          kosdaq_net: inv.kosdaq.find((x: any) => x.name === "기타법인")?.net || 0,
           total_net:
             (inv.kospi.find((x: any) => x.name === "기타법인")?.net || 0) +
             (inv.kosdaq.find((x: any) => x.name === "기타법인")?.net || 0),
