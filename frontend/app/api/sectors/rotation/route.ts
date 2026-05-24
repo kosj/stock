@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { KrxService } from "@/lib/server/krx-service";
+import { SectorService } from "@/lib/server/sector-service";
 
-// /api/krx
+// /api/sectors/rotation
 export async function GET(request: NextRequest) {
   try {
-    const data = await KrxService.getDashboard();
+    const data = await SectorService.getRotation();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("KRX API error:", error);
+    console.error("Sectors rotation API error:", error);
     return NextResponse.json(
       { error: String(error) },
-      { status: 502 }
+      { status: 500 }
     );
   }
 }
