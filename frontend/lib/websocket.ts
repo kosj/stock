@@ -13,52 +13,12 @@ export interface PriceUpdate {
 }
 
 export function useRealtimePrices(tickers: string[]) {
-  const [prices, setPrices] = useState<Record<string, PriceUpdate>>({});
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectCountRef = useRef(0);
-  const MAX_RECONNECT_ATTEMPTS = 3;
+  // WebSocket 비활성화: Vercel 환경에서는 localhost:8000이 없으므로
+  // 아무 데이터도 반환하지 않음 (하지만 에러 없이 작동)
+  const [prices] = useState<Record<string, PriceUpdate>>({});
 
-  const connect = useCallback(() => {
-    if (!tickers.length || reconnectCountRef.current >= MAX_RECONNECT_ATTEMPTS) return;
-
-    const url = `${WS_BASE}/ws/prices?tickers=${tickers.join(",")}`;
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      reconnectCountRef.current = 0; // 연결 성공 시 카운트 리셋
-    };
-
-    ws.onmessage = (e) => {
-      try {
-        const data: PriceUpdate = JSON.parse(e.data);
-        if (data.type === "price" && data.ticker) {
-          setPrices((prev) => ({ ...prev, [data.ticker!]: data }));
-        }
-      } catch {}
-    };
-
-    ws.onclose = () => {
-      // 실패 시에만 재연결 (최대 3번)
-      if (reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS) {
-        reconnectCountRef.current++;
-        reconnectTimer.current = setTimeout(connect, 5000);
-      }
-    };
-
-    ws.onerror = () => {
-      ws.close();
-    };
-  }, [tickers.join(",")]);
-
-  useEffect(() => {
-    connect();
-    return () => {
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      wsRef.current?.close();
-    };
-  }, [connect]);
+  // 개발 환경에서만 WebSocket 시도 (필요시 활성화)
+  // if (process.env.NODE_ENV === "development") { ... }
 
   return prices;
 }
