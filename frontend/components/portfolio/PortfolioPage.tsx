@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -32,14 +32,25 @@ export function PortfolioPage() {
                     (portfolios as any[])?.[0];
   const portfolioId = portfolio?.id;
 
-  const { data: summary, mutate: mutateSummary } = useSWR(
+  const { data: summary, mutate: mutateSummary, isValidating } = useSWR(
     portfolioId ? `portfolio-summary-${portfolioId}` : null,
     () => api.portfolio.summary(portfolioId),
-    { refreshInterval: 30_000 },
+    {
+      refreshInterval: 30_000,
+      revalidateOnFocus: true,
+      dedupingInterval: 2000,
+    },
   );
 
   const tickers = (summary as any)?.positions?.map((p: any) => p.ticker) ?? [];
   const rt = useRealtimePrices(tickers);
+
+  // 포트폴리오 변경 시 요약 데이터 재갱신
+  useEffect(() => {
+    if (portfolioId) {
+      mutateSummary();
+    }
+  }, [portfolioId, mutateSummary]);
 
   // ── AI 전체 갱신 ────────────────────────────────────────────────────────
   const autoFillPositions = useCallback(async (id: number) => {
@@ -106,11 +117,24 @@ export function PortfolioPage() {
   async function deletePortfolio(id: number) {
     if (!confirm("포트폴리오를 삭제하시겠습니까?")) return;
     try {
+      // 낙관적 업데이트: 먼저 UI에서 제거
+      const newPortfolios = (portfolios as any[])?.filter((p) => p.id !== id) ?? [];
+      await mutatePortfolios(newPortfolios, false);
+
+      // API 호출
       await api.portfolio.delete(id);
-      if (selectedId === id) setSelectedId(null);
-      await mutatePortfolios();
+
+      // 삭제된 포트폴리오가 선택된 상태였으면 첫 번째 남은 포트폴리오 선택
+      if (selectedId === id) {
+        setSelectedId(newPortfolios[0]?.id ?? null);
+        // 요약 데이터도 초기화
+        await globalMutate(`portfolio-summary-${id}`);
+      }
+
       toast.success("삭제 완료");
     } catch (err: any) {
+      // 오류 발생 시 원래 데이터로 복구
+      await mutatePortfolios();
       toast.error(err.message ?? "삭제 실패");
     }
   }
@@ -248,8 +272,14 @@ export function PortfolioPage() {
                 >
                   <Zap size={13} className={autoFillLoading ? "animate-pulse text-yellow-400" : ""} />
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => mutateSummary()}>
-                  <RefreshCw size={13} />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => mutateSummary()}
+                  disabled={isValidating}
+                  title="보유 종목 데이터 새로고침"
+                >
+                  <RefreshCw size={13} className={isValidating ? "animate-spin" : ""} />
                 </Button>
                 <Button size="sm" onClick={() => setShowAddPos(true)}>
                   <Plus size={14} /> 종목 추가

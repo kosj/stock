@@ -24,46 +24,64 @@ export async function GET(
       cash: cash,
       positions: [
         {
+          position_id: 1,
           id: 1,
           ticker: "000660",
           name: "SK하이닉스",
           quantity: 10,
+          avg_price: 61250,
           buy_price: 61250,
           current_price: 62500,
+          price: 62500,
           value: 625000,
           pnl: 25000,
           pnl_percent: 4.17,
           stop_loss: 55000,
+          take_profit: 75000,
           target_price: 75000,
-          strategy: "상승 추세 진행 중"
+          strategy: "상승 추세 진행 중",
+          is_near_stop: false,
+          is_near_target: false
         },
         {
+          position_id: 2,
           id: 2,
           ticker: "005930",
           name: "삼성전자",
           quantity: 5,
+          avg_price: 69000,
           buy_price: 69000,
           current_price: 70000,
+          price: 70000,
           value: 350000,
           pnl: 5000,
           pnl_percent: 1.45,
           stop_loss: 65000,
+          take_profit: 85000,
           target_price: 85000,
-          strategy: "강한 지지선 확보"
+          strategy: "강한 지지선 확보",
+          is_near_stop: false,
+          is_near_target: false
         },
         {
+          position_id: 3,
           id: 3,
           ticker: "051910",
           name: "LG화학",
           quantity: 3,
+          avg_price: 570000,
           buy_price: 570000,
           current_price: 600000,
+          price: 600000,
           value: 1800000,
           pnl: 90000,
           pnl_percent: 5.26,
           stop_loss: 570000,
+          take_profit: 700000,
           target_price: 700000,
-          strategy: "박스권 이탈 대기"
+          strategy: "박스권 이탈 대기",
+          is_near_stop: false,
+          is_near_target: false
         }
       ]
     };
