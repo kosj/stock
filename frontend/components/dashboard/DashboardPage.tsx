@@ -10,21 +10,42 @@ export function DashboardPage() {
   const { data: indicesRaw, isLoading: idxLoading, mutate: refreshIdx } = useSWR<any>(
     "market-indices",
     () => api.market.indices(),
-    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
+    {
+      refreshInterval: 5_000,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      revalidateIfStale: true,
+      dedupingInterval: 0,
+      compare: (a, b) => JSON.stringify(a) === JSON.stringify(b)
+    },
   );
   const indices = indicesRaw as any;
 
   const { data: portfoliosRaw, mutate: refreshPortfolios } = useSWR<any>(
     "portfolios",
     () => api.portfolio.list(),
-    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
+    {
+      refreshInterval: 5_000,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      revalidateIfStale: true,
+      dedupingInterval: 0,
+      compare: (a, b) => JSON.stringify(a) === JSON.stringify(b)
+    },
   );
   const portfolios = portfoliosRaw as any[];
   const firstPortfolioId = portfolios?.[0]?.id;
   const { data: summaryRaw } = useSWR<any>(
     firstPortfolioId ? `portfolio-summary-${firstPortfolioId}` : null,
     () => api.portfolio.summary(firstPortfolioId!),
-    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
+    {
+      refreshInterval: 5_000,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      revalidateIfStale: true,
+      dedupingInterval: 0,
+      compare: (a, b) => JSON.stringify(a) === JSON.stringify(b)
+    },
   );
   const summary = summaryRaw as any;
 

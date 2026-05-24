@@ -3,19 +3,20 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// 초 단위 기반 의사난수 생성 (매 요청마다 다른 값 반환 - 10초 단위)
-function timeBasedRandom(seed: string): number {
-  const now = new Date();
-  const seconds = Math.floor(now.getTime() / (1000 * 10)); // 10초 단위
-  const hash = seed.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const combined = (hash * 9301 + 49297 * seconds) % 233280;
-  return (combined / 233280);
+// 간단한 의사난수: 현재 시간 기반
+function getRandomVariation(seed: string): number {
+  const now = Date.now();
+  const seedHash = seed.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const combined = (seedHash * 12345 + now) % 1000;
+  return (combined / 1000) - 0.5; // -0.5 ~ 0.5
 }
 
 export async function GET(request: NextRequest) {
+  const now = new Date();
+
   // 동적으로 생성된 포트폴리오 데이터
   const generatePortfolio = (id: number, name: string, baseValue: number) => {
-    const variation = (timeBasedRandom(`portfolio-${id}-pnl`) - 0.5) * 12; // -6% ~ +6%
+    const variation = getRandomVariation(`portfolio-${id}-pnl`) * 12; // -6% ~ +6%
     const total_invested = baseValue;
     const total_pnl = Math.round(baseValue * (variation / 100));
     const total_value = total_invested + total_pnl;
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
       total_value,
       total_pnl,
       total_pnl_percent: Math.round(total_pnl_percent * 100) / 100,
-      timestamp: new Date().toISOString()
+      timestamp: now.toISOString()
     };
   };
 
@@ -38,7 +39,9 @@ export async function GET(request: NextRequest) {
     generatePortfolio(2, "ETF 포트폴리오", 2850000)
   ], {
     headers: {
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0',
+      'Pragma': 'no-cache',
+      'Expires': '0'
     }
   });
 }

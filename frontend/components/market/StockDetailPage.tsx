@@ -21,25 +21,34 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
   const [period, setPeriod] = useState<Period>("1y");
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
+  const swrConfig = {
+    refreshInterval: 5_000,
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+    revalidateIfStale: true,
+    dedupingInterval: 0,
+    compare: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)
+  };
+
   const { data: quote, mutate: refreshQuote } = useSWR(
     `quote-${ticker}`,
     () => api.market.quote(ticker),
-    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
+    swrConfig,
   );
   const { data: chart, isLoading: chartLoading } = useSWR(
     `chart-${ticker}-${period}`,
     () => api.market.chart(ticker, period),
-    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
+    swrConfig,
   );
   const { data: financials } = useSWR(
     `financials-${ticker}`,
     () => api.market.financials(ticker),
-    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 }
+    swrConfig
   );
   const { data: analysis, mutate: refreshAnalysis, isLoading: isAnalyzing } = useSWR(
     `analysis-${ticker}`,
     () => api.analysis.get(ticker),
-    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
+    swrConfig,
   );
 
   const q = quote as any;

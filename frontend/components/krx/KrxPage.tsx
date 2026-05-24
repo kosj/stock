@@ -381,7 +381,14 @@ export function KrxPage() {
   const { data, isLoading, error, mutate } = useSWR(
     "krx-dashboard",
     () => api.krx.dashboard(),
-    { refreshInterval: 10_000, revalidateOnFocus: true, dedupingInterval: 0 },
+    {
+      refreshInterval: 5_000,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      revalidateIfStale: true,
+      dedupingInterval: 0,
+      compare: (a, b) => JSON.stringify(a) === JSON.stringify(b)
+    },
   );
 
   const d = data as any;
