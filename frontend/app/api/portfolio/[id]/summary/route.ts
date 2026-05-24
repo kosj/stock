@@ -1,5 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// 시간 기반 의사난수 생성 (같은 시간대에는 같은 값)
+function timeBasedRandom(seed: string): number {
+  const now = new Date();
+  const minutes = Math.floor(now.getTime() / (1000 * 60)); // 1분 단위
+  const hash = seed.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const combined = (hash * 9301 + 49297 * minutes) % 233280;
+  return (combined / 233280);
+}
+
+// 가격 변동 생성
+function generatePrice(basePrice: number, seed: string): number {
+  const variation = (timeBasedRandom(seed) - 0.5) * 4; // -2% ~ +2%
+  return Math.round(basePrice * (1 + variation / 100) * 100) / 100;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -7,83 +22,57 @@ export async function GET(
   try {
     const { id } = await params;
 
-    // 샘플 포트폴리오 요약 데이터 (PortfolioPage가 기대하는 형식)
-    const total_invested = id === "1" ? 4750000 : 2850000;
-    const total_value = id === "1" ? 5000000 : 3000000;
-    const total_pnl = total_value - total_invested;
-    const total_pnl_percent = (total_pnl / total_invested) * 100;
-    const cash = id === "1" ? 500000 : 300000;
+    // 기본 설정
+    const isMainPortfolio = id === "1";
+    const portfolioConfig = {
+      total_invested: isMainPortfolio ? 4750000 : 2850000,
+      cash: isMainPortfolio ? 500000 : 300000,
+      positions: [
+        { position_id: 1, ticker: "000660", name: "SK하이닉스", quantity: 10, avg_price: 61250, stop_loss: 55000, take_profit: 75000, target_price: 75000 },
+        { position_id: 2, ticker: "005930", name: "삼성전자", quantity: 5, avg_price: 69000, stop_loss: 65000, take_profit: 85000, target_price: 85000 },
+        { position_id: 3, ticker: "051910", name: "LG화학", quantity: 3, avg_price: 570000, stop_loss: 570000, take_profit: 700000, target_price: 700000 }
+      ]
+    };
+
+    // 동적 가격으로 포지션 계산
+    const positions = portfolioConfig.positions.map((pos) => {
+      const current_price = generatePrice(pos.avg_price, `${pos.ticker}-price`);
+      const value = Math.round(current_price * pos.quantity);
+      const pnl = value - (pos.avg_price * pos.quantity);
+      const pnl_percent = (pnl / (pos.avg_price * pos.quantity)) * 100;
+      const is_near_stop = current_price <= pos.stop_loss * 1.05;
+      const is_near_target = current_price >= pos.take_profit * 0.95;
+
+      return {
+        ...pos,
+        buy_price: pos.avg_price,
+        current_price: Math.round(current_price),
+        price: Math.round(current_price),
+        value,
+        pnl,
+        pnl_percent: Math.round(pnl_percent * 100) / 100,
+        strategy: pnl > 0 ? "수익 실현 검토" : "추가 매수 기회 모니터링",
+        is_near_stop,
+        is_near_target
+      };
+    });
+
+    // 포트폴리오 전체 손익 계산
+    const total_stock_value = positions.reduce((sum, p) => sum + p.value, 0);
+    const total_value = total_stock_value + portfolioConfig.cash;
+    const total_pnl = total_value - portfolioConfig.total_invested;
+    const total_pnl_percent = (total_pnl / portfolioConfig.total_invested) * 100;
 
     const summaryData = {
       id: parseInt(id),
-      name: id === "1" ? "메인 포트폴리오" : "ETF 포트폴리오",
-      total_invested: total_invested,
-      total_value: total_value,
-      total_pnl: total_pnl,
-      total_pnl_percent: total_pnl_percent,
-      cash: cash,
-      positions: [
-        {
-          position_id: 1,
-          id: 1,
-          ticker: "000660",
-          name: "SK하이닉스",
-          quantity: 10,
-          avg_price: 61250,
-          buy_price: 61250,
-          current_price: 62500,
-          price: 62500,
-          value: 625000,
-          pnl: 25000,
-          pnl_percent: 4.17,
-          stop_loss: 55000,
-          take_profit: 75000,
-          target_price: 75000,
-          strategy: "상승 추세 진행 중",
-          is_near_stop: false,
-          is_near_target: false
-        },
-        {
-          position_id: 2,
-          id: 2,
-          ticker: "005930",
-          name: "삼성전자",
-          quantity: 5,
-          avg_price: 69000,
-          buy_price: 69000,
-          current_price: 70000,
-          price: 70000,
-          value: 350000,
-          pnl: 5000,
-          pnl_percent: 1.45,
-          stop_loss: 65000,
-          take_profit: 85000,
-          target_price: 85000,
-          strategy: "강한 지지선 확보",
-          is_near_stop: false,
-          is_near_target: false
-        },
-        {
-          position_id: 3,
-          id: 3,
-          ticker: "051910",
-          name: "LG화학",
-          quantity: 3,
-          avg_price: 570000,
-          buy_price: 570000,
-          current_price: 600000,
-          price: 600000,
-          value: 1800000,
-          pnl: 90000,
-          pnl_percent: 5.26,
-          stop_loss: 570000,
-          take_profit: 700000,
-          target_price: 700000,
-          strategy: "박스권 이탈 대기",
-          is_near_stop: false,
-          is_near_target: false
-        }
-      ]
+      name: isMainPortfolio ? "메인 포트폴리오" : "ETF 포트폴리오",
+      total_invested: portfolioConfig.total_invested,
+      total_value: Math.round(total_value),
+      total_pnl: Math.round(total_pnl),
+      total_pnl_percent: Math.round(total_pnl_percent * 100) / 100,
+      cash: portfolioConfig.cash,
+      positions,
+      timestamp: new Date().toISOString()
     };
 
     return NextResponse.json(summaryData);
