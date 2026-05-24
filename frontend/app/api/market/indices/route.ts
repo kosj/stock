@@ -1,28 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
-  // 임시 샘플 데이터
+  // DashboardPage가 기대하는 형식
   return NextResponse.json({
-    date: new Date().toISOString().split('T')[0],
-    indices: [
-      {
-        name: "KOSPI",
-        value: 2720.45,
-        change: 15.32,
-        change_rate: 0.57
-      },
-      {
-        name: "KOSDAQ",
-        value: 891.23,
-        change: -8.45,
-        change_rate: -0.94
-      },
-      {
-        name: "KOSPI 200",
-        value: 380.12,
-        change: 2.34,
-        change_rate: 0.62
-      }
-    ]
+    KOSPI: {
+      price: 2720.45,
+      change: 15.32,
+      change_pct: 0.57
+    },
+    KOSDAQ: {
+      price: 891.23,
+      change: -8.45,
+      change_pct: -0.94
+    },
+    "S&P500": {
+      price: 5105.33,
+      change: 42.15,
+      change_pct: 0.83
+    },
+    NASDAQ: {
+      price: 16195.65,
+      change: 125.45,
+      change_pct: 0.78
+    },
+    "달러/원": {
+      price: 1285.50,
+      change: 15.50,
+      change_pct: 1.22
+    }
   });
 }
