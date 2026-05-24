@@ -5,11 +5,21 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatNumber, formatPercent, colorByChange } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus, RefreshCw } from "lucide-react";
 import Link from "next/link";
+import { BrokerConfigManager } from "@/lib/apiConfig";
 
 export function DashboardPage() {
+  // KIS API 설정이 있으면 자동으로 사용
+  const fetchIndices = async () => {
+    const kisConfig = BrokerConfigManager.getBrokerConfig('kis');
+    if (kisConfig) {
+      return api.broker.indices('kis', kisConfig.appKey, kisConfig.appSecret);
+    }
+    return api.market.indices();
+  };
+
   const { data: indicesRaw, isLoading: idxLoading, mutate: refreshIdx } = useSWR<any>(
     "market-indices",
-    () => api.market.indices(),
+    fetchIndices,
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,

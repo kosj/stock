@@ -103,6 +103,19 @@ export const api = {
     shortSelling: () => request("/api/krx/short-selling"),
   },
 
+  broker: {
+    quote: (ticker: string, broker: string, appKey: string, appSecret: string) =>
+      request(`/api/broker/quote/${ticker}`, {
+        method: "POST",
+        body: JSON.stringify({ broker, appKey, appSecret })
+      }),
+    indices: (broker: string, appKey: string, appSecret: string) =>
+      request("/api/broker/indices", {
+        method: "POST",
+        body: JSON.stringify({ broker, appKey, appSecret })
+      }),
+  },
+
   push: {
     vapidKey: () => request<{ public_key: string }>("/api/push/vapid-public-key"),
     subscribe: (body: object) =>

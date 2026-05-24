@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getNaveIndicies, getExchangeRate } from "@/lib/server/scraper";
+import { createBrokerProvider } from "@/lib/server/providers";
+import type { BrokerType, BrokerCredentials } from "@/lib/server/providers";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -9,12 +11,41 @@ export async function GET(request: NextRequest) {
   const indices: Record<string, any> = {};
 
   try {
-    // Naver Finance에서 실제 데이터 가져오기
-    const naverData = await getNaveIndicies();
-    indices['KOSPI'] = naverData.KOSPI;
-    indices['KOSDAQ'] = naverData.KOSDAQ;
+    // Query parameters에서 broker 정보 확인
+    const broker = request.nextUrl.searchParams.get('broker');
+    const appKey = request.nextUrl.searchParams.get('appKey');
+    const appSecret = request.nextUrl.searchParams.get('appSecret');
 
-    // 환율 데이터
+    // Broker API가 제공되면 사용
+    if (broker && appKey && appSecret) {
+      try {
+        const credentials: BrokerCredentials = { appKey, appSecret };
+        const provider = createBrokerProvider(broker as BrokerType, credentials);
+        const brokerIndices = await provider.getIndices();
+
+        // Broker API 결과를 기존 형식에 맞추기
+        Object.entries(brokerIndices).forEach(([key, data]) => {
+          indices[key] = {
+            price: data.price,
+            change: data.change,
+            change_pct: data.change_pct
+          };
+        });
+      } catch (error) {
+        console.warn('Broker API failed, falling back to scraper:', error);
+        // Fallback to scraper
+        const naverData = await getNaveIndicies();
+        indices['KOSPI'] = naverData.KOSPI;
+        indices['KOSDAQ'] = naverData.KOSDAQ;
+      }
+    } else {
+      // Broker API 없으면 기존 scraper 사용
+      const naverData = await getNaveIndicies();
+      indices['KOSPI'] = naverData.KOSPI;
+      indices['KOSDAQ'] = naverData.KOSDAQ;
+    }
+
+    // 환율 데이터 (항상 exchangerate-api 사용)
     const exchangeRate = await getExchangeRate();
     indices['달러/원'] = exchangeRate;
 

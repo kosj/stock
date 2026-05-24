@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Briefcase, TrendingUp,
-  Globe, BarChart2, Bell, Building2,
+  Globe, BarChart2, Bell, Building2, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/sectors",  label: "섹터 로테이션",  icon: BarChart2 },
   { href: "/krx",      label: "국내증시 통계",  icon: Building2 },
   { href: "/alerts",   label: "알림 설정",      icon: Bell },
+  { href: "/settings", label: "API 설정",       icon: Settings },
 ];
 
 export function Sidebar() {
