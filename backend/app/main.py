@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import settings
 from app.db import create_tables
-from app.api import portfolio, market, analysis, macro, sectors, push, krx
+from app.api import portfolio, market, analysis, macro, sectors, push, krx, broker
 from app.ws.prices import router as ws_router
 from app.services.alert_service import check_alerts
 
@@ -52,6 +52,7 @@ app.include_router(macro.router,      prefix="/api/macro",      tags=["거시경
 app.include_router(sectors.router,    prefix="/api/sectors",    tags=["섹터"])
 app.include_router(push.router,       prefix="/api/push",       tags=["알림"])
 app.include_router(krx.router,        prefix="/api/krx",        tags=["국내증시통계"])
+app.include_router(broker.router,     prefix="/api/broker",     tags=["브로커 API"])
 app.include_router(ws_router)
 
 

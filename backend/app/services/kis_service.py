@@ -122,9 +122,11 @@ class MockKISService(KISInterface):
 # ---------------------------------------------------------------------------
 
 class RealKISService(KISInterface):
-    def __init__(self):
-        import httpx
-        self._client = httpx.AsyncClient(base_url=settings.KIS_BASE_URL)
+    def __init__(self, appkey: str = "", appsecret: str = "", account: str = ""):
+        self._appkey = appkey or settings.KIS_APPKEY
+        self._appsecret = appsecret or settings.KIS_APPSECRET
+        self._account = account or settings.KIS_ACCOUNT
+        self._base_url = settings.KIS_BASE_URL
         self._access_token: str | None = None
         self._token_expires: datetime | None = None
 
@@ -134,35 +136,65 @@ class RealKISService(KISInterface):
             return self._access_token
 
         import httpx
+        from datetime import timedelta
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                f"{settings.KIS_BASE_URL}/oauth2/tokenP",
+                f"{self._base_url}/oauth2/tokenP",
                 json={
                     "grant_type": "client_credentials",
-                    "appkey": settings.KIS_APPKEY,
-                    "appsecret": settings.KIS_APPSECRET,
+                    "appkey": self._appkey,
+                    "appsecret": self._appsecret,
                 },
                 headers={"Content-Type": "application/json"},
             )
             resp.raise_for_status()
             data = resp.json()
             self._access_token = data["access_token"]
-            from datetime import timedelta
             self._token_expires = now + timedelta(seconds=int(data.get("expires_in", 86400)) - 300)
         return self._access_token
 
     def _headers(self, token: str, tr_id: str) -> dict:
         return {
             "Authorization": f"Bearer {token}",
-            "appkey": settings.KIS_APPKEY,
-            "appsecret": settings.KIS_APPSECRET,
+            "appkey": self._appkey,
+            "appsecret": self._appsecret,
             "tr_id": tr_id,
             "Content-Type": "application/json",
         }
 
+    async def get_indices(self) -> dict:
+        """KOSPI, KOSDAQ 지수 조회."""
+        token = await self.get_access_token()
+        import httpx
+        index_map = {"KOSPI": "0001", "KOSDAQ": "1001"}
+        result: dict = {}
+        async with httpx.AsyncClient() as client:
+            for name, code in index_map.items():
+                try:
+                    resp = await client.get(
+                        f"{self._base_url}/uapi/domestic-stock/v1/quotations/inquire-index-price",
+                        params={"FID_COND_MRKT_DIV_CODE": "U", "FID_INPUT_ISCD": code},
+                        headers=self._headers(token, "FHPUP02100000"),
+                        timeout=5.0,
+                    )
+                    data = resp.json().get("output", {})
+                    price = float(data.get("bstp_nmix_prpr", 0))
+                    prev  = float(data.get("bstp_nmix_sdpr", price))
+                    change = price - prev
+                    result[name] = {
+                        "price": price,
+                        "change": change,
+                        "change_pct": change / prev * 100 if prev else 0,
+                    }
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"KIS index {name}: {e}")
+                    result[name] = None
+        return result
+
     async def get_balance(self) -> dict:
         token = await self.get_access_token()
-        acct = settings.KIS_ACCOUNT
+        acct = self._account
         acct_no = acct[:8]
         acct_prod = acct[8:] if len(acct) > 8 else "01"
         import httpx

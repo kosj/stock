@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
+from typing import Optional
 from app.services.market_service import MarketService
 from app.services.chart_service import ChartService
 from app.services.sector_service import SectorService
@@ -9,7 +10,10 @@ router = APIRouter()
 
 
 @router.get("/{ticker}", response_model=AnalysisOut)
-async def get_analysis(ticker: str):
+async def get_analysis(
+    ticker: str,
+    x_anthropic_key: Optional[str] = Header(None, alias="X-Anthropic-Key"),
+):
     ticker = ticker.upper()
 
     # 병렬로 데이터 수집
@@ -33,7 +37,7 @@ async def get_analysis(ticker: str):
     # 기술적 신호
     signals = await ChartService.get_signals(candles) if candles else {}
 
-    result = await analyze_stock(ticker, financials, signals, sectors)
+    result = await analyze_stock(ticker, financials, signals, sectors, anthropic_api_key=x_anthropic_key or "")
 
     # ScoreBreakdown 객체 변환
     sb = result.pop("score_breakdown", {})

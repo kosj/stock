@@ -5,7 +5,7 @@ from app.config import settings
 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.APP_ENV == "development",
+    echo=False,  # SQL 로그 끔 - 매 분마다 alert 쿼리가 콘솔에 범람하는 것 방지
     pool_pre_ping=True,
 )
 

@@ -24,7 +24,7 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
 
   // KIS API 설정이 있으면 자동으로 사용
   const fetchQuote = async () => {
-    const kisConfig = BrokerConfigManager.getBrokerConfig('kis');
+    const kisConfig = await BrokerConfigManager.getBrokerConfig('kis');
     if (kisConfig) {
       return api.broker.quote(ticker, 'kis', kisConfig.appKey, kisConfig.appSecret);
     }

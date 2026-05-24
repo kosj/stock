@@ -6,18 +6,29 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
-from functools import lru_cache
 import logging
+from datetime import datetime, timedelta
+
+from app.executor import get_executor, market_cache, TTL_QUOTE, TTL_CHART, TTL_FINANCIALS, TTL_SEARCH
 
 logger = logging.getLogger(__name__)
 
-# 한국 주요 종목 이름 캐시 (빠른 조회용)
 KR_STOCK_NAMES: dict[str, str] = {}
+
+# FinanceDataReader로 처리해야 하는 지수/환율 전용 티커
+_FDR_SPECIAL_TICKERS = frozenset({
+    "KS11", "KQ11",          # KOSPI, KOSDAQ 지수
+    "USD/KRW", "USD/EUR", "USD/JPY", "USD/CNY",  # 환율
+})
 
 
 def _is_kr_ticker(ticker: str) -> bool:
     return ticker.isdigit() and len(ticker) == 6
+
+
+def _use_fdr(ticker: str) -> bool:
+    """FDR로 처리해야 하는 티커인지 판단 (한국 종목 코드 또는 FDR 전용 지수/환율)."""
+    return _is_kr_ticker(ticker) or ticker in _FDR_SPECIAL_TICKERS
 
 
 def _to_yf_ticker(ticker: str) -> str:
@@ -34,7 +45,7 @@ def _get_period_days(period: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# 동기 함수들 (thread pool executor에서 실행)
+# 동기 함수들 (스레드 풀에서 실행)
 # ---------------------------------------------------------------------------
 
 def _fetch_quote_sync(ticker: str) -> dict:
@@ -157,7 +168,7 @@ def _fetch_financials_sync(ticker: str) -> dict:
 
         def safe(key: str, scale: float = 1.0):
             v = info.get(key)
-            if v is None or v != v:  # NaN check
+            if v is None or v != v:
                 return None
             try:
                 return float(v) * scale
@@ -199,7 +210,6 @@ def _search_stocks_sync(query: str) -> list[dict]:
     results = []
     try:
         import FinanceDataReader as fdr
-        # KRX 전체 종목 검색
         for market in ("KOSPI", "KOSDAQ"):
             try:
                 listing = fdr.StockListing(market)
@@ -219,7 +229,6 @@ def _search_stocks_sync(query: str) -> list[dict]:
     except Exception as e:
         logger.error(f"search error: {e}")
 
-    # 해외 종목도 검색 (yfinance 는 ticker 직접 조회)
     if not results and not query.isdigit():
         try:
             import yfinance as yf
@@ -239,39 +248,73 @@ def _search_stocks_sync(query: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# 비동기 퍼블릭 API
+# 비동기 퍼블릭 API — 공유 executor + TTL 캐시
 # ---------------------------------------------------------------------------
 
 class MarketService:
     @staticmethod
     async def get_quote(ticker: str) -> dict:
-        loop = asyncio.get_event_loop()
-        if _is_kr_ticker(ticker):
-            data = await loop.run_in_executor(None, _fetch_quote_sync, ticker)
-        else:
-            data = await loop.run_in_executor(None, _fetch_quote_yf_sync, ticker)
+        cache_key = f"quote:{ticker}"
+        hit, cached = market_cache.get(cache_key)
+        if hit:
+            return cached
 
-        # 이름 캐시에서 추가
+        loop = asyncio.get_event_loop()
+        executor = get_executor()
+        if _use_fdr(ticker):
+            data = await loop.run_in_executor(executor, _fetch_quote_sync, ticker)
+        else:
+            data = await loop.run_in_executor(executor, _fetch_quote_yf_sync, ticker)
+
         data["name"] = KR_STOCK_NAMES.get(ticker, data.get("name"))
+        if data:
+            market_cache.set(cache_key, data, TTL_QUOTE)
         return data
 
     @staticmethod
     async def get_chart(ticker: str, period: str = "1y") -> list[dict]:
+        cache_key = f"chart:{ticker}:{period}"
+        hit, cached = market_cache.get(cache_key)
+        if hit:
+            return cached
+
         loop = asyncio.get_event_loop()
-        if _is_kr_ticker(ticker):
-            return await loop.run_in_executor(None, _fetch_chart_sync, ticker, period)
+        executor = get_executor()
+        if _use_fdr(ticker):
+            data = await loop.run_in_executor(executor, _fetch_chart_sync, ticker, period)
         else:
-            return await loop.run_in_executor(None, _fetch_chart_yf_sync, ticker, period)
+            data = await loop.run_in_executor(executor, _fetch_chart_yf_sync, ticker, period)
+
+        if data:
+            market_cache.set(cache_key, data, TTL_CHART)
+        return data
 
     @staticmethod
     async def get_financials(ticker: str) -> dict:
+        cache_key = f"financials:{ticker}"
+        hit, cached = market_cache.get(cache_key)
+        if hit:
+            return cached
+
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _fetch_financials_sync, ticker)
+        executor = get_executor()
+        data = await loop.run_in_executor(executor, _fetch_financials_sync, ticker)
+        if data:
+            market_cache.set(cache_key, data, TTL_FINANCIALS)
+        return data
 
     @staticmethod
     async def search(query: str) -> list[dict]:
+        cache_key = f"search:{query}"
+        hit, cached = market_cache.get(cache_key)
+        if hit:
+            return cached
+
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _search_stocks_sync, query)
+        executor = get_executor()
+        data = await loop.run_in_executor(executor, _search_stocks_sync, query)
+        market_cache.set(cache_key, data, TTL_SEARCH)
+        return data
 
 
 market_service = MarketService()

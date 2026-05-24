@@ -82,11 +82,25 @@ export const api = {
   },
 
   analysis: {
-    get: (ticker: string) => request(`/api/analysis/${ticker}`),
+    get: (ticker: string, anthropicKey?: string) => {
+      const key = anthropicKey || (typeof window !== 'undefined'
+        ? localStorage.getItem('api-key-anthropic') ?? ''
+        : '');
+      return request(`/api/analysis/${ticker}`, {
+        headers: key ? { 'X-Anthropic-Key': key } : {},
+      });
+    },
   },
 
   macro: {
-    dashboard: () => request("/api/macro/"),
+    dashboard: (fredKey?: string) => {
+      const key = fredKey || (typeof window !== 'undefined'
+        ? localStorage.getItem('api-key-fred') ?? ''
+        : '');
+      return request("/api/macro/", {
+        headers: key ? { 'X-Fred-Key': key } : {},
+      });
+    },
   },
 
   sectors: {

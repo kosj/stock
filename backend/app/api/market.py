@@ -43,20 +43,21 @@ async def get_financials(ticker: str):
 
 @router.get("/indices")
 async def get_market_indices():
-    """주요 지수 현황 (KOSPI, KOSDAQ, S&P500, NASDAQ)."""
+    """주요 지수 현황 (KOSPI, KOSDAQ, S&P500, NASDAQ, USD/KRW). 병렬 fetch."""
     import asyncio
-    tickers = {
-        "KOSPI": "KS11",
-        "KOSDAQ": "KQ11",
-        "S&P500": "SPY",
-        "NASDAQ": "QQQ",
-        "달러/원": "USD/KRW",
+    # KS11/KQ11/USD/KRW → FDR, SPY/QQQ → yfinance (market_service._use_fdr 참조)
+    index_map = [
+        ("KOSPI",   "KS11"),
+        ("KOSDAQ",  "KQ11"),
+        ("S&P500",  "SPY"),
+        ("NASDAQ",  "QQQ"),
+        ("달러/원", "USD/KRW"),
+    ]
+    results_list = await asyncio.gather(
+        *[MarketService.get_quote(ticker) for _, ticker in index_map],
+        return_exceptions=True,
+    )
+    return {
+        name: (None if isinstance(r, Exception) or not r else r)
+        for (name, _), r in zip(index_map, results_list)
     }
-    results = {}
-    tasks = {name: MarketService.get_quote(ticker) for name, ticker in tickers.items()}
-    for name, coro in tasks.items():
-        try:
-            results[name] = await coro
-        except Exception:
-            results[name] = None
-    return results

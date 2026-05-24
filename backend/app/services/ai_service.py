@@ -198,13 +198,15 @@ async def _claude_analysis(
     score: float,
     recommendation: str,
     score_notes: dict,
+    anthropic_api_key: str = "",
 ) -> dict:
-    if not settings.ANTHROPIC_API_KEY:
+    api_key = anthropic_api_key or settings.ANTHROPIC_API_KEY
+    if not api_key:
         return _fallback_analysis(ticker, name, score, recommendation, score_notes)
 
     try:
         from anthropic import AsyncAnthropic
-        client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        client = AsyncAnthropic(api_key=api_key)
 
         prompt = f"""당신은 20년 경력의 국내 증권사 수석 애널리스트입니다.
 아래 데이터를 기반으로 {name or ticker}({ticker})에 대한 투자 분석을 작성하세요.
@@ -252,7 +254,18 @@ async def _claude_analysis(
             messages=[{"role": "user", "content": prompt}],
         )
 
-        text = response.content[0].text.strip()
+        # Claude 응답은 여러 텍스트 블록으로 나뉘어 반환될 수 있으므로 모두 합칩니다.
+        text_blocks = []
+        for block in getattr(response, "content", []) or []:
+            if getattr(block, "type", None) == "text":
+                block_text = getattr(block, "text", None)
+                if block_text:
+                    text_blocks.append(block_text)
+
+        text = "".join(text_blocks).strip()
+        if not text:
+            raise ValueError("Claude returned no text content")
+
         # JSON 파싱
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
@@ -263,7 +276,7 @@ async def _claude_analysis(
         return data
 
     except Exception as e:
-        logger.error(f"Claude API error: {e}")
+        logger.error(f"Claude API error: {e}. raw response: {repr(text) if 'text' in locals() else 'n/a'}")
         return _fallback_analysis(ticker, name, score, recommendation, score_notes)
 
 
@@ -293,6 +306,7 @@ async def analyze_stock(
     financials: dict,
     candle_signals: dict,
     sector_data: list[dict],
+    anthropic_api_key: str = "",
 ) -> dict:
     sector_name = financials.get("sector") or financials.get("industry")
 
@@ -322,6 +336,7 @@ async def analyze_stock(
         total,
         recommendation,
         score_breakdown,
+        anthropic_api_key=anthropic_api_key,
     )
 
     # 목표가/손절가 산출 (현재가 기반)

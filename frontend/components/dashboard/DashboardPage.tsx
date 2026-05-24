@@ -1,5 +1,6 @@
 "use client";
 import useSWR from "swr";
+import { useCallback } from "react";
 import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatNumber, formatPercent, colorByChange } from "@/lib/utils";
@@ -8,14 +9,14 @@ import Link from "next/link";
 import { BrokerConfigManager } from "@/lib/apiConfig";
 
 export function DashboardPage() {
-  // KIS API 설정이 있으면 자동으로 사용
-  const fetchIndices = async () => {
-    const kisConfig = BrokerConfigManager.getBrokerConfig('kis');
+  // KIS API 설정이 있으면 자동으로 사용 (useCallback으로 안정화)
+  const fetchIndices = useCallback(async () => {
+    const kisConfig = await BrokerConfigManager.getBrokerConfig('kis');
     if (kisConfig) {
       return api.broker.indices('kis', kisConfig.appKey, kisConfig.appSecret);
     }
     return api.market.indices();
-  };
+  }, []);
 
   const { data: indicesRaw, isLoading: idxLoading, mutate: refreshIdx } = useSWR<any>(
     "market-indices",
@@ -23,8 +24,9 @@ export function DashboardPage() {
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
-      revalidateIfStale: false,
-      dedupingInterval: 0
+      revalidateIfStale: true,
+      dedupingInterval: 30_000,    // 30초 이내 중복 요청 방지
+      refreshInterval: 60_000,     // 60초마다 자동 갱신
     },
   );
   const indices = indicesRaw as any;

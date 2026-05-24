@@ -219,13 +219,21 @@ def _get_rotation_analysis(sectors: list[dict]) -> dict:
 class SectorService:
     @staticmethod
     async def get_performance() -> list[dict]:
+        from app.executor import get_executor, sector_cache, TTL_SECTOR
+        hit, cached = sector_cache.get("performance")
+        if hit:
+            return cached
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _fetch_sector_performance_sync)
+        data = await loop.run_in_executor(get_executor(), _fetch_sector_performance_sync)
+        if data:
+            sector_cache.set("performance", data, TTL_SECTOR)
+        return data
 
     @staticmethod
     async def get_sector_etfs(sector: str, sort_by: str = "1m") -> list[dict]:
+        from app.executor import get_executor
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _fetch_sector_etfs_sync, sector, sort_by)
+        return await loop.run_in_executor(get_executor(), _fetch_sector_etfs_sync, sector, sort_by)
 
     @staticmethod
     async def get_rotation() -> dict:

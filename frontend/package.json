@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 TURBO_MAX_WORKERS=4 next dev",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=4096 TURBO_MAX_WORKERS=4 next build",
     "start": "next start",
     "lint": "eslint"
   },
@@ -19,7 +19,6 @@
     "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "crypto-js": "^4.2.0",
     "iconv-lite": "^0.7.2",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.16.0",
@@ -34,10 +33,10 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/crypto-js": "^4.2.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
