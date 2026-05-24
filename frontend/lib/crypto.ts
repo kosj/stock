@@ -133,10 +133,9 @@ export function decryptWithPassword(encryptedData: string, masterPassword: strin
 
     // 5. AES-256-CBC 복호화
     const ivWords = CryptoJS.enc.Hex.parse(data.iv);
-    const ciphertextWords = CryptoJS.enc.Hex.parse(data.ciphertext);
 
     const decrypted = CryptoJS.AES.decrypt(
-      { ciphertext: ciphertextWords },
+      data.ciphertext,
       key,
       {
         iv: ivWords,

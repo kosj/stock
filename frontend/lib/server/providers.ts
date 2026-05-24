@@ -74,10 +74,15 @@ export class KISProvider extends BrokerProvider {
         }
       });
 
-      this.accessToken = response.data.access_token;
+      const accessToken = response.data.access_token as string;
+      if (!accessToken) {
+        throw new Error('No access token in response');
+      }
+
+      this.accessToken = accessToken;
       this.tokenExpireTime = Date.now() + (response.data.expires_in * 1000);
 
-      return this.accessToken;
+      return accessToken;
     } catch (error) {
       console.error('Failed to get KIS access token:', error);
       throw error;
