@@ -29,12 +29,13 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
   const { data: chart, isLoading: chartLoading } = useSWR(
     `chart-${ticker}-${period}`,
     () => api.market.chart(ticker, period),
+    { refreshInterval: 30_000 },
   );
-  const { data: financials } = useSWR(`financials-${ticker}`, () => api.market.financials(ticker));
+  const { data: financials } = useSWR(`financials-${ticker}`, () => api.market.financials(ticker), { refreshInterval: 60_000 });
   const { data: analysis, mutate: refreshAnalysis, isLoading: isAnalyzing } = useSWR(
     `analysis-${ticker}`,
     () => api.analysis.get(ticker),
-    { revalidateOnFocus: false },
+    { refreshInterval: 30_000 },
   );
 
   const q = quote as any;

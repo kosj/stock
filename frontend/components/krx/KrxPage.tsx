@@ -381,7 +381,7 @@ export function KrxPage() {
   const { data, isLoading, error, mutate } = useSWR(
     "krx-dashboard",
     () => api.krx.dashboard(),
-    { revalidateOnFocus: false, dedupingInterval: 300_000 },
+    { refreshInterval: 30_000, dedupingInterval: 2000 },
   );
 
   const d = data as any;
