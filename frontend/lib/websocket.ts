@@ -16,12 +16,19 @@ export function useRealtimePrices(tickers: string[]) {
   const [prices, setPrices] = useState<Record<string, PriceUpdate>>({});
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectCountRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 3;
 
   const connect = useCallback(() => {
-    if (!tickers.length) return;
+    if (!tickers.length || reconnectCountRef.current >= MAX_RECONNECT_ATTEMPTS) return;
+
     const url = `${WS_BASE}/ws/prices?tickers=${tickers.join(",")}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
+
+    ws.onopen = () => {
+      reconnectCountRef.current = 0; // 연결 성공 시 카운트 리셋
+    };
 
     ws.onmessage = (e) => {
       try {
@@ -33,8 +40,11 @@ export function useRealtimePrices(tickers: string[]) {
     };
 
     ws.onclose = () => {
-      // 5초 후 자동 재연결
-      reconnectTimer.current = setTimeout(connect, 5000);
+      // 실패 시에만 재연결 (최대 3번)
+      if (reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS) {
+        reconnectCountRef.current++;
+        reconnectTimer.current = setTimeout(connect, 5000);
+      }
     };
 
     ws.onerror = () => {
