@@ -1,8 +1,8 @@
 // 최상급 보안 클라이언트 사이드 암호화/복호화 유틸리티
-// - AES-256-GCM: 인증 암호화 (AEAD)
+// - AES-256-CBC: 산업 표준 블록 암호화 (NIST 승인)
 // - PBKDF2: 마스터 패스워드로부터 256비트 키 유도 (iterations: 310000)
 // - Random salt & IV: 각 암호화마다 새로운 salt와 IV 생성
-// - HMAC-SHA256: 추가 무결성 검증
+// - HMAC-SHA256: 무결성 및 인증 검증
 
 import CryptoJS from 'crypto-js';
 
@@ -10,15 +10,14 @@ const PBKDF2_ITERATIONS = 310000; // OWASP 권장사항 (2024)
 const KEY_LENGTH = 256; // 256비트
 const IV_LENGTH = 128; // 128비트 (AES 블록 크기)
 const SALT_LENGTH = 128; // 128비트 salt
-const TAG_LENGTH = 128; // 128비트 GCM authentication tag
 
 export interface EncryptedData {
   version: number; // 버전 관리 (향후 호환성)
-  algorithm: string; // 'aes-256-gcm'
-  salt: string; // hex encoded
-  iv: string; // hex encoded
+  algorithm: string; // 'aes-256-cbc-hmac'
+  salt: string; // hex encoded (PBKDF2 salt)
+  iv: string; // hex encoded (AES IV)
   ciphertext: string; // hex encoded
-  tag: string; // authentication tag (hex encoded)
+  hmac: string; // HMAC-SHA256 (무결성 검증)
   timestamp: number; // 암호화 시간
 }
 
@@ -62,6 +61,7 @@ function deriveKeyFromPassword(password: string, salt: Uint8Array): CryptoJS.lib
 }
 
 // 최상급 보안 암호화 (마스터 패스워드 기반)
+// AES-256-CBC + PBKDF2 + HMAC-SHA256
 export function encryptWithPassword(plaintext: string, masterPassword: string): string {
   try {
     // 1. Random salt 생성 (128비트)
@@ -73,28 +73,34 @@ export function encryptWithPassword(plaintext: string, masterPassword: string): 
     // 3. Random IV 생성 (128비트)
     const iv = generateRandomBytes(IV_LENGTH);
 
-    // 4. AES-256-GCM 암호화
+    // 4. AES-256-CBC 암호화
     const plaintextWords = CryptoJS.enc.Utf8.parse(plaintext);
     const ivWords = CryptoJS.enc.Hex.parse(bytesToHex(iv));
 
     const encrypted = CryptoJS.AES.encrypt(plaintextWords, key, {
       iv: ivWords,
-      mode: CryptoJS.mode.GCM,
-      padding: CryptoJS.pad.NoPadding
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7
     });
 
-    // 5. 결과 조합 (salt, iv, ciphertext, tag)
+    const ciphertext = encrypted.ciphertext.toString();
+
+    // 5. HMAC-SHA256 계산 (무결성 검증용)
+    const hmacInput = bytesToHex(salt) + bytesToHex(iv) + ciphertext;
+    const hmac = CryptoJS.HmacSHA256(hmacInput, key).toString();
+
+    // 6. 결과 조합
     const result: EncryptedData = {
       version: 1,
-      algorithm: 'aes-256-gcm',
+      algorithm: 'aes-256-cbc-hmac',
       salt: bytesToHex(salt),
       iv: bytesToHex(iv),
-      ciphertext: encrypted.ciphertext.toString(),
-      tag: encrypted.tag ? encrypted.tag.toString() : '',
+      ciphertext: ciphertext,
+      hmac: hmac,
       timestamp: Date.now()
     };
 
-    // 6. JSON으로 변환 후 Base64 인코딩
+    // 7. JSON으로 변환 후 Base64 인코딩
     return CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(result)));
   } catch (error) {
     console.error('Encryption failed:', error);
@@ -118,30 +124,26 @@ export function decryptWithPassword(encryptedData: string, masterPassword: strin
     const saltBytes = hexToBytes(data.salt);
     const key = deriveKeyFromPassword(masterPassword, saltBytes);
 
-    // 4. IV와 ciphertext 준비
+    // 4. HMAC 검증 (무결성 확인)
+    const hmacInput = data.salt + data.iv + data.ciphertext;
+    const expectedHmac = CryptoJS.HmacSHA256(hmacInput, key).toString();
+    if (expectedHmac !== data.hmac) {
+      throw new Error('데이터 무결성 검증 실패: HMAC 불일치');
+    }
+
+    // 5. AES-256-CBC 복호화
     const ivWords = CryptoJS.enc.Hex.parse(data.iv);
     const ciphertextWords = CryptoJS.enc.Hex.parse(data.ciphertext);
 
-    // 5. GCM 태그 적용
-    let decrypted;
-    if (data.tag) {
-      const tagWords = CryptoJS.enc.Hex.parse(data.tag);
-      decrypted = CryptoJS.AES.decrypt(
-        { ciphertext: ciphertextWords, tag: tagWords },
-        key,
-        {
-          iv: ivWords,
-          mode: CryptoJS.mode.GCM,
-          padding: CryptoJS.pad.NoPadding
-        }
-      );
-    } else {
-      decrypted = CryptoJS.AES.decrypt(ciphertextWords, key, {
+    const decrypted = CryptoJS.AES.decrypt(
+      { ciphertext: ciphertextWords },
+      key,
+      {
         iv: ivWords,
-        mode: CryptoJS.mode.GCM,
-        padding: CryptoJS.pad.NoPadding
-      });
-    }
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7
+      }
+    );
 
     // 6. UTF-8로 디코딩
     return decrypted.toString(CryptoJS.enc.Utf8);

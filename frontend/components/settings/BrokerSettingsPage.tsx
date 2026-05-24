@@ -284,12 +284,12 @@ export function BrokerSettingsPage() {
                 보안 사양
               </div>
               <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                <li><strong>암호화:</strong> AES-256-GCM (AEAD)</li>
-                <li><strong>키 유도:</strong> PBKDF2 (310,000 iterations, SHA-256)</li>
-                <li><strong>Salt:</strong> 128비트 난수</li>
+                <li><strong>암호화:</strong> AES-256-CBC (NIST 승인, 산업 표준)</li>
+                <li><strong>키 유도:</strong> PBKDF2-SHA256 (310,000 iterations)</li>
+                <li><strong>Salt:</strong> 128비트 난수 (매번 새로 생성)</li>
                 <li><strong>IV:</strong> 128비트 난수 (매번 새로 생성)</li>
-                <li><strong>인증:</strong> 128비트 GCM 태그</li>
-                <li><strong>패스워드 강도:</strong> 대소문자, 숫자 필수, 최소 8자</li>
+                <li><strong>인증:</strong> HMAC-SHA256 (무결성 및 위조 방지)</li>
+                <li><strong>패스워드:</strong> 대소문자, 숫자 필수, 최소 8자</li>
               </ul>
             </div>
           </Card>
@@ -461,10 +461,10 @@ export function BrokerSettingsPage() {
           </div>
           <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
             <li><strong>마스터 패스워드:</strong> 모든 API Key를 마스터 패스워드로 암호화</li>
-            <li><strong>AES-256-GCM:</strong> 인증 암호화 (AEAD, 위조 방지)</li>
-            <li><strong>PBKDF2:</strong> 310,000 iterations로 마스터 패스워드로부터 키 유도</li>
+            <li><strong>AES-256-CBC:</strong> NIST 승인 산업 표준 블록 암호화</li>
+            <li><strong>PBKDF2-SHA256:</strong> 310,000 iterations로 강력한 키 유도</li>
             <li><strong>Random Salt & IV:</strong> 각 저장마다 새로운 128비트 난수 생성</li>
-            <li><strong>GCM 태그:</strong> 128비트 인증 태그로 무결성 보증</li>
+            <li><strong>HMAC-SHA256:</strong> 데이터 무결성 및 위조 방지 검증</li>
             <li><strong>세션 저장:</strong> 마스터 패스워드는 sessionStorage에만 저장 (탭 닫으면 삭제)</li>
           </ul>
         </div>
