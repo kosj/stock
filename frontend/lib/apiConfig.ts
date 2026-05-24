@@ -4,6 +4,9 @@
 import { encryptWithPassword, decryptWithPassword } from './crypto';
 import type { BrokerType, BrokerCredentials } from './server/providers';
 
+// 다른 모듈에서 import 할 수 있도록 re-export
+export type { BrokerType, BrokerCredentials } from './server/providers';
+
 const STORAGE_KEY_PREFIX = 'broker-config-';
 const MASTER_PASSWORD_HASH_KEY = '__master_pwd_hash__';
 
