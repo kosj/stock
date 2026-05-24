@@ -4,10 +4,10 @@ import { SectorService } from "@/lib/server/sector-service";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
   try {
-    const pathArray = params.path;
+    const { path: pathArray } = await params;
     const [resource, ...rest] = pathArray;
 
     // ─── Portfolio ────────────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ async function handleKrx(request: NextRequest, path: string[]) {
   if (action === "investor") {
     // /api/krx/investor
     try {
-      const data = await KrxService.getInvestor();
+      const data = await KrxService.getInvestorTrends();
       return NextResponse.json(data);
     } catch (error) {
       console.error("KRX investor API error:", error);
@@ -286,7 +286,7 @@ async function handleKrx(request: NextRequest, path: string[]) {
   if (action === "sector") {
     // /api/krx/sector
     try {
-      const data = await KrxService.getSector();
+      const data = await KrxService.getSectorIndex();
       return NextResponse.json(data);
     } catch (error) {
       console.error("KRX sector API error:", error);
