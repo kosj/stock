@@ -79,22 +79,44 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
     }
 
     setImporting(true);
-    let successCount = 0;
+
+    // 현재 포트폴리오 positions 조회 → ticker별 기존 position id 매핑
+    let existingPositions: any[] = [];
+    try {
+      existingPositions = (await api.portfolio.positions(portfolioId)) as any[];
+    } catch { /* 조회 실패해도 전체 신규 추가로 진행 */ }
+    const existingByTicker = new Map(existingPositions.map((p: any) => [p.ticker, p]));
+
+    let addedCount = 0;
+    let updatedCount = 0;
     let failCount = 0;
+    const today = new Date().toLocaleDateString("ko-KR");
 
     for (const h of targets) {
       try {
-        await api.portfolio.addPosition(portfolioId, {
-          ticker: h.ticker,
-          name: h.name,
-          quantity: h.quantity,
-          avg_price: h.avg_price,
-          stop_loss: null,
-          take_profit: null,
-          strategy: null,
-          notes: `한국투자증권 연동 (${new Date().toLocaleDateString("ko-KR")})`,
-        });
-        successCount++;
+        const existing = existingByTicker.get(h.ticker);
+        if (existing) {
+          // 기존 포지션: 수량·평균가 갱신 (손절/목표가·전략은 유지)
+          await api.portfolio.updatePosition(existing.id, {
+            quantity: h.quantity,
+            avg_price: h.avg_price,
+            notes: `한국투자증권 연동 갱신 (${today})`,
+          });
+          updatedCount++;
+        } else {
+          // 신규 포지션 추가
+          await api.portfolio.addPosition(portfolioId, {
+            ticker: h.ticker,
+            name: h.name,
+            quantity: h.quantity,
+            avg_price: h.avg_price,
+            stop_loss: null,
+            take_profit: null,
+            strategy: null,
+            notes: `한국투자증권 연동 (${today})`,
+          });
+          addedCount++;
+        }
       } catch {
         failCount++;
       }
@@ -102,16 +124,18 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
 
     setImporting(false);
 
-    if (successCount > 0 && failCount === 0) {
-      toast.success(`${successCount}개 종목이 포트폴리오에 추가되었습니다.`);
-      onImported();
-      onClose();
-    } else if (successCount > 0) {
-      toast.warning(`${successCount}개 추가 성공, ${failCount}개 실패`);
+    const successCount = addedCount + updatedCount;
+    if (successCount > 0) {
+      const parts: string[] = [];
+      if (addedCount > 0) parts.push(`${addedCount}개 신규 추가`);
+      if (updatedCount > 0) parts.push(`${updatedCount}개 갱신`);
+      const msg = parts.join(", ");
+      if (failCount === 0) toast.success(msg + " 완료");
+      else toast.warning(`${msg} 완료, ${failCount}개 실패`);
       onImported();
       onClose();
     } else {
-      toast.error("종목 추가에 실패했습니다. 이미 포트폴리오에 있는 종목일 수 있습니다.");
+      toast.error("종목 추가/갱신에 실패했습니다.");
     }
   }
 

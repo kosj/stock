@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { formatNumber, formatPercent, colorByChange } from "@/lib/utils";
-import { Plus, Trash2, Pencil, RefreshCw, TrendingUp, TrendingDown, Zap, Check, Building2 } from "lucide-react";
+import { Plus, Trash2, Pencil, RefreshCw, TrendingUp, TrendingDown, Zap, Check, Building2, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { PositionModal } from "./PositionModal";
 import { PortfolioCreateModal } from "./PortfolioCreateModal";
@@ -345,9 +345,16 @@ export function PortfolioPage() {
                         <td className="py-3 px-3 tabular-nums">
                           <div className="flex items-center gap-1">
                             {formatNumber(currentPrice)}원
-                            {live && (
+                            {live ? (
                               <span className={`text-xs ${colorByChange(live.change_pct)}`}>
                                 {live.change_pct !== undefined ? formatPercent(live.change_pct) : ""}
+                              </span>
+                            ) : !pos.price_available && (
+                              <span
+                                className="text-yellow-500"
+                                title="Yahoo Finance에서 시세를 조회할 수 없어 평균단가로 표시합니다"
+                              >
+                                <AlertTriangle size={11} />
                               </span>
                             )}
                           </div>
