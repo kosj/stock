@@ -579,7 +579,7 @@ export function BrokerSettingsPage() {
             <li><strong>PBKDF2-SHA256:</strong> 100,000 iterations로 강력한 키 유도</li>
             <li><strong>Random Salt & IV:</strong> 각 저장마다 새로운 128비트 난수 생성</li>
             <li><strong>HMAC-SHA256:</strong> 데이터 무결성 및 위조 방지 검증</li>
-            <li><strong>세션 저장:</strong> 패스워드 평문은 sessionStorage (브라우저 닫으면 삭제), 해시만 localStorage에 보관</li>
+            <li><strong>영구 저장:</strong> 패스워드와 해시 모두 localStorage에 보관 — 브라우저 재시작 후 자동 복원</li>
           </ul>
         </div>
       </Card>

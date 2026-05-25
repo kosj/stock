@@ -8,11 +8,10 @@ import type { BrokerType, BrokerCredentials } from "./server/providers";
 
 export type { BrokerType, BrokerCredentials } from "./server/providers";
 
-const STORAGE_KEY_PREFIX  = "broker-config-";
-// 해시는 localStorage에 저장 — 브라우저 재시작 후에도 설정 여부 판별 가능
-const MASTER_PWD_HASH_KEY = "__master_pwd_hash__";
-// 평문 패스워드는 sessionStorage에만 — 탭/브라우저 종료 시 자동 삭제
-const MASTER_PWD_KEY      = "__master_password__";
+const STORAGE_KEY_PREFIX   = "broker-config-";
+const MASTER_PWD_HASH_KEY  = "__master_pwd_hash__";
+// 평문은 localStorage에 영구 저장 — 브라우저 재시작 후 자동 복원
+const MASTER_PWD_KEY       = "__master_password__";
 
 export interface StoredBrokerConfig {
   type: BrokerType;
@@ -30,6 +29,23 @@ function isClient(): boolean {
 // ---------------------------------------------------------------------------
 
 export class BrokerConfigManager {
+  /**
+   * 현재 활성 마스터 패스워드를 반환.
+   * sessionStorage → localStorage 순으로 탐색해 sessionStorage에 복원.
+   */
+  private static getActiveMasterPassword(): string | null {
+    if (!isClient()) return null;
+    const session = sessionStorage.getItem(MASTER_PWD_KEY);
+    if (session) return session;
+    // 브라우저 재시작 후 localStorage 영구 저장값으로 자동 복원
+    const persistent = localStorage.getItem(MASTER_PWD_KEY);
+    if (persistent) {
+      sessionStorage.setItem(MASTER_PWD_KEY, persistent);
+      return persistent;
+    }
+    return null;
+  }
+
   /** 마스터 패스워드 설정 (비동기 — SHA-256 해시 생성 필요) */
   static async setMasterPassword(password: string): Promise<void> {
     if (!isClient()) throw new Error("클라이언트 환경에서만 사용 가능합니다");
@@ -38,10 +54,9 @@ export class BrokerConfigManager {
       throw new Error("마스터 패스워드는 대문자, 소문자, 숫자를 포함해야 합니다");
     }
     const hash = await hashPassword(password);
-    // 해시는 localStorage — 브라우저 재시작 후에도 "패스워드 설정됨" 상태 유지
     localStorage.setItem(MASTER_PWD_HASH_KEY, hash);
-    // 평문은 sessionStorage — 탭/브라우저 닫으면 자동 삭제
-    sessionStorage.setItem(MASTER_PWD_KEY, password);
+    localStorage.setItem(MASTER_PWD_KEY, password);      // 영구 저장
+    sessionStorage.setItem(MASTER_PWD_KEY, password);    // 세션 복사
   }
 
   /** 마스터 패스워드 검증 (비동기) */
@@ -51,7 +66,8 @@ export class BrokerConfigManager {
     if (!stored) return false;
     const hash = await hashPassword(password);
     if (hash !== stored) return false;
-    sessionStorage.setItem(MASTER_PWD_KEY, password);
+    localStorage.setItem(MASTER_PWD_KEY, password);      // 영구 저장
+    sessionStorage.setItem(MASTER_PWD_KEY, password);    // 세션 복사
     return true;
   }
 
@@ -61,28 +77,29 @@ export class BrokerConfigManager {
     return localStorage.getItem(MASTER_PWD_HASH_KEY) !== null;
   }
 
-  /** 현재 세션이 잠금 해제 상태인지 (sessionStorage 평문 존재 여부) */
+  /** 현재 세션이 잠금 해제 상태인지 (localStorage 영구값 포함) */
   static isSessionUnlocked(): boolean {
-    if (!isClient()) return false;
-    return sessionStorage.getItem(MASTER_PWD_KEY) !== null;
+    return BrokerConfigManager.getActiveMasterPassword() !== null;
   }
 
-  /** 현재 세션 잠금 (평문만 삭제, 해시는 유지 → 다음 열 때 "비밀번호 입력" 화면) */
+  /** 현재 세션 잠금 + 영구 저장 삭제 (다음 열 때 "비밀번호 입력" 화면) */
   static clearMasterPassword(): void {
     if (!isClient()) return;
     sessionStorage.removeItem(MASTER_PWD_KEY);
+    localStorage.removeItem(MASTER_PWD_KEY);  // 영구값도 삭제
   }
 
   /** 마스터 패스워드 완전 초기화 (해시 포함 삭제 → 다음 열 때 "신규 설정" 화면) */
   static resetMasterPassword(): void {
     if (!isClient()) return;
     sessionStorage.removeItem(MASTER_PWD_KEY);
+    localStorage.removeItem(MASTER_PWD_KEY);
     localStorage.removeItem(MASTER_PWD_HASH_KEY);
   }
 
   /** 증권사 설정 저장 (비동기 — AES 암호화 필요) */
   static async saveBrokerConfig(type: BrokerType, credentials: BrokerCredentials): Promise<void> {
-    const masterPassword = sessionStorage.getItem(MASTER_PWD_KEY);
+    const masterPassword = BrokerConfigManager.getActiveMasterPassword();
     if (!masterPassword) throw new Error("마스터 패스워드로 인증 후 사용할 수 있습니다");
 
     const encrypted = await encryptWithPassword(JSON.stringify(credentials), masterPassword);
@@ -100,7 +117,7 @@ export class BrokerConfigManager {
     if (!isClient()) return null;
     const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}${type}`);
     if (!raw) return null;
-    const masterPassword = sessionStorage.getItem(MASTER_PWD_KEY);
+    const masterPassword = BrokerConfigManager.getActiveMasterPassword();
     if (!masterPassword) return null;
     try {
       const config: StoredBrokerConfig = JSON.parse(raw);

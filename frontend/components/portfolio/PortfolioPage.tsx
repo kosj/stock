@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useCallback, useEffect } from "react";
-import useSWR, { mutate as globalMutate } from "swr";
+import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -82,7 +82,7 @@ export function PortfolioPage() {
     try {
       await api.portfolio.autoFill(id);
       if (!controller.signal.aborted) {
-        await globalMutate(`portfolio-summary-${id}-${brokerKey}`);
+        await mutateSummary();
         toast.success("AI 갱신 완료", { id: toastId });
       } else {
         toast.dismiss(toastId);
@@ -94,7 +94,7 @@ export function PortfolioPage() {
     } finally {
       if (!controller.signal.aborted) setAutoFillLoading(false);
     }
-  }, []);
+  }, [mutateSummary]);
 
   // ── 포트폴리오 탭 선택 ──────────────────────────────────────────────────
   function handleSelectPortfolio(id: number) {
@@ -145,7 +145,7 @@ export function PortfolioPage() {
       if (selectedId === id) {
         setSelectedId(newPortfolios[0]?.id ?? null);
         // 요약 데이터도 초기화
-        await globalMutate(`portfolio-summary-${id}-${brokerKey}`);
+        await mutateSummary();
       }
 
       toast.success("삭제 완료");

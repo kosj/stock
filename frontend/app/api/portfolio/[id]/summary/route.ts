@@ -14,12 +14,7 @@ async function fetchQuoteWithFallback(
   ticker: string,
   broker: BrokerProvider | null,
 ): Promise<{ price: number; change: number; change_pct: number } | null> {
-  const yahoo = await getQuote(ticker);
-  if (yahoo?.price != null) {
-    return { price: yahoo.price, change: yahoo.change, change_pct: yahoo.change_pct };
-  }
-
-  // Yahoo 실패 + 브로커 + 국내 6자리 코드 → KIS 폴백
+  // 국내 6자리 코드 + 브로커 → KIS 우선 (Yahoo보다 정확)
   if (broker && KR_CODE.test(ticker)) {
     try {
       const q = await broker.getQuote(ticker);
@@ -27,9 +22,16 @@ async function fetchQuoteWithFallback(
         return { price: q.price, change: q.change, change_pct: q.change_rate };
       }
     } catch {
-      // 조용히 무시
+      // KIS 실패 → Yahoo 폴백으로 진행
     }
   }
+
+  // Yahoo Finance (해외 종목 기본 또는 KIS 실패 시 폴백)
+  const yahoo = await getQuote(ticker);
+  if (yahoo?.price != null && yahoo.price > 0) {
+    return { price: yahoo.price, change: yahoo.change, change_pct: yahoo.change_pct };
+  }
+
   return null;
 }
 
