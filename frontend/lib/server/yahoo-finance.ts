@@ -86,6 +86,46 @@ export async function getIndexFromNaver(yahooSymbol: string): Promise<QuoteData 
   }
 }
 
+// ── 네이버 파이낸스 개별 종목 시세 조회 ─────────────────────────────────────
+// Yahoo Finance가 Vercel에서 차단될 때 국내 6자리 코드 종목에 사용
+
+async function getQuoteFromNaver(ticker: string): Promise<QuoteData | null> {
+  if (!KR_CODE.test(ticker)) return null;
+  try {
+    const res = await fetch(
+      `https://m.stock.naver.com/api/stock/${ticker}/basic`,
+      {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; stock-dashboard/1.0)" },
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+    if (!res.ok) return null;
+    const j = await res.json();
+    const d = j.stockItemTotal ?? j;
+    const toNum = (v: unknown) =>
+      parseFloat(String(v ?? "0").replace(/[,+%\s]/g, "")) || 0;
+    const price = toNum(d.closePrice ?? d.currentPrice);
+    if (price <= 0) return null;
+    const change     = toNum(d.compareToPreviousClosePrice);
+    const change_pct = toNum(d.fluctuationsRatio);
+    return {
+      ticker,
+      name:       String(d.stockName || d.reutersCode || ticker),
+      price,
+      change,
+      change_pct,
+      volume:     toNum(d.accumulatedTradingVolume),
+      high:       toNum(d.highPrice)  || price,
+      low:        toNum(d.lowPrice)   || price,
+      open:       toNum(d.openPrice)  || price,
+      prev_close: price - change,
+      timestamp:  new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── 직접 Yahoo Finance v8 HTTP 폴백 ──────────────────────────────────────────
 // yahoo-finance2 라이브러리가 클라우드 서버에서 실패할 때 사용
 
@@ -178,10 +218,21 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
   // yahoo-finance2 라이브러리 실패 → 직접 Yahoo Finance v8 API 재시도
   const direct = await getQuoteDirect(yt);
   if (direct) {
-    direct.ticker = ticker; // 원래 티커로 복원
+    direct.ticker = ticker;
     cacheSet(key, direct, TTL.QUOTE);
+    return direct;
   }
-  return direct;
+
+  // Yahoo v8도 실패 (Vercel IP 차단) → 국내 종목은 네이버 파이낸스로 폴백
+  if (KR_CODE.test(ticker)) {
+    const naver = await getQuoteFromNaver(ticker);
+    if (naver) {
+      cacheSet(key, naver, TTL.QUOTE);
+      return naver;
+    }
+  }
+
+  return null;
 }
 
 // ── 차트 데이터 ───────────────────────────────────────────────────────────────
