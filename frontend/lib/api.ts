@@ -60,7 +60,19 @@ export const api = {
   },
 
   market: {
-    search: (q: string) => request(`/api/market/search?q=${encodeURIComponent(q)}`),
+    search: (
+      q: string,
+      brokerCreds?: { type: string; appKey: string; appSecret: string } | null,
+    ) =>
+      request(`/api/market/search?q=${encodeURIComponent(q)}`, {
+        headers: brokerCreds
+          ? {
+              "X-Broker-Type": brokerCreds.type,
+              "X-App-Key":     brokerCreds.appKey,
+              "X-App-Secret":  brokerCreds.appSecret,
+            }
+          : {},
+      }),
     quote: (
       ticker: string,
       brokerCreds?: { type: string; appKey: string; appSecret: string } | null,
@@ -77,7 +89,18 @@ export const api = {
     chart: (ticker: string, period = "1y") =>
       request(`/api/market/chart/${ticker}?period=${period}`),
     financials: (ticker: string) => request(`/api/market/financials/${ticker}`),
-    indices: () => request("/api/market/indices"),
+    indices: (
+      brokerCreds?: { type: string; appKey: string; appSecret: string } | null,
+    ) =>
+      request("/api/market/indices", {
+        headers: brokerCreds
+          ? {
+              "X-Broker-Type": brokerCreds.type,
+              "X-App-Key":     brokerCreds.appKey,
+              "X-App-Secret":  brokerCreds.appSecret,
+            }
+          : {},
+      }),
   },
 
   analysis: {

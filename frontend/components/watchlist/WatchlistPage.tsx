@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { BrokerConfigManager } from "@/lib/apiConfig";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -47,6 +48,8 @@ async function fetchWatchlistWithPrices(): Promise<(WatchlistItem & { quote: Quo
   }));
 }
 
+type BrokerCreds = { type: string; appKey: string; appSecret: string } | null;
+
 export function WatchlistPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -54,8 +57,16 @@ export function WatchlistPage() {
   const [searching, setSearching] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [removing, setRemoving] = useState<number | null>(null);
+  const [brokerCreds, setBrokerCreds] = useState<BrokerCreds>(null);
   const searchRef = useRef<HTMLDivElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    BrokerConfigManager.getDefaultBrokerConfig().then((config) => {
+      if (!config) return;
+      setBrokerCreds({ type: config.type, appKey: config.credentials.appKey, appSecret: config.credentials.appSecret });
+    });
+  }, []);
 
   const { data: items, isLoading, mutate } = useSWR(
     "watchlist-with-prices",
@@ -86,7 +97,7 @@ export function WatchlistPage() {
     searchTimer.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const results = await api.market.search(q) as SearchResult[];
+        const results = await api.market.search(q, brokerCreds) as SearchResult[];
         setSearchResults(results.slice(0, 8));
         setSearchOpen(results.length > 0);
       } catch {

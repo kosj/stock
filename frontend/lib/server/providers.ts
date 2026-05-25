@@ -42,6 +42,13 @@ export interface BrokerHolding {
   pnl_rate: number;
 }
 
+export interface StockSearchResult {
+  ticker: string;
+  name: string;
+  market: string;
+  sector: string;
+}
+
 export abstract class BrokerProvider {
   protected credentials: BrokerCredentials;
 
@@ -53,6 +60,7 @@ export abstract class BrokerProvider {
   abstract getIndices(): Promise<Record<string, IndexDataResponse>>;
   abstract getPositions(): Promise<BrokerHolding[]>;
   abstract validateCredentials(): Promise<boolean>;
+  abstract searchStocks(query: string): Promise<StockSearchResult[]>;
 }
 
 // ── 한국투자증권 (KIS) API ────────────────────────────────────────────────────
@@ -262,9 +270,59 @@ export class KISProvider extends BrokerProvider {
       };
     }
   }
+
+  async searchStocks(query: string): Promise<StockSearchResult[]> {
+    // 6자리 코드 → 직접 시세 조회로 결과 반환
+    if (/^\d{6}$/.test(query)) {
+      try {
+        const q = await this.getQuote(query);
+        return [{ ticker: query, name: q.name, market: 'KSE', sector: '' }];
+      } catch {
+        return [];
+      }
+    }
+
+    // 종목명 검색 (KIS search-stock-info)
+    try {
+      const token = await this.getAccessToken();
+      const res = await axios.get(
+        `${KIS_BASE}/uapi/domestic-stock/v1/quotations/search-stock-info`,
+        {
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            authorization: `Bearer ${token}`,
+            appkey: this.credentials.appKey,
+            appsecret: this.credentials.appSecret,
+            tr_id: 'CTPF1604R',
+            custtype: 'P',
+          },
+          params: { PRDT_TYPE_CD: '300', PDNO: query },
+          timeout: 5000,
+        },
+      );
+
+      if (res.data.rt_cd !== '0') return [];
+
+      const raw = res.data.output;
+      const output: any[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+      return output
+        .slice(0, 10)
+        .map((item: any) => ({
+          ticker: (item.pdno ?? '').trim(),
+          name:   item.prdt_abrv_name || item.prdt_name || item.pdno || '',
+          market: 'KSE',
+          sector: item.bstp_kor_isnm ?? '',
+        }))
+        .filter((r) => r.ticker);
+    } catch (err) {
+      console.error('[KIS] searchStocks error:', err);
+      return [];
+    }
+  }
 }
 
-// ── 프로바이더 팩토리 ─────────────────────────────────────────────────────────
+// ── 프로바이더 팩토리 ────────────────────────────────────────────────────────
 
 export function createBrokerProvider(type: BrokerType, credentials: BrokerCredentials): BrokerProvider {
   switch (type) {

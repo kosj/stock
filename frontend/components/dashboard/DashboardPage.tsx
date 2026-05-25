@@ -1,15 +1,33 @@
 "use client";
+import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
+import { BrokerConfigManager } from "@/lib/apiConfig";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatNumber, formatPercent, colorByChange } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus, RefreshCw } from "lucide-react";
 import Link from "next/link";
 
+type BrokerCreds = { type: string; appKey: string; appSecret: string } | null;
+
 export function DashboardPage() {
+  const [brokerCreds, setBrokerCreds] = useState<BrokerCreds>(null);
+
+  useEffect(() => {
+    BrokerConfigManager.getDefaultBrokerConfig().then((config) => {
+      if (!config) return;
+      setBrokerCreds({
+        type:      config.type,
+        appKey:    config.credentials.appKey,
+        appSecret: config.credentials.appSecret,
+      });
+    });
+  }, []);
+
+  const brokerKey = brokerCreds?.type ?? "yahoo";
   const { data: indicesRaw, isLoading: idxLoading, mutate: refreshIdx } = useSWR<any>(
-    "market-indices",
-    () => api.market.indices(),
+    `market-indices-${brokerKey}`,
+    () => api.market.indices(brokerCreds),
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,

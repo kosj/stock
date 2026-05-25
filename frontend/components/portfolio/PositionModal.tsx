@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
+import { BrokerConfigManager } from "@/lib/apiConfig";
 import { Button } from "@/components/ui/Button";
 import { toast } from "sonner";
 import { X, Search, Zap, Loader2 } from "lucide-react";
@@ -37,7 +38,15 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
   const [searchLoading, setSearchLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isValidated, setIsValidated] = useState(isEdit); // 수정 모드는 이미 유효
+  const [brokerCreds, setBrokerCreds] = useState<{ type: string; appKey: string; appSecret: string } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    BrokerConfigManager.getDefaultBrokerConfig().then((config) => {
+      if (!config) return;
+      setBrokerCreds({ type: config.type, appKey: config.credentials.appKey, appSecret: config.credentials.appSecret });
+    });
+  }, []);
 
   // AI 채우기 상태
   const [aiLoading, setAiLoading] = useState(false);
@@ -64,7 +73,7 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
     searchTimer.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const data = await api.market.search(val) as SearchResult[];
+        const data = await api.market.search(val, brokerCreds) as SearchResult[];
         setSearchResults(data.slice(0, 8));
         setShowDropdown(data.length > 0);
       } catch {

@@ -1,10 +1,13 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
+import { BrokerConfigManager } from "@/lib/apiConfig";
 import { Card } from "@/components/ui/Card";
 import { Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
+type BrokerCreds = { type: string; appKey: string; appSecret: string } | null;
 
 const POPULAR = [
   { ticker: "005930", name: "삼성전자" },
@@ -21,17 +24,25 @@ export function MarketSearchPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [brokerCreds, setBrokerCreds] = useState<BrokerCreds>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    BrokerConfigManager.getDefaultBrokerConfig().then((config) => {
+      if (!config) return;
+      setBrokerCreds({ type: config.type, appKey: config.credentials.appKey, appSecret: config.credentials.appSecret });
+    });
+  }, []);
 
   const search = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); return; }
     setLoading(true);
     try {
-      const data = await api.market.search(q);
+      const data = await api.market.search(q, brokerCreds);
       setResults(data as any[]);
     } catch {}
     finally { setLoading(false); }
-  }, []);
+  }, [brokerCreds]);
 
   async function handleKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && query.trim()) {
