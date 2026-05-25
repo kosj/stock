@@ -358,6 +358,35 @@ export interface SearchResult {
   sector: string;
 }
 
+// 네이버 증권 자동완성 API — Vercel에서도 차단 없이 동작
+export async function searchStocksNaver(query: string): Promise<SearchResult[]> {
+  try {
+    const url = `https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; stock-dashboard/1.0)",
+        "Referer":    "https://finance.naver.com/",
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    // items: [[종목명, 종목코드, 시장], ...]
+    const items: unknown[][] = Array.isArray(data.items) ? data.items : [];
+    return items
+      .filter((item) => item[1])
+      .slice(0, 20)
+      .map((item) => ({
+        ticker: String(item[1]),
+        name:   String(item[0]),
+        market: String(item[2] ?? ""),
+        sector: "",
+      }));
+  } catch {
+    return [];
+  }
+}
+
 // Yahoo Finance 검색 결과를 SearchResult[]로 파싱하는 공통 헬퍼
 function parseYahooQuotes(quotes: any[]): SearchResult[] {
   return quotes
