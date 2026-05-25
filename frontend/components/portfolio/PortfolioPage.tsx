@@ -335,7 +335,10 @@ export function PortfolioPage() {
                         style={{ borderColor: "var(--border)" }}
                       >
                         <td className="py-3 px-3">
-                          <Link href={`/market/${pos.ticker}`} className="hover:text-blue-400 transition-colors">
+                          <Link
+                            href={`/market/${pos.ticker}?avg_price=${pos.avg_price}&quantity=${pos.quantity}`}
+                            className="hover:text-blue-400 transition-colors"
+                          >
                             <div className="font-medium">{pos.name}</div>
                             <div className="text-xs text-muted-foreground">{pos.ticker}</div>
                           </Link>

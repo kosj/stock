@@ -61,7 +61,19 @@ export const api = {
 
   market: {
     search: (q: string) => request(`/api/market/search?q=${encodeURIComponent(q)}`),
-    quote: (ticker: string) => request(`/api/market/quote/${ticker}`),
+    quote: (
+      ticker: string,
+      brokerCreds?: { type: string; appKey: string; appSecret: string } | null,
+    ) =>
+      request(`/api/market/quote/${ticker}`, {
+        headers: brokerCreds
+          ? {
+              "X-Broker-Type": brokerCreds.type,
+              "X-App-Key":     brokerCreds.appKey,
+              "X-App-Secret":  brokerCreds.appSecret,
+            }
+          : {},
+      }),
     chart: (ticker: string, period = "1y") =>
       request(`/api/market/chart/${ticker}?period=${period}`),
     financials: (ticker: string) => request(`/api/market/financials/${ticker}`),
@@ -69,11 +81,20 @@ export const api = {
   },
 
   analysis: {
-    get: (ticker: string, anthropicKey?: string) => {
+    get: (
+      ticker: string,
+      anthropicKey?: string,
+      avgPrice?: number,
+      quantity?: number,
+    ) => {
       const key = anthropicKey || (typeof window !== 'undefined'
         ? localStorage.getItem('api-key-anthropic') ?? ''
         : '');
-      return request(`/api/analysis/${ticker}`, {
+      const params = new URLSearchParams();
+      if (avgPrice) params.set("avg_price", String(avgPrice));
+      if (quantity) params.set("quantity", String(quantity));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return request(`/api/analysis/${ticker}${qs}`, {
         headers: key ? { 'X-Anthropic-Key': key } : {},
       });
     },

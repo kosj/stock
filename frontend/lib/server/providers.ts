@@ -17,6 +17,10 @@ export interface StockQuoteResponse {
   change_rate: number;
   volume: number;
   market_cap: number;
+  high: number;
+  low: number;
+  open: number;
+  prev_close: number;
   timestamp: string;
 }
 
@@ -193,15 +197,21 @@ export class KISProvider extends BrokerProvider {
       );
 
       const d = res.data.output ?? {};
+      const price = parseInt(d.stck_prpr, 10) || 0;
+      const change = parseInt(d.prdy_vrss, 10) || 0;
       return {
         ticker,
-        name: d.hts_kor_isnm ?? `Stock ${ticker}`,
-        price: parseInt(d.stck_prpr, 10) || 0,
-        change: parseInt(d.prdy_vrss, 10) || 0,
+        name:       d.hts_kor_isnm ?? `Stock ${ticker}`,
+        price,
+        change,
         change_rate: parseFloat(d.prdy_ctrt) || 0,
-        volume: parseInt(d.acml_vol, 10) || 0,
-        market_cap: 0,
-        timestamp: new Date().toISOString(),
+        volume:      parseInt(d.acml_vol, 10) || 0,
+        market_cap:  0,
+        high:        parseInt(d.stck_hgpr, 10) || price,
+        low:         parseInt(d.stck_lwpr, 10) || price,
+        open:        parseInt(d.stck_oprc, 10) || price,
+        prev_close:  parseInt(d.stck_sdpr, 10) || (price - change),
+        timestamp:   new Date().toISOString(),
       };
     } catch (err) {
       console.error(`[KIS] getQuote ${ticker}:`, err);

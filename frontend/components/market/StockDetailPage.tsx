@@ -1,13 +1,14 @@
 "use client";
 import useSWR from "swr";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { BrokerConfigManager } from "@/lib/apiConfig";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { StockChart, RsiChart, MacdChart } from "@/components/charts/StockChart";
 import { formatNumber, formatPercent, colorByChange, recommendationColor } from "@/lib/utils";
-import { TrendingUp, TrendingDown, RefreshCw, Zap } from "lucide-react";
+import { TrendingUp, TrendingDown, RefreshCw, Zap, Calendar, DollarSign } from "lucide-react";
 
 const PERIODS = ["1m", "3m", "6m", "1y", "2y", "5y"] as const;
 type Period = typeof PERIODS[number];
@@ -17,22 +18,53 @@ const PERIOD_LABELS: Record<Period, string> = {
   "1y": "1년", "2y": "2년", "5y": "5년",
 };
 
-export function StockDetailPage({ ticker }: { ticker: string }) {
+interface Props {
+  ticker: string;
+  avgPrice?: number | null;
+  quantity?: number | null;
+}
+
+type BrokerCreds = { type: string; appKey: string; appSecret: string } | null;
+
+function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "-";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
+}
+
+export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   const [period, setPeriod] = useState<Period>("1y");
-  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [brokerCreds, setBrokerCreds] = useState<BrokerCreds>(null);
+  const [brokerCredsLoaded, setBrokerCredsLoaded] = useState(false);
+
+  useEffect(() => {
+    BrokerConfigManager.getDefaultBrokerConfig().then((config) => {
+      if (config?.credentials) {
+        setBrokerCreds({
+          type:      config.type,
+          appKey:    config.credentials.appKey,
+          appSecret: config.credentials.appSecret,
+        });
+      }
+      setBrokerCredsLoaded(true);
+    });
+  }, []);
 
   const swrConfig = {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
     revalidateIfStale: false,
-    dedupingInterval: 0
+    dedupingInterval: 0,
   };
 
+  // broker 로드 완료 후 시세 조회 (broker 있으면 KIS, 없으면 Yahoo)
   const { data: quote, mutate: refreshQuote } = useSWR(
-    `quote-${ticker}`,
-    () => api.market.quote(ticker),
+    brokerCredsLoaded ? `quote-${ticker}-${brokerCreds?.type ?? "yahoo"}` : null,
+    () => api.market.quote(ticker, brokerCreds ?? undefined),
     swrConfig,
   );
+
   const { data: chart, isLoading: chartLoading } = useSWR(
     `chart-${ticker}-${period}`,
     () => api.market.chart(ticker, period),
@@ -41,11 +73,16 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
   const { data: financials } = useSWR(
     `financials-${ticker}`,
     () => api.market.financials(ticker),
-    swrConfig
+    swrConfig,
   );
+
+  // avg_price/quantity 가 있으면 분석 URL에 포함 → 포지션 맞춤 분석
+  const analysisKey = avgPrice
+    ? `analysis-${ticker}-${avgPrice}-${quantity ?? 0}`
+    : `analysis-${ticker}`;
   const { data: analysis, mutate: refreshAnalysis, isLoading: isAnalyzing } = useSWR(
-    `analysis-${ticker}`,
-    () => api.analysis.get(ticker),
+    analysisKey,
+    () => api.analysis.get(ticker, undefined, avgPrice ?? undefined, quantity ?? undefined),
     swrConfig,
   );
 
@@ -55,6 +92,11 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
   const a = analysis as any;
 
   const priceChange = q?.change ?? 0;
+  const hasPosition = avgPrice != null && avgPrice > 0;
+  const currentPrice = q?.price;
+  const positionPnlPct = hasPosition && currentPrice
+    ? ((currentPrice - avgPrice!) / avgPrice!) * 100
+    : null;
 
   return (
     <div className="p-6 space-y-5">
@@ -66,8 +108,9 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
               {f?.name ?? q?.name ?? ticker}
             </h1>
             <span className="text-sm text-muted-foreground">{ticker}</span>
-            {f?.sector && (
-              <Badge variant="blue">{f.sector}</Badge>
+            {f?.sector && <Badge variant="blue">{f.sector}</Badge>}
+            {q?.source && q.source !== "yahoo" && (
+              <Badge variant="green">{(q.source as string).toUpperCase()} 시세</Badge>
             )}
           </div>
           {q && (
@@ -80,6 +123,19 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
                 {formatPercent(q.change_pct)}
                 <span className="text-sm">({priceChange >= 0 ? "+" : ""}{formatNumber(q.change)})</span>
               </span>
+            </div>
+          )}
+          {/* 보유 포지션 요약 */}
+          {hasPosition && (
+            <div className="flex items-center gap-3 mt-1.5 text-sm">
+              <span className="text-muted-foreground">
+                {quantity ? `보유 ${formatNumber(quantity)}주 · ` : ""}평균단가 {formatNumber(avgPrice!)}원
+              </span>
+              {positionPnlPct !== null && (
+                <span className={`font-semibold ${colorByChange(positionPnlPct)}`}>
+                  {positionPnlPct >= 0 ? "+" : ""}{positionPnlPct.toFixed(2)}%
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -134,31 +190,70 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
       </Card>
 
       <div className="grid md:grid-cols-2 gap-5">
-        {/* 재무 지표 */}
+        {/* 재무 지표 + 주요 일정 */}
         <Card>
           <CardHeader><CardTitle>재무 지표</CardTitle></CardHeader>
           {f ? (
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-              {[
-                { label: "시가총액",  value: f.market_cap ? `${(f.market_cap / 1e12).toFixed(1)}조` : "-" },
-                { label: "PER",       value: f.per ? `${f.per.toFixed(1)}배` : "-" },
-                { label: "PBR",       value: f.pbr ? `${f.pbr.toFixed(2)}배` : "-" },
-                { label: "ROE",       value: f.roe ? `${f.roe.toFixed(1)}%` : "-" },
-                { label: "영업이익률",value: f.operating_margin ? `${f.operating_margin.toFixed(1)}%` : "-" },
-                { label: "매출 성장", value: f.revenue_growth ? `${(f.revenue_growth).toFixed(1)}%` : "-" },
-                { label: "EPS 성장",  value: f.earnings_growth ? `${(f.earnings_growth).toFixed(1)}%` : "-" },
-                { label: "배당수익률",value: f.dividend_yield ? `${f.dividend_yield.toFixed(2)}%` : "-" },
-                { label: "베타",      value: f.beta ? f.beta.toFixed(2) : "-" },
-                { label: "52주 고가", value: f.week_52_high ? `${formatNumber(f.week_52_high)}원` : "-" },
-                { label: "52주 저가", value: f.week_52_low  ? `${formatNumber(f.week_52_low)}원`  : "-" },
-                { label: "D/E 비율",  value: f.debt_to_equity ? f.debt_to_equity.toFixed(1) : "-" },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex justify-between py-1.5 border-b" style={{ borderColor: "var(--border)" }}>
-                  <span className="text-muted-foreground">{label}</span>
-                  <span className="font-medium tabular-nums">{value}</span>
+            <>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                {[
+                  { label: "시가총액",   value: f.market_cap ? `${(f.market_cap / 1e12).toFixed(1)}조` : "-" },
+                  { label: "PER",        value: f.per ? `${f.per.toFixed(1)}배` : "-" },
+                  { label: "PBR",        value: f.pbr ? `${f.pbr.toFixed(2)}배` : "-" },
+                  { label: "ROE",        value: f.roe ? `${f.roe.toFixed(1)}%` : "-" },
+                  { label: "영업이익률", value: f.operating_margin ? `${f.operating_margin.toFixed(1)}%` : "-" },
+                  { label: "매출 성장",  value: f.revenue_growth ? `${f.revenue_growth.toFixed(1)}%` : "-" },
+                  { label: "EPS 성장",   value: f.earnings_growth ? `${f.earnings_growth.toFixed(1)}%` : "-" },
+                  { label: "배당수익률", value: f.dividend_yield ? `${f.dividend_yield.toFixed(2)}%` : "-" },
+                  { label: "베타",       value: f.beta ? f.beta.toFixed(2) : "-" },
+                  { label: "52주 고가",  value: f.week_52_high ? `${formatNumber(f.week_52_high)}원` : "-" },
+                  { label: "52주 저가",  value: f.week_52_low  ? `${formatNumber(f.week_52_low)}원`  : "-" },
+                  { label: "D/E 비율",   value: f.debt_to_equity ? f.debt_to_equity.toFixed(1) : "-" },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex justify-between py-1.5 border-b" style={{ borderColor: "var(--border)" }}>
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="font-medium tabular-nums">{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* 주요 일정 */}
+              {(f.next_earnings_date || f.ex_dividend_date || f.dividend_date) && (
+                <div className="mt-4 pt-4 border-t space-y-2" style={{ borderColor: "var(--border)" }}>
+                  <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5 mb-2">
+                    <Calendar size={12} />
+                    주요 일정
+                  </div>
+                  {f.next_earnings_date && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground flex items-center gap-1.5">
+                        <Zap size={11} className="text-yellow-400" />
+                        실적발표 예정
+                      </span>
+                      <span className="font-medium text-yellow-400">{formatDate(f.next_earnings_date)}</span>
+                    </div>
+                  )}
+                  {f.ex_dividend_date && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground flex items-center gap-1.5">
+                        <DollarSign size={11} className="text-green-400" />
+                        배당락일
+                      </span>
+                      <span className="font-medium text-green-400">{formatDate(f.ex_dividend_date)}</span>
+                    </div>
+                  )}
+                  {f.dividend_date && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground flex items-center gap-1.5">
+                        <DollarSign size={11} className="text-blue-400" />
+                        배당지급일
+                      </span>
+                      <span className="font-medium text-blue-400">{formatDate(f.dividend_date)}</span>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           ) : (
             <div className="text-muted-foreground text-sm">데이터 로딩 중...</div>
           )}
@@ -167,7 +262,14 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
         {/* AI 분석 */}
         <Card>
           <CardHeader>
-            <CardTitle>AI 분석</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              AI 분석
+              {hasPosition && (
+                <span className="text-xs font-normal text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">
+                  포지션 반영
+                </span>
+              )}
+            </CardTitle>
             <Button size="sm" variant="ghost" onClick={() => refreshAnalysis()} disabled={isAnalyzing}>
               <Zap size={13} className={isAnalyzing ? "animate-pulse text-yellow-400" : ""} />
               {isAnalyzing ? "분석 중..." : "재분석"}
@@ -180,23 +282,29 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
           )}
           {a && !isAnalyzing && (
             <div className="space-y-4">
-              {/* 투자 의견 */}
+              {/* 투자 의견 + 점수 + 내 수익률 */}
               <div className="flex items-center gap-3">
                 <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${recommendationColor(a.recommendation)}`}>
                   {a.recommendation}
                 </span>
-                <div>
-                  <div className="text-2xl font-bold">{a.score.toFixed(0)}<span className="text-sm text-muted-foreground">/100</span></div>
+                <div className="text-2xl font-bold">
+                  {a.score.toFixed(0)}
+                  <span className="text-sm text-muted-foreground">/100</span>
                 </div>
+                {a.pnl_pct != null && (
+                  <div className={`ml-auto text-sm font-semibold ${colorByChange(a.pnl_pct)}`}>
+                    내 수익률&nbsp;{a.pnl_pct >= 0 ? "+" : ""}{a.pnl_pct.toFixed(1)}%
+                  </div>
+                )}
               </div>
 
               {/* 점수 바 */}
               <div className="space-y-1.5">
                 {[
                   { label: "밸류에이션", score: a.score_breakdown.valuation_score, max: 25 },
-                  { label: "성장성",    score: a.score_breakdown.growth_score,    max: 25 },
-                  { label: "기술적",    score: a.score_breakdown.technical_score, max: 25 },
-                  { label: "섹터",      score: a.score_breakdown.sector_score,    max: 25 },
+                  { label: "성장성",     score: a.score_breakdown.growth_score,    max: 25 },
+                  { label: "기술적",     score: a.score_breakdown.technical_score, max: 25 },
+                  { label: "섹터",       score: a.score_breakdown.sector_score,    max: 25 },
                 ].map(({ label, score, max }) => (
                   <div key={label} className="flex items-center gap-2 text-xs">
                     <span className="w-16 text-muted-foreground">{label}</span>
@@ -220,12 +328,22 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
                   <div className="flex-1 rounded-lg p-2.5 text-center" style={{ background: "rgba(34,197,94,0.08)" }}>
                     <div className="text-xs text-green-400 mb-0.5">목표가</div>
                     <div className="font-bold text-green-400">{formatNumber(a.target_price)}원</div>
+                    {hasPosition && (
+                      <div className="text-xs text-green-400/70 mt-0.5">
+                        평단 대비 +{(((a.target_price - avgPrice!) / avgPrice!) * 100).toFixed(1)}%
+                      </div>
+                    )}
                   </div>
                 )}
                 {a.stop_price && (
                   <div className="flex-1 rounded-lg p-2.5 text-center" style={{ background: "rgba(239,68,68,0.08)" }}>
                     <div className="text-xs text-red-400 mb-0.5">손절가</div>
                     <div className="font-bold text-red-400">{formatNumber(a.stop_price)}원</div>
+                    {hasPosition && (
+                      <div className="text-xs text-red-400/70 mt-0.5">
+                        평단 대비 {(((a.stop_price - avgPrice!) / avgPrice!) * 100).toFixed(1)}%
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -245,9 +363,9 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
                 <div>
                   <div className="text-xs text-green-400 font-semibold mb-1.5">상승 촉매</div>
                   <ul className="space-y-1">
-                    {a.catalysts?.map((c: string, i: number) => (
+                    {a.catalysts?.map((cat: string, i: number) => (
                       <li key={i} className="text-xs text-muted-foreground flex gap-1">
-                        <span className="text-green-400 mt-0.5">•</span>{c}
+                        <span className="text-green-400 mt-0.5">•</span>{cat}
                       </li>
                     ))}
                   </ul>

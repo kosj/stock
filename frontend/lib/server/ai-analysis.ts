@@ -118,22 +118,31 @@ async function claudeAnalysis(
   score: number,
   recommendation: string,
   breakdown: Record<string, unknown>,
-  apiKey: string
+  apiKey: string,
+  position?: { avgPrice: number; quantity: number; pnlPct: number } | null
 ): Promise<Record<string, unknown>> {
-  if (!apiKey) return fallback(ticker, name, score, recommendation, breakdown);
+  if (!apiKey) return fallback(ticker, name, score, recommendation, breakdown, position);
 
   try {
     const client = new Anthropic({ apiKey });
     const allNotes = (breakdown.all_notes as string[]) ?? [];
 
+    const positionSection = position
+      ? `\n## 보유 포지션\n보유수량: ${position.quantity}주 | 평균단가: ${position.avgPrice.toLocaleString()}원 | 현재 수익률: ${position.pnlPct >= 0 ? "+" : ""}${position.pnlPct.toFixed(1)}%\n`
+      : "";
+
+    const positionInstruction = position
+      ? `\n보유 포지션(평균단가 ${position.avgPrice.toLocaleString()}원, 수익률 ${position.pnlPct.toFixed(1)}%)을 고려한 매도/보유/추가매수 여부도 언급하세요.`
+      : "";
+
     const prompt = `당신은 20년 경력의 국내 증권사 수석 애널리스트입니다.
-아래 데이터를 기반으로 ${name || ticker}(${ticker})에 대한 투자 분석을 작성하세요.
+아래 데이터를 기반으로 ${name || ticker}(${ticker})에 대한 투자 분석을 작성하세요.${positionInstruction}
 
 ## 기본 분석
 - 투자의견: ${recommendation} / 종합 점수: ${score.toFixed(1)}/100
 - 밸류에이션: ${(breakdown.valuation_score as number).toFixed(1)}/25 | 성장성: ${(breakdown.growth_score as number).toFixed(1)}/25
 - 기술적분석: ${(breakdown.technical_score as number).toFixed(1)}/25 | 섹터: ${(breakdown.sector_score as number).toFixed(1)}/25
-
+${positionSection}
 ## 재무
 PER ${financials.per ?? "N/A"} | PBR ${financials.pbr ?? "N/A"} | ROE ${financials.roe ?? "N/A"}%
 영업이익률 ${financials.operating_margin ?? "N/A"}% | 매출성장 ${financials.revenue_growth ?? "N/A"}% | 섹터 ${financials.sector ?? "N/A"}
@@ -159,7 +168,7 @@ JSON으로만 응답:
 
     return JSON.parse(text);
   } catch {
-    return fallback(ticker, name, score, recommendation, breakdown);
+    return fallback(ticker, name, score, recommendation, breakdown, position);
   }
 }
 
@@ -168,12 +177,16 @@ function fallback(
   name: string | null,
   score: number,
   recommendation: string,
-  breakdown: Record<string, unknown>
+  breakdown: Record<string, unknown>,
+  position?: { avgPrice: number; quantity: number; pnlPct: number } | null
 ): Record<string, unknown> {
   const n = name || ticker;
   const sentiment = score >= 60 ? "긍정적" : score >= 40 ? "중립적" : "부정적";
+  const posNote = position
+    ? ` 현재 평균단가 ${position.avgPrice.toLocaleString()}원 대비 ${position.pnlPct >= 0 ? "+" : ""}${position.pnlPct.toFixed(1)}% 수익률입니다.`
+    : "";
   return {
-    summary: `${n}은(는) 종합 점수 ${score.toFixed(0)}점으로 ${recommendation} 의견입니다. ${sentiment} 흐름이 관찰됩니다. 분할 접근을 권고합니다.`,
+    summary: `${n}은(는) 종합 점수 ${score.toFixed(0)}점으로 ${recommendation} 의견입니다.${posNote} ${sentiment} 흐름이 관찰됩니다. 분할 접근을 권고합니다.`,
     valuation_analysis: `밸류에이션 점수 ${(breakdown.valuation_score as number).toFixed(0)}/25점. 업종 평균 대비 검토 필요.`,
     technical_analysis: `기술적 점수 ${(breakdown.technical_score as number).toFixed(0)}/25점. 이동평균선 배열 모니터링 권고.`,
     risk_factors: ["거시경제 불확실성", "환율 변동 리스크", "업종 경쟁 심화"],
@@ -189,7 +202,9 @@ export async function analyzeStock(
   financials: FinancialsData,
   signals: Record<string, unknown>,
   sectors: Record<string, unknown>[],
-  anthropicApiKey = ""
+  anthropicApiKey = "",
+  avgPrice: number | null = null,
+  quantity: number | null = null,
 ) {
   const sectorName = financials.sector || financials.industry;
   const v = calcValuation(financials);
@@ -210,12 +225,23 @@ export async function analyzeStock(
     all_notes:        allNotes,
   };
 
+  const current = (signals.current_price as number | null) || financials.week_52_high;
+
+  // 보유 포지션 컨텍스트 계산
+  const position =
+    avgPrice && avgPrice > 0 && current
+      ? {
+          avgPrice,
+          quantity: quantity ?? 0,
+          pnlPct: ((current - avgPrice) / avgPrice) * 100,
+        }
+      : null;
+
   const aiData = await claudeAnalysis(
     ticker, financials.name, financials, signals,
-    total, recommendation, breakdown, anthropicApiKey
+    total, recommendation, breakdown, anthropicApiKey, position
   );
 
-  const current = (signals.current_price as number | null) || financials.week_52_high;
   const targetPrice = current && ["Buy", "Strong Buy"].includes(recommendation)
     ? Math.round(current * 1.2) : null;
   const stopPrice = current ? Math.round(current * 0.92) : null;
@@ -229,6 +255,9 @@ export async function analyzeStock(
     target_price:       targetPrice,
     stop_price:         stopPrice,
     current_price:      current,
+    avg_price:          avgPrice,
+    quantity:           quantity,
+    pnl_pct:            position?.pnlPct ?? null,
     summary:            aiData.summary ?? "",
     valuation_analysis: aiData.valuation_analysis ?? "",
     technical_analysis: aiData.technical_analysis ?? "",

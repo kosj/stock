@@ -40,7 +40,7 @@ function cacheSet<T>(key: string, data: T, ttlMs: number) {
   _cache.set(key, { data, exp: Date.now() + ttlMs });
 }
 
-const TTL = { QUOTE: 60_000, CHART: 300_000, FINANCIALS: 3_600_000, SEARCH: 600_000 };
+const TTL = { QUOTE: 60_000, CHART: 300_000, FINANCIALS: 3_600_000, SEARCH: 600_000, CALENDAR: 3_600_000 };
 
 // ── 시세 조회 ─────────────────────────────────────────────────────────────────
 
@@ -167,6 +167,10 @@ export interface FinancialsData {
   week_52_low: number | null;
   employees: number | null;
   summary: string | null;
+  // 주요 일정
+  next_earnings_date: string | null;
+  ex_dividend_date: string | null;
+  dividend_date: string | null;
 }
 
 export async function getFinancials(ticker: string): Promise<FinancialsData> {
@@ -183,11 +187,12 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
     operating_margin: null, net_margin: null, dividend_yield: null,
     beta: null, week_52_high: null, week_52_low: null,
     employees: null, summary: null,
+    next_earnings_date: null, ex_dividend_date: null, dividend_date: null,
   };
 
   try {
     const s = await yf.quoteSummary(yt, {
-      modules: ["summaryDetail", "defaultKeyStatistics", "financialData", "assetProfile"],
+      modules: ["summaryDetail", "defaultKeyStatistics", "financialData", "assetProfile", "calendarEvents"],
     });
     if (!s) return empty;
 
@@ -195,6 +200,16 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
     const ks = s.defaultKeyStatistics ?? {};
     const fd = s.financialData ?? {};
     const ap = s.assetProfile ?? {};
+    const ce = (s as any).calendarEvents ?? {};
+
+    // Date → "YYYY-MM-DD" 변환 헬퍼
+    const toDateStr = (v: unknown): string | null => {
+      if (!v) return null;
+      const arr = Array.isArray(v) ? v : [v];
+      const d = arr[0];
+      if (!d) return null;
+      return d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+    };
 
     const n = (v: unknown): number | null => {
       if (v == null || typeof v === "object") return null;
@@ -228,6 +243,9 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
       week_52_low:      n(sd.fiftyTwoWeekLow),
       employees:        ap.fullTimeEmployees ?? null,
       summary:          (ap.longBusinessSummary as string | undefined)?.slice(0, 600) ?? null,
+      next_earnings_date: toDateStr(ce.earnings?.earningsDate),
+      ex_dividend_date:   toDateStr(ce.exDividendDate),
+      dividend_date:      toDateStr(ce.dividendDate),
     };
     cacheSet(key, data, TTL.FINANCIALS);
     return data;

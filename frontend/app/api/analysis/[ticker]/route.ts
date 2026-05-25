@@ -13,6 +13,10 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const t = ticker.toUpperCase();
   const anthropicKey = req.headers.get("x-anthropic-key") ?? "";
 
+  const url = new URL(req.url);
+  const avgPrice = parseFloat(url.searchParams.get("avg_price") ?? "") || null;
+  const quantity = parseInt(url.searchParams.get("quantity") ?? "", 10) || null;
+
   const [financials, candles] = await Promise.allSettled([
     getFinancials(t),
     getChart(t, "1y"),
@@ -22,6 +26,6 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const cdls = candles.status   === "fulfilled" ? candles.value    : [];
   const signals = cdls.length > 0 ? calcSignals(cdls) : {};
 
-  const result = await analyzeStock(t, fin, signals, [], anthropicKey);
+  const result = await analyzeStock(t, fin, signals, [], anthropicKey, avgPrice, quantity);
   return NextResponse.json(result);
 }
