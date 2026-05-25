@@ -42,6 +42,43 @@ function cacheSet<T>(key: string, data: T, ttlMs: number) {
 
 const TTL = { QUOTE: 60_000, CHART: 300_000, FINANCIALS: 3_600_000, SEARCH: 600_000, CALENDAR: 3_600_000 };
 
+// ── 직접 Yahoo Finance v8 HTTP 폴백 ──────────────────────────────────────────
+// yahoo-finance2 라이브러리가 클라우드 서버에서 실패할 때 사용
+
+async function getQuoteDirect(yahooSymbol: string): Promise<QuoteData | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; stock-dashboard/1.0)" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const meta = json.chart?.result?.[0]?.meta;
+    if (!meta?.regularMarketPrice) return null;
+
+    const price    = meta.regularMarketPrice as number;
+    const prev     = (meta.previousClose ?? meta.chartPreviousClose ?? price) as number;
+    const change   = price - prev;
+
+    return {
+      ticker:     yahooSymbol,
+      name:       (meta.shortName || meta.symbol || yahooSymbol) as string,
+      price,
+      change,
+      change_pct: prev ? (change / prev) * 100 : 0,
+      volume:     (meta.regularMarketVolume ?? 0) as number,
+      high:       (meta.regularMarketDayHigh ?? price) as number,
+      low:        (meta.regularMarketDayLow  ?? price) as number,
+      open:       (meta.regularMarketOpen    ?? price) as number,
+      prev_close: prev,
+      timestamp:  new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── 시세 조회 ─────────────────────────────────────────────────────────────────
 
 export interface QuoteData {
@@ -71,23 +108,32 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
 
   let q = await tryQuote(yt);
   if (!q && KR_CODE.test(ticker)) q = await tryQuote(`${ticker}.KQ`);
-  if (!q || q.regularMarketPrice == null) return null;
 
-  const data: QuoteData = {
-    ticker,
-    name:       q.shortName || q.longName || null,
-    price:      q.regularMarketPrice,
-    change:     q.regularMarketChange ?? 0,
-    change_pct: q.regularMarketChangePercent ?? 0,
-    volume:     q.regularMarketVolume ?? 0,
-    high:       q.regularMarketDayHigh ?? q.regularMarketPrice,
-    low:        q.regularMarketDayLow  ?? q.regularMarketPrice,
-    open:       q.regularMarketOpen    ?? q.regularMarketPrice,
-    prev_close: q.regularMarketPreviousClose ?? q.regularMarketPrice,
-    timestamp:  new Date().toISOString(),
-  };
-  cacheSet(key, data, TTL.QUOTE);
-  return data;
+  if (q?.regularMarketPrice != null) {
+    const data: QuoteData = {
+      ticker,
+      name:       q.shortName || q.longName || null,
+      price:      q.regularMarketPrice,
+      change:     q.regularMarketChange ?? 0,
+      change_pct: q.regularMarketChangePercent ?? 0,
+      volume:     q.regularMarketVolume ?? 0,
+      high:       q.regularMarketDayHigh ?? q.regularMarketPrice,
+      low:        q.regularMarketDayLow  ?? q.regularMarketPrice,
+      open:       q.regularMarketOpen    ?? q.regularMarketPrice,
+      prev_close: q.regularMarketPreviousClose ?? q.regularMarketPrice,
+      timestamp:  new Date().toISOString(),
+    };
+    cacheSet(key, data, TTL.QUOTE);
+    return data;
+  }
+
+  // yahoo-finance2 라이브러리 실패 → 직접 Yahoo Finance v8 API 재시도
+  const direct = await getQuoteDirect(yt);
+  if (direct) {
+    direct.ticker = ticker; // 원래 티커로 복원
+    cacheSet(key, direct, TTL.QUOTE);
+  }
+  return direct;
 }
 
 // ── 차트 데이터 ───────────────────────────────────────────────────────────────
