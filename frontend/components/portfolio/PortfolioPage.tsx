@@ -154,9 +154,22 @@ export function PortfolioPage() {
     if (!confirm("종목을 삭제하시겠습니까?")) return;
     try {
       await api.portfolio.deletePosition(posId);
-      await mutateSummary();
+      // optimistic update: 목록에서 즉시 제거 후 서버 재검증
+      await mutateSummary(
+        (cur: any) =>
+          cur
+            ? {
+                ...cur,
+                positions: (cur.positions ?? []).filter(
+                  (p: any) => p.position_id !== posId,
+                ),
+              }
+            : cur,
+        { revalidate: true },
+      );
       toast.success("종목 삭제 완료");
     } catch (err: any) {
+      await mutateSummary(); // 실패 시 서버 상태로 복원
       toast.error(err.message ?? "삭제 실패");
     }
   }

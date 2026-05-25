@@ -17,7 +17,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { data, error } = await supabase
     .from("watchlist")
-    .upsert({ ticker: body.ticker, name: body.name, sector: body.sector ?? null })
+    .upsert(
+      { ticker: body.ticker, name: body.name, sector: body.sector ?? null },
+      { onConflict: "ticker" },
+    )
     .select()
     .single();
 

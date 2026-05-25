@@ -131,6 +131,12 @@ export function WatchlistPage() {
 
   const alreadyWatched = new Set(items?.map((i) => i.ticker) ?? []);
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter" || searchResults.length === 0) return;
+    const first = searchResults.find((r) => !alreadyWatched.has(r.ticker));
+    if (first) handleAdd(first);
+  };
+
   return (
     <div className="p-6 space-y-5">
       {/* 헤더 */}
@@ -165,6 +171,7 @@ export function WatchlistPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
+            onKeyDown={handleKeyDown}
             onFocus={() => searchResults.length > 0 && setSearchOpen(true)}
             placeholder="종목명 또는 티커로 검색하여 추가..."
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"

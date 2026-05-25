@@ -264,6 +264,20 @@ export interface SearchResult {
   sector: string;
 }
 
+// Yahoo Finance 검색 결과를 SearchResult[]로 파싱하는 공통 헬퍼
+function parseYahooQuotes(quotes: any[]): SearchResult[] {
+  return quotes
+    .filter((r) => ["EQUITY", "INDEX", "ETF"].includes(r.quoteType))
+    .slice(0, 20)
+    .map((r) => ({
+      ticker: r.symbol ?? "",
+      name:   r.shortname || r.longname || r.symbol || "",
+      market: r.exchange ?? "",
+      sector: r.sector ?? "",
+    }))
+    .filter((r) => r.ticker);
+}
+
 export async function searchStocks(query: string): Promise<SearchResult[]> {
   const q = query.trim();
   const key = `search:${q}`;
@@ -281,19 +295,36 @@ export async function searchStocks(query: string): Promise<SearchResult[]> {
     return [];
   }
 
+  // 한글 포함 → yahoo-finance2가 지원하지 않으므로 Yahoo Finance API 직접 호출
+  const hasKorean = /[가-힣]/.test(q);
+  if (hasKorean) {
+    try {
+      const url =
+        `https://query1.finance.yahoo.com/v1/finance/search` +
+        `?q=${encodeURIComponent(q)}&lang=ko-KR&region=KR` +
+        `&quotesCount=20&newsCount=0&enableFuzzyQuery=false`;
+      const res = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible)" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const results = parseYahooQuotes(data.quotes ?? []);
+        if (results.length > 0) {
+          cacheSet(key, results, TTL.SEARCH);
+          return results;
+        }
+      }
+    } catch (e) {
+      console.error(`[Yahoo] Korean search error [${q}]:`, e);
+    }
+    return [];
+  }
+
   try {
     // v3.x: newsCount 옵션 제거 (invalid option으로 검색 실패)
     const res = await yf.search(q);
-    const results: SearchResult[] = (res.quotes ?? [])
-      .filter((r: any) => ["EQUITY", "INDEX", "ETF"].includes(r.quoteType))
-      .slice(0, 20)
-      .map((r: any) => ({
-        ticker: r.symbol ?? "",
-        name:   r.shortname || r.longname || r.symbol || "",
-        market: r.exchange ?? "",
-        sector: r.sector ?? "",
-      }))
-      .filter((r: SearchResult) => r.ticker);
+    const results = parseYahooQuotes(res.quotes ?? []);
     cacheSet(key, results, TTL.SEARCH);
     return results;
   } catch (e) {
