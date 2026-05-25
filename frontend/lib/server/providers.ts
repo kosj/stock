@@ -6,6 +6,7 @@ export interface BrokerCredentials {
   appKey: string;
   appSecret: string;
   accountNumber?: string;
+  isDemo?: boolean; // 모의투자 여부 (기본: 실전)
 }
 
 export interface StockQuoteResponse {
@@ -27,6 +28,16 @@ export interface IndexDataResponse {
   timestamp?: string;
 }
 
+export interface BrokerHolding {
+  ticker: string;
+  name: string;
+  quantity: number;
+  avg_price: number;
+  current_price: number;
+  pnl_amount: number;
+  pnl_rate: number;
+}
+
 export abstract class BrokerProvider {
   protected credentials: BrokerCredentials;
 
@@ -36,260 +47,220 @@ export abstract class BrokerProvider {
 
   abstract getQuote(ticker: string): Promise<StockQuoteResponse>;
   abstract getIndices(): Promise<Record<string, IndexDataResponse>>;
+  abstract getPositions(): Promise<BrokerHolding[]>;
   abstract validateCredentials(): Promise<boolean>;
 }
 
-// 한국투자증권 API
+// ── 한국투자증권 (KIS) API ────────────────────────────────────────────────────
+
 import axios from 'axios';
+
+const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
 interface KISTokenResponse {
   access_token: string;
   expires_in: number;
   token_type: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
-interface KISQuoteResponse {
-  msg: string;
-  code: string;
-  data: {
-    stck_prpr: string; // 주식 현재가
-    prdy_vrss: string; // 전일 대비 차이
-    prdy_vrss_rate: string; // 전일 대비 등락률
-    acml_vol: string; // 누적 거래량
-    [key: string]: any;
-  };
-}
-
-interface KISIndexResponse {
-  msg: string;
-  code: string;
-  data: {
-    clpr: string; // 종가
-    cmpprevdd: string; // 전일 대비 차이
-    cmpratetoprev: string; // 전일 대비 등락률
-    [key: string]: any;
-  };
+interface KISBalanceItem {
+  pdno: string;       // 종목코드
+  prdt_name: string;  // 종목명
+  hldg_qty: string;   // 보유수량
+  pchs_avg_pric: string; // 매입평균가격
+  prpr: string;       // 현재가
+  evlu_pfls_amt: string; // 평가손익금액
+  evlu_pfls_rt: string;  // 평가손익률
+  [key: string]: string;
 }
 
 export class KISProvider extends BrokerProvider {
-  private baseURL = 'https://openapi.kbsec.com/v1';
   private accessToken: string | null = null;
-  private tokenExpireTime: number = 0;
+  private tokenExpireTime = 0;
 
   async validateCredentials(): Promise<boolean> {
     try {
       await this.getAccessToken();
       return true;
-    } catch (error) {
-      console.error('KIS credentials validation failed:', error);
+    } catch {
       return false;
     }
   }
 
   private async getAccessToken(): Promise<string> {
-    // 토큰이 유효하면 재사용 (만료 5분 전 갱신)
-    if (this.accessToken && this.tokenExpireTime > Date.now() + 5 * 60 * 1000) {
+    if (this.accessToken && this.tokenExpireTime > Date.now() + 5 * 60_000) {
       return this.accessToken;
     }
 
-    try {
-      const response = await axios.post<KISTokenResponse>(
-        `${this.baseURL}/oauth2/authorize`,
-        {
-          grant_type: 'client_credentials',
+    const res = await axios.post<KISTokenResponse>(
+      `${KIS_BASE}/oauth2/tokenP`,
+      {
+        grant_type: 'client_credentials',
+        appkey: this.credentials.appKey,
+        appsecret: this.credentials.appSecret,
+      },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 8000 },
+    );
+
+    const token = res.data.access_token;
+    if (!token) throw new Error('KIS 인증 실패: access_token 없음');
+
+    this.accessToken = token;
+    this.tokenExpireTime = Date.now() + (res.data.expires_in ?? 86400) * 1000;
+    return token;
+  }
+
+  private parseAccountNumber(raw: string): { cano: string; acntPrdtCd: string } {
+    const cleaned = raw.replace(/[-\s]/g, '');
+    return {
+      cano: cleaned.slice(0, 8),
+      acntPrdtCd: cleaned.slice(8, 10) || '01',
+    };
+  }
+
+  async getPositions(): Promise<BrokerHolding[]> {
+    if (!this.credentials.accountNumber) {
+      throw new Error('계좌번호가 설정되지 않았습니다. API 설정에서 계좌번호를 입력해주세요.');
+    }
+
+    const token = await this.getAccessToken();
+    const { cano, acntPrdtCd } = this.parseAccountNumber(this.credentials.accountNumber);
+    const trId = this.credentials.isDemo ? 'VTTC8434R' : 'TTTC8434R';
+
+    const res = await axios.get(
+      `${KIS_BASE}/uapi/domestic-stock/v1/trading/inquire-balance`,
+      {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          authorization: `Bearer ${token}`,
           appkey: this.credentials.appKey,
           appsecret: this.credentials.appSecret,
+          tr_id: trId,
+          custtype: 'P',
         },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          timeout: 5000,
-        }
-      );
+        params: {
+          CANO: cano,
+          ACNT_PRDT_CD: acntPrdtCd,
+          AFHR_FLPR_YN: 'N',
+          OFL_YN: '',
+          INQR_DVSN: '02',
+          UNPR_DVSN: '01',
+          FUND_STTL_ICLD_YN: 'N',
+          FNCG_AMT_AUTO_RDPT_YN: 'N',
+          PRCS_DVSN: '01',
+          CTX_AREA_FK100: '',
+          CTX_AREA_NK100: '',
+        },
+        timeout: 10_000,
+      },
+    );
 
-      const accessToken = response.data.access_token;
-      if (!accessToken) {
-        throw new Error('No access token in response');
-      }
-
-      this.accessToken = accessToken;
-      // expires_in은 보통 초 단위
-      this.tokenExpireTime = Date.now() + (response.data.expires_in * 1000);
-
-      console.log('[KIS] Access token obtained, expires in', response.data.expires_in, 'seconds');
-      return accessToken;
-    } catch (error) {
-      console.error('Failed to get KIS access token:', error);
-      throw new Error(
-        error instanceof Error
-          ? `KIS authentication failed: ${error.message}`
-          : 'KIS authentication failed'
-      );
+    if (res.data.rt_cd !== '0') {
+      throw new Error(`KIS API 오류: ${res.data.msg1 ?? res.data.rt_cd}`);
     }
+
+    const items: KISBalanceItem[] = res.data.output1 ?? [];
+    return items
+      .filter((h) => parseInt(h.hldg_qty, 10) > 0)
+      .map((h) => ({
+        ticker: h.pdno,
+        name: h.prdt_name,
+        quantity: parseInt(h.hldg_qty, 10),
+        avg_price: parseFloat(h.pchs_avg_pric) || 0,
+        current_price: parseFloat(h.prpr) || 0,
+        pnl_amount: parseFloat(h.evlu_pfls_amt) || 0,
+        pnl_rate: parseFloat(h.evlu_pfls_rt) || 0,
+      }));
   }
 
   async getQuote(ticker: string): Promise<StockQuoteResponse> {
     try {
       const token = await this.getAccessToken();
-
-      // KIS API: 주식 시세 조회
-      // 정규화된 티커 (예: 005930 형식)
-      const normalizedTicker = ticker.padStart(6, '0');
-
-      const response = await axios.get<KISQuoteResponse>(
-        `${this.baseURL}/stock/quote`,
+      const res = await axios.get(
+        `${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`,
         {
-          params: {
-            code: normalizedTicker,
-            path: 'stock',
-          },
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'appkey': this.credentials.appKey,
-            'appsecret': this.credentials.appSecret,
+            'content-type': 'application/json; charset=utf-8',
+            authorization: `Bearer ${token}`,
+            appkey: this.credentials.appKey,
+            appsecret: this.credentials.appSecret,
+            tr_id: 'FHKST01010100',
           },
+          params: { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: ticker.padStart(6, '0') },
           timeout: 5000,
-        }
+        },
       );
 
-      if (response.data.code !== '0' && response.data.msg !== 'success') {
-        throw new Error(`API error: ${response.data.msg}`);
-      }
-
-      const data = response.data.data;
-      const price = parseInt(data.stck_prpr, 10) || 0;
-      const change = parseInt(data.prdy_vrss, 10) || 0;
-      const changeRate = parseFloat(data.prdy_vrss_rate) || 0;
-      const volume = parseInt(data.acml_vol, 10) || 0;
-
+      const d = res.data.output ?? {};
       return {
         ticker,
-        name: `Stock ${ticker}`,
-        price,
-        change,
-        change_rate: changeRate,
-        volume,
-        market_cap: 0, // KIS API에서는 시가총액을 직접 제공하지 않음
+        name: d.hts_kor_isnm ?? `Stock ${ticker}`,
+        price: parseInt(d.stck_prpr, 10) || 0,
+        change: parseInt(d.prdy_vrss, 10) || 0,
+        change_rate: parseFloat(d.prdy_ctrt) || 0,
+        volume: parseInt(d.acml_vol, 10) || 0,
+        market_cap: 0,
         timestamp: new Date().toISOString(),
       };
-    } catch (error) {
-      console.error(`Failed to get quote for ${ticker}:`, error);
-      // 폴백: 기본값 반환
-      return {
-        ticker,
-        name: `Stock ${ticker}`,
-        price: 60000,
-        change: 1200,
-        change_rate: 2.0,
-        volume: 15000000,
-        market_cap: 3000000000000,
-        timestamp: new Date().toISOString(),
-      };
+    } catch (err) {
+      console.error(`[KIS] getQuote ${ticker}:`, err);
+      throw err;
     }
   }
 
   async getIndices(): Promise<Record<string, IndexDataResponse>> {
     try {
       const token = await this.getAccessToken();
-
-      // KIS API: 지수 시세 조회
-      // 주요 지수 코드: 0001 (KOSPI), 1001 (KOSDAQ)
-      const indexCodes = {
-        KOSPI: '0001',
-        KOSDAQ: '1001',
-      };
-
-      const requests = Object.entries(indexCodes).map(([name, code]) =>
-        axios.get<KISIndexResponse>(
-          `${this.baseURL}/index/quote`,
-          {
-            params: {
-              code,
-              path: 'index',
+      const codes: Record<string, string> = { KOSPI: '0001', KOSDAQ: '1001' };
+      const results = await Promise.allSettled(
+        Object.entries(codes).map(async ([name, code]) => {
+          const res = await axios.get(
+            `${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-index-price`,
+            {
+              headers: {
+                'content-type': 'application/json; charset=utf-8',
+                authorization: `Bearer ${token}`,
+                appkey: this.credentials.appKey,
+                appsecret: this.credentials.appSecret,
+                tr_id: 'FHPUP02100000',
+              },
+              params: { FID_COND_MRKT_DIV_CODE: 'U', FID_INPUT_ISCD: code },
+              timeout: 5000,
             },
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-              'appkey': this.credentials.appKey,
-              'appsecret': this.credentials.appSecret,
-            },
-            timeout: 5000,
-          }
-        ).then(res => ({ name, data: res.data }))
-          .catch(err => {
-            console.warn(`Failed to get ${name}:`, err);
-            return {
-              name,
-              data: null,
-            };
-          })
+          );
+          const d = res.data.output ?? {};
+          return { name, price: parseFloat(d.bstp_nmix_prpr) || 0, change: parseFloat(d.bstp_nmix_prdy_vrss) || 0, change_pct: parseFloat(d.bstp_nmix_prdy_ctrt) || 0 };
+        }),
       );
 
-      const responses = await Promise.all(requests);
-      const result: Record<string, IndexDataResponse> = {};
-
-      responses.forEach(({ name, data }) => {
-        if (data && data.code === '0') {
-          const indexData = data.data;
-          const price = parseInt(indexData.clpr, 10) || 0;
-          const change = parseInt(indexData.cmpprevdd, 10) || 0;
-          const changePct = parseFloat(indexData.cmpratetoprev) || 0;
-
-          result[name] = {
-            name,
-            price,
-            change,
-            change_pct: changePct,
-            timestamp: new Date().toISOString(),
-          };
+      const out: Record<string, IndexDataResponse> = {};
+      results.forEach((r, i) => {
+        const name = Object.keys(codes)[i];
+        if (r.status === 'fulfilled') {
+          out[name] = { ...r.value, timestamp: new Date().toISOString() };
         } else {
-          // 개별 실패 시에도 폴백
-          result[name] = {
-            name,
-            price: 0,
-            change: 0,
-            change_pct: 0,
-            timestamp: new Date().toISOString(),
-          };
+          out[name] = { name, price: 0, change: 0, change_pct: 0 };
         }
       });
-
-      return result;
-    } catch (error) {
-      console.error('Failed to get indices from KIS:', error);
-      // 폴백 반환
+      return out;
+    } catch (err) {
+      console.error('[KIS] getIndices:', err);
       return {
-        KOSPI: {
-          name: 'KOSPI',
-          price: 2850,
-          change: 15,
-          change_pct: 0.53,
-        },
-        KOSDAQ: {
-          name: 'KOSDAQ',
-          price: 950,
-          change: 5,
-          change_pct: 0.53,
-        },
+        KOSPI: { name: 'KOSPI', price: 0, change: 0, change_pct: 0 },
+        KOSDAQ: { name: 'KOSDAQ', price: 0, change: 0, change_pct: 0 },
       };
     }
   }
 }
 
-// 프로바이더 팩토리
+// ── 프로바이더 팩토리 ─────────────────────────────────────────────────────────
+
 export function createBrokerProvider(type: BrokerType, credentials: BrokerCredentials): BrokerProvider {
   switch (type) {
     case 'kis':
       return new KISProvider(credentials);
-    // 추후 다른 증권사 추가
-    case 'kb':
-    case 'shinhan':
-    case 'meritz':
-      throw new Error(`${type} provider not implemented yet`);
     default:
-      throw new Error(`Unknown broker type: ${type}`);
+      throw new Error(`${type} 증권사는 아직 지원되지 않습니다`);
   }
 }

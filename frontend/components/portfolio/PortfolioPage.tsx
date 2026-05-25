@@ -5,12 +5,14 @@ import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { formatNumber, formatPercent, colorByChange } from "@/lib/utils";
-import { Plus, Trash2, Pencil, RefreshCw, TrendingUp, TrendingDown, Zap, Check } from "lucide-react";
+import { Plus, Trash2, Pencil, RefreshCw, TrendingUp, TrendingDown, Zap, Check, Building2 } from "lucide-react";
 import Link from "next/link";
 import { PositionModal } from "./PositionModal";
 import { PortfolioCreateModal } from "./PortfolioCreateModal";
+import { BrokerHoldingsModal } from "./BrokerHoldingsModal";
 import { toast } from "sonner";
 import { useRealtimePrices } from "@/lib/websocket";
+import { BrokerConfigManager } from "@/lib/apiConfig";
 
 export function PortfolioPage() {
   const { data: portfolios, mutate: mutatePortfolios } = useSWR("portfolios", () => api.portfolio.list());
@@ -27,6 +29,15 @@ export function PortfolioPage() {
   // AI 갱신 상태
   const [autoFillLoading, setAutoFillLoading] = useState(false);
   const autoFillAbortRef = useRef<AbortController | null>(null);
+
+  // 증권사 보유종목 가져오기 상태
+  const [showBrokerHoldings, setShowBrokerHoldings] = useState(false);
+  const [hasBrokerConfig, setHasBrokerConfig] = useState(false);
+
+  // 브로커 설정 여부 확인 (버튼 표시용)
+  useEffect(() => {
+    setHasBrokerConfig(BrokerConfigManager.getConfiguredBrokers().length > 0);
+  }, []);
 
   const portfolio = (portfolios as any[])?.find((p) => p.id === selectedId) ??
                     (portfolios as any[])?.[0];
@@ -281,6 +292,17 @@ export function PortfolioPage() {
                 >
                   <RefreshCw size={13} className={isValidating ? "animate-spin" : ""} />
                 </Button>
+                {hasBrokerConfig && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setShowBrokerHoldings(true)}
+                    title="증권사 보유종목 가져오기"
+                  >
+                    <Building2 size={13} />
+                    <span className="hidden sm:inline ml-1">보유종목 가져오기</span>
+                  </Button>
+                )}
                 <Button size="sm" onClick={() => setShowAddPos(true)}>
                   <Plus size={14} /> 종목 추가
                 </Button>
@@ -429,6 +451,15 @@ export function PortfolioPage() {
           initial={editPosition}
           onClose={() => { setShowAddPos(false); setEditPosition(null); }}
           onSaved={() => { mutateSummary(); setShowAddPos(false); setEditPosition(null); }}
+        />
+      )}
+
+      {/* 증권사 보유종목 가져오기 모달 */}
+      {showBrokerHoldings && portfolioId && (
+        <BrokerHoldingsModal
+          portfolioId={portfolioId}
+          onClose={() => setShowBrokerHoldings(false)}
+          onImported={() => { mutateSummary(); }}
         />
       )}
     </div>
