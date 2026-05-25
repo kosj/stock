@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/Sidebar";
+import { AppShell } from "@/components/layout/AppShell";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
@@ -17,11 +17,8 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko" className="h-full">
-      <body className="flex h-full">
-        <Sidebar />
-        <main className="flex-1 overflow-auto min-w-0 app-main">
-          {children}
-        </main>
+      <body className="h-full">
+        <AppShell>{children}</AppShell>
         <Toaster theme="dark" position="top-right" richColors />
       </body>
     </html>
