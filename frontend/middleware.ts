@@ -17,9 +17,18 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
+  // NEXT_PUBLIC_ 변수가 없으면 서버 전용 변수로 폴백 (Vercel 환경변수 미설정 대비)
+  const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL     ?? process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    // 환경변수 미설정 시 미들웨어 무력화 (500 방지) — Vercel에 NEXT_PUBLIC_ 변수를 추가하세요
+    return response;
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() { return request.cookies.getAll(); },
@@ -33,7 +42,14 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  let user = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    // Supabase 연결 실패 시 인증 없이 통과 (503 방지)
+    return response;
+  }
 
   const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/pending";
 

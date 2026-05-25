@@ -2,12 +2,16 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
+// NEXT_PUBLIC_ 미설정 시 서버 전용 변수로 폴백
+function getSupabaseUrl()     { return process.env.NEXT_PUBLIC_SUPABASE_URL     ?? process.env.SUPABASE_URL!; }
+function getSupabaseAnonKey() { return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY!; }
+
 /** 일반 사용자 세션 기반 서버 클라이언트 */
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    getSupabaseUrl(),
+    getSupabaseAnonKey(),
     {
       cookies: {
         getAll() { return cookieStore.getAll(); },
@@ -25,7 +29,7 @@ export async function createSupabaseServerClient() {
 /** 서비스 롤 클라이언트 — 관리자 작업 전용 (서버 사이드만 사용) */
 export function createSupabaseAdminClient() {
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    getSupabaseUrl(),
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } }
   );
