@@ -86,8 +86,64 @@ export async function getIndexFromNaver(yahooSymbol: string): Promise<QuoteData 
   }
 }
 
-// ── 네이버 파이낸스 개별 종목 시세 조회 ─────────────────────────────────────
-// Yahoo Finance가 Vercel에서 차단될 때 국내 6자리 코드 종목에 사용
+// ── 네이버 폴링 API 종목 시세 조회 ──────────────────────────────────────────
+// polling.finance.naver.com — 숫자값 직접 반환, m.stock.naver.com 차단 시 대체
+
+async function getQuoteFromNaverPolling(ticker: string): Promise<QuoteData | null> {
+  if (!KR_CODE.test(ticker)) return null;
+  try {
+    const url = `https://polling.finance.naver.com/api/realtime?category=stock&includeAllInfo=Y&query=SERVICE_ITEM:${ticker}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; stock-dashboard/1.0)",
+        "Referer":    "https://finance.naver.com/",
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+
+    // 응답이 EUC-KR일 수 있으므로 ArrayBuffer로 먼저 받아 디코딩
+    const buf = await res.arrayBuffer();
+    let json: any;
+    try {
+      // EUC-KR 우선 시도
+      const text = new TextDecoder("euc-kr").decode(buf);
+      json = JSON.parse(text);
+    } catch {
+      // 폴백: UTF-8 (이름 필드 깨질 수 있으나 숫자값은 정상)
+      try {
+        const text = new TextDecoder("utf-8").decode(buf);
+        json = JSON.parse(text);
+      } catch {
+        return null;
+      }
+    }
+
+    const datas = json?.result?.areas?.[0]?.datas;
+    if (!Array.isArray(datas) || datas.length === 0) return null;
+    const d = datas[0];
+    const price = Number(d.nv);
+    if (!price || price <= 0) return null;
+
+    return {
+      ticker,
+      name:       d.nm ? String(d.nm) : ticker,
+      price,
+      change:     Number(d.cv) || 0,
+      change_pct: Number(d.cr) || 0,
+      volume:     Number(d.aq) || 0,
+      high:       Number(d.hv) || price,
+      low:        Number(d.lv) || price,
+      open:       Number(d.ov) || price,
+      prev_close: Number(d.sv) || price,
+      timestamp:  new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ── 네이버 파이낸스 개별 종목 시세 조회 (폴백) ───────────────────────────────
 
 async function getQuoteFromNaver(ticker: string): Promise<QuoteData | null> {
   if (!KR_CODE.test(ticker)) return null;
@@ -223,8 +279,13 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
     return direct;
   }
 
-  // Yahoo v8도 실패 (Vercel IP 차단) → 국내 종목은 네이버 파이낸스로 폴백
+  // Yahoo v8도 실패 (Vercel IP 차단) → 국내 종목은 네이버 폴링 → 기본 API 순으로 폴백
   if (KR_CODE.test(ticker)) {
+    const naverPolling = await getQuoteFromNaverPolling(ticker);
+    if (naverPolling) {
+      cacheSet(key, naverPolling, TTL.QUOTE);
+      return naverPolling;
+    }
     const naver = await getQuoteFromNaver(ticker);
     if (naver) {
       cacheSet(key, naver, TTL.QUOTE);
@@ -410,6 +471,7 @@ export interface SearchResult {
 }
 
 // 네이버 증권 자동완성 API — Vercel에서도 차단 없이 동작
+// 응답 형식 (2024~): items: [{code, name, typeCode, typeName, ...}, ...]
 export async function searchStocksNaver(query: string): Promise<SearchResult[]> {
   try {
     const url = `https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock`;
@@ -422,15 +484,14 @@ export async function searchStocksNaver(query: string): Promise<SearchResult[]> 
     });
     if (!res.ok) return [];
     const data = await res.json();
-    // items: [[종목명, 종목코드, 시장], ...]
-    const items: unknown[][] = Array.isArray(data.items) ? data.items : [];
+    const items: any[] = Array.isArray(data.items) ? data.items : [];
     return items
-      .filter((item) => item[1])
+      .filter((item) => item?.code)
       .slice(0, 20)
       .map((item) => ({
-        ticker: String(item[1]),
-        name:   String(item[0]),
-        market: String(item[2] ?? ""),
+        ticker: String(item.code),
+        name:   String(item.name || item.code),
+        market: String(item.typeCode || item.typeName || ""),
         sector: "",
       }));
   } catch {
