@@ -9,22 +9,38 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q") ?? "";
   if (!q.trim()) return NextResponse.json([]);
 
-  // Yahoo Finance 검색 우선
-  const results = await searchStocks(q);
-  if (results.length > 0) return NextResponse.json(results);
-
-  // 야후 결과 없음 → 브로커 폴백
   const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
   const appKey     = req.headers.get("x-app-key");
   const appSecret  = req.headers.get("x-app-secret");
+  const hasBroker  = !!(brokerType && appKey && appSecret);
+  const hasKorean  = /[가-힣]/.test(q);
 
-  if (brokerType && appKey && appSecret) {
+  // 브로커 프로바이더 (재사용)
+  let provider = hasBroker
+    ? createBrokerProvider(brokerType!, { appKey: appKey!, appSecret: appSecret! })
+    : null;
+
+  // 한글 검색 + 브로커 있음 → KIS 우선 시도
+  if (hasKorean && provider) {
     try {
-      const provider = createBrokerProvider(brokerType, { appKey, appSecret });
-      const brokerResults = await provider.searchStocks(q);
-      if (brokerResults.length > 0) return NextResponse.json(brokerResults);
+      const results = await provider.searchStocks(q);
+      if (results.length > 0) return NextResponse.json(results);
     } catch (err) {
-      console.warn(`[search] broker(${brokerType}) 폴백 실패:`, err);
+      console.warn("[search] KIS Korean search failed, trying Yahoo:", err);
+    }
+  }
+
+  // Yahoo Finance (한글 포함 직접 API 지원)
+  const yahooResults = await searchStocks(q);
+  if (yahooResults.length > 0) return NextResponse.json(yahooResults);
+
+  // Yahoo도 빈 결과 + 브로커 → 브로커 폴백 (비한글/코드 검색용)
+  if (provider && !hasKorean) {
+    try {
+      const results = await provider.searchStocks(q);
+      if (results.length > 0) return NextResponse.json(results);
+    } catch (err) {
+      console.warn("[search] broker fallback failed:", err);
     }
   }
 

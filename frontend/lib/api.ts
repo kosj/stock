@@ -40,7 +40,19 @@ export const api = {
       request(`/api/portfolio/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: number) =>
       request(`/api/portfolio/${id}`, { method: "DELETE" }),
-    summary: (id: number) => request(`/api/portfolio/${id}/summary`),
+    summary: (
+      id: number,
+      brokerCreds?: { type: string; appKey: string; appSecret: string } | null,
+    ) =>
+      request(`/api/portfolio/${id}/summary`, {
+        headers: brokerCreds
+          ? {
+              "X-Broker-Type": brokerCreds.type,
+              "X-App-Key":     brokerCreds.appKey,
+              "X-App-Secret":  brokerCreds.appSecret,
+            }
+          : {},
+      }),
     positions: (id: number) => request(`/api/portfolio/${id}/positions`),
     addPosition: (id: number, body: object) =>
       request(`/api/portfolio/${id}/positions`, { method: "POST", body: JSON.stringify(body) }),

@@ -1,12 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { getQuote } from "@/lib/server/yahoo-finance";
+import { createBrokerProvider } from "@/lib/server/providers";
+import type { BrokerType, BrokerProvider } from "@/lib/server/providers";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_: NextRequest, { params }: Ctx) {
+const KR_CODE = /^\d{6}$/;
+
+async function fetchQuoteWithFallback(
+  ticker: string,
+  broker: BrokerProvider | null,
+): Promise<{ price: number; change: number; change_pct: number } | null> {
+  const yahoo = await getQuote(ticker);
+  if (yahoo?.price != null) {
+    return { price: yahoo.price, change: yahoo.change, change_pct: yahoo.change_pct };
+  }
+
+  // Yahoo 실패 + 브로커 + 국내 6자리 코드 → KIS 폴백
+  if (broker && KR_CODE.test(ticker)) {
+    try {
+      const q = await broker.getQuote(ticker);
+      if (q.price > 0) {
+        return { price: q.price, change: q.change, change_pct: q.change_rate };
+      }
+    } catch {
+      // 조용히 무시
+    }
+  }
+  return null;
+}
+
+export async function GET(req: NextRequest, { params }: Ctx) {
   const { id } = await params;
 
   const { data: pf } = await supabase.from("portfolios").select("*").eq("id", id).single();
@@ -29,9 +56,18 @@ export async function GET(_: NextRequest, { params }: Ctx) {
     });
   }
 
-  // 모든 종목 시세 병렬 조회
+  // 브로커 프로바이더 초기화 (헤더에서 자격증명 읽기)
+  const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
+  const appKey     = req.headers.get("x-app-key");
+  const appSecret  = req.headers.get("x-app-secret");
+  let broker: BrokerProvider | null = null;
+  if (brokerType && appKey && appSecret) {
+    try { broker = createBrokerProvider(brokerType, { appKey, appSecret }); } catch {}
+  }
+
+  // 모든 종목 시세 병렬 조회 (Yahoo → KIS 폴백)
   const quotes = await Promise.allSettled(
-    positions.map((p) => getQuote(p.ticker))
+    positions.map((p) => fetchQuoteWithFallback(p.ticker, broker))
   );
 
   let total_invested = 0;
@@ -40,7 +76,6 @@ export async function GET(_: NextRequest, { params }: Ctx) {
   const pnlList = positions.map((pos, i) => {
     const q = quotes[i].status === "fulfilled" ? quotes[i].value : null;
     const price_available = q?.price != null;
-    // 시세 미지원 종목은 평균단가를 현재가로 대체 (P&L = 0으로 표시됨)
     const current_price = q?.price ?? pos.avg_price;
     const cost_basis = pos.avg_price * pos.quantity;
     const total_val = current_price * pos.quantity;

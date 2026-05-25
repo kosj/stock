@@ -33,19 +33,25 @@ export function PortfolioPage() {
   // 증권사 보유종목 가져오기 상태
   const [showBrokerHoldings, setShowBrokerHoldings] = useState(false);
   const [hasBrokerConfig, setHasBrokerConfig] = useState(false);
+  const [brokerCreds, setBrokerCreds] = useState<{ type: string; appKey: string; appSecret: string } | null>(null);
 
-  // 브로커 설정 여부 확인 (버튼 표시용)
+  // 브로커 설정 확인 + 크레덴셜 로드
   useEffect(() => {
     setHasBrokerConfig(BrokerConfigManager.getConfiguredBrokers().length > 0);
+    BrokerConfigManager.getDefaultBrokerConfig().then((config) => {
+      if (!config) return;
+      setBrokerCreds({ type: config.type, appKey: config.credentials.appKey, appSecret: config.credentials.appSecret });
+    });
   }, []);
 
   const portfolio = (portfolios as any[])?.find((p) => p.id === selectedId) ??
                     (portfolios as any[])?.[0];
   const portfolioId = portfolio?.id;
 
+  const brokerKey = brokerCreds?.type ?? "none";
   const { data: summary, mutate: mutateSummary, isValidating } = useSWR(
-    portfolioId ? `portfolio-summary-${portfolioId}` : null,
-    () => api.portfolio.summary(portfolioId),
+    portfolioId ? `portfolio-summary-${portfolioId}-${brokerKey}` : null,
+    () => api.portfolio.summary(portfolioId, brokerCreds),
     {
       refreshInterval: 30_000,
       revalidateOnFocus: true,
@@ -76,7 +82,7 @@ export function PortfolioPage() {
     try {
       await api.portfolio.autoFill(id);
       if (!controller.signal.aborted) {
-        await globalMutate(`portfolio-summary-${id}`);
+        await globalMutate(`portfolio-summary-${id}-${brokerKey}`);
         toast.success("AI 갱신 완료", { id: toastId });
       } else {
         toast.dismiss(toastId);
@@ -139,7 +145,7 @@ export function PortfolioPage() {
       if (selectedId === id) {
         setSelectedId(newPortfolios[0]?.id ?? null);
         // 요약 데이터도 초기화
-        await globalMutate(`portfolio-summary-${id}`);
+        await globalMutate(`portfolio-summary-${id}-${brokerKey}`);
       }
 
       toast.success("삭제 완료");

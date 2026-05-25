@@ -13,43 +13,45 @@ const INDEX_MAP = [
   { name: "달러/원", ticker: "USD/KRW" },
 ] as const;
 
-// 브로커에서 보완할 국내 지수 이름 목록
 const KR_INDICES = new Set(["KOSPI", "KOSDAQ"]);
 
 export async function GET(req: NextRequest) {
-  const results = await Promise.allSettled(
-    INDEX_MAP.map(({ ticker }) => getQuote(ticker))
-  );
+  const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
+  const appKey     = req.headers.get("x-app-key");
+  const appSecret  = req.headers.get("x-app-secret");
+  const hasBroker  = !!(brokerType && appKey && appSecret);
 
+  // Yahoo + KIS 병렬 조회
+  const [yahooSettled, kisSettled] = await Promise.allSettled([
+    Promise.allSettled(INDEX_MAP.map(({ ticker }) => getQuote(ticker))),
+    hasBroker
+      ? createBrokerProvider(brokerType!, { appKey: appKey!, appSecret: appSecret! }).getIndices()
+      : Promise.resolve(null),
+  ]);
+
+  // Yahoo 결과 먼저 채우기
   const indices: Record<string, unknown> = {};
-  INDEX_MAP.forEach(({ name }, i) => {
-    const r = results[i];
-    if (r.status === "fulfilled" && r.value) {
-      const q = r.value;
-      indices[name] = { price: q.price, change: q.change, change_pct: q.change_pct };
-    } else {
-      indices[name] = null;
-    }
-  });
+  if (yahooSettled.status === "fulfilled") {
+    const yahooResults = yahooSettled.value;
+    INDEX_MAP.forEach(({ name }, i) => {
+      const r = yahooResults[i];
+      if (r.status === "fulfilled" && r.value) {
+        const q = r.value;
+        indices[name] = { price: q.price, change: q.change, change_pct: q.change_pct };
+      } else {
+        indices[name] = null;
+      }
+    });
+  } else {
+    INDEX_MAP.forEach(({ name }) => { indices[name] = null; });
+  }
 
-  // 국내 지수 중 하나라도 null이면 브로커 폴백 시도
-  const needFallback = [...KR_INDICES].some((name) => indices[name] === null);
-  if (needFallback) {
-    const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
-    const appKey     = req.headers.get("x-app-key");
-    const appSecret  = req.headers.get("x-app-secret");
-
-    if (brokerType && appKey && appSecret) {
-      try {
-        const provider = createBrokerProvider(brokerType, { appKey, appSecret });
-        const brokerIndices = await provider.getIndices();
-        for (const [name, data] of Object.entries(brokerIndices)) {
-          if (KR_INDICES.has(name) && indices[name] === null && data.price > 0) {
-            indices[name] = { price: data.price, change: data.change, change_pct: data.change_pct };
-          }
-        }
-      } catch (err) {
-        console.warn(`[indices] broker(${brokerType}) 폴백 실패:`, err);
+  // 국내 지수는 KIS 데이터로 덮어쓰기 (브로커 사용 가능 시 Yahoo보다 우선)
+  if (kisSettled.status === "fulfilled" && kisSettled.value) {
+    const kis = kisSettled.value;
+    for (const [name, data] of Object.entries(kis)) {
+      if (KR_INDICES.has(name) && data.price > 0) {
+        indices[name] = { price: data.price, change: data.change, change_pct: data.change_pct };
       }
     }
   }

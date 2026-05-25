@@ -51,8 +51,8 @@ export function DashboardPage() {
   const portfolios = portfoliosRaw as any[];
   const firstPortfolioId = portfolios?.[0]?.id;
   const { data: summaryRaw } = useSWR<any>(
-    firstPortfolioId ? `portfolio-summary-${firstPortfolioId}` : null,
-    () => api.portfolio.summary(firstPortfolioId!),
+    firstPortfolioId ? `portfolio-summary-${firstPortfolioId}-${brokerKey}` : null,
+    () => api.portfolio.summary(firstPortfolioId!, brokerCreds),
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
