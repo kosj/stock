@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/Button";
 import { StockChart, RsiChart, MacdChart } from "@/components/charts/StockChart";
 import { formatNumber, formatPercent, colorByChange, recommendationColor } from "@/lib/utils";
 import { TrendingUp, TrendingDown, RefreshCw, Zap } from "lucide-react";
-import { BrokerConfigManager } from "@/lib/apiConfig";
 
 const PERIODS = ["1m", "3m", "6m", "1y", "2y", "5y"] as const;
 type Period = typeof PERIODS[number];
@@ -22,15 +21,6 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
   const [period, setPeriod] = useState<Period>("1y");
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
-  // KIS API 설정이 있으면 자동으로 사용
-  const fetchQuote = async () => {
-    const kisConfig = await BrokerConfigManager.getBrokerConfig('kis');
-    if (kisConfig) {
-      return api.broker.quote(ticker, 'kis', kisConfig.appKey, kisConfig.appSecret);
-    }
-    return api.market.quote(ticker);
-  };
-
   const swrConfig = {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
@@ -40,7 +30,7 @@ export function StockDetailPage({ ticker }: { ticker: string }) {
 
   const { data: quote, mutate: refreshQuote } = useSWR(
     `quote-${ticker}`,
-    fetchQuote,
+    () => api.market.quote(ticker),
     swrConfig,
   );
   const { data: chart, isLoading: chartLoading } = useSWR(

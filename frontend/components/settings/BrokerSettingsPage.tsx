@@ -41,7 +41,7 @@ export function BrokerSettingsPage() {
     kis: false, kb: false, shinhan: false, meritz: false,
   });
   const [editingBroker, setEditingBroker] = useState<BrokerType | null>(null);
-  const [formData, setFormData] = useState({ appKey: "", appSecret: "" });
+  const [formData, setFormData] = useState({ appKey: "", appSecret: "", accountNumber: "" });
 
   // 단순 API 키
   const [anthropicKey, setAnthropicKey] = useState("");
@@ -124,7 +124,9 @@ export function BrokerSettingsPage() {
   const handleEditStart = async (type: BrokerType) => {
     if (isLocked) { alert("마스터 패스워드로 인증 후 사용할 수 있습니다"); return; }
     const config = await BrokerConfigManager.getBrokerConfig(type);
-    setFormData(config ? { appKey: config.appKey, appSecret: config.appSecret } : { appKey: "", appSecret: "" });
+    setFormData(config
+      ? { appKey: config.appKey, appSecret: config.appSecret, accountNumber: config.accountNumber ?? "" }
+      : { appKey: "", appSecret: "", accountNumber: "" });
     setEditingBroker(type);
   };
 
@@ -135,7 +137,11 @@ export function BrokerSettingsPage() {
     }
     setSaving((prev) => ({ ...prev, [type]: true }));
     try {
-      await BrokerConfigManager.saveBrokerConfig(type, formData);
+      await BrokerConfigManager.saveBrokerConfig(type, {
+        appKey: formData.appKey,
+        appSecret: formData.appSecret,
+        accountNumber: formData.accountNumber || undefined,
+      });
       refreshConfigured();
       setEditingBroker(null);
       alert("설정이 저장되었습니다");
@@ -337,6 +343,22 @@ export function BrokerSettingsPage() {
                         {showSecrets[type] ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
                     </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">
+                      계좌번호 <span className="text-muted-foreground/60 font-normal">(보유종목 조회에 필요)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.accountNumber}
+                      onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
+                      placeholder="예: 12345678-01 또는 1234567801"
+                      className="w-full px-3 py-2 rounded border border-border bg-muted text-sm font-mono"
+                      disabled={isSaving}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      계좌번호 앞 8자리 + 뒤 2자리 (종합/위탁: 01)
+                    </p>
                   </div>
                   <div className="flex gap-2 pt-2">
                     <Button onClick={() => handleSave(type)} disabled={isSaving} className="flex-1">
