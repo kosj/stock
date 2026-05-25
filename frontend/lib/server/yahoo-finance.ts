@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import yahooFinance from "yahoo-finance2";
+import YahooFinance from "yahoo-finance2";
 
-// yahoo-finance2는 복잡한 오버로드 타입을 사용하므로 any 캐스팅으로 처리
-const yf = yahooFinance as any;
+// v3.x: 반드시 new YahooFinance()로 인스턴스 생성 (v2의 default export 직접 사용 불가)
+const yf = new (YahooFinance as any)({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
 
 // ── 티커 변환 ─────────────────────────────────────────────────────────────────
 
@@ -247,26 +247,39 @@ export interface SearchResult {
 }
 
 export async function searchStocks(query: string): Promise<SearchResult[]> {
-  const key = `search:${query}`;
+  const q = query.trim();
+  const key = `search:${q}`;
   const hit = cacheGet<SearchResult[]>(key);
   if (hit) return hit;
 
+  // 6자리 한국 종목 코드 → 직접 시세 조회로 폴백
+  if (KR_CODE.test(q)) {
+    const quote = await getQuote(q);
+    if (quote) {
+      const results: SearchResult[] = [{ ticker: q, name: quote.name ?? q, market: "KSE", sector: "" }];
+      cacheSet(key, results, TTL.SEARCH);
+      return results;
+    }
+    return [];
+  }
+
   try {
-    const res = await yf.search(query, { newsCount: 0 });
+    // v3.x: newsCount 옵션 제거 (invalid option으로 검색 실패)
+    const res = await yf.search(q);
     const results: SearchResult[] = (res.quotes ?? [])
-      .filter((q: any) => ["EQUITY", "INDEX", "ETF"].includes(q.quoteType))
+      .filter((r: any) => ["EQUITY", "INDEX", "ETF"].includes(r.quoteType))
       .slice(0, 20)
-      .map((q: any) => ({
-        ticker: q.symbol ?? "",
-        name:   q.shortname || q.longname || q.symbol || "",
-        market: q.exchange ?? "",
-        sector: q.sector ?? "",
+      .map((r: any) => ({
+        ticker: r.symbol ?? "",
+        name:   r.shortname || r.longname || r.symbol || "",
+        market: r.exchange ?? "",
+        sector: r.sector ?? "",
       }))
       .filter((r: SearchResult) => r.ticker);
     cacheSet(key, results, TTL.SEARCH);
     return results;
   } catch (e) {
-    console.error(`[Yahoo] search error [${query}]:`, e);
+    console.error(`[Yahoo] search error [${q}]:`, e);
     return [];
   }
 }
