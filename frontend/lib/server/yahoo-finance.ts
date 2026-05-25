@@ -42,6 +42,50 @@ function cacheSet<T>(key: string, data: T, ttlMs: number) {
 
 const TTL = { QUOTE: 60_000, CHART: 300_000, FINANCIALS: 3_600_000, SEARCH: 600_000, CALENDAR: 3_600_000 };
 
+// ── 네이버 파이낸스 국내 지수 조회 ───────────────────────────────────────────
+
+const NAVER_INDEX_CODE: Record<string, string> = {
+  "^KS11": "KOSPI",
+  "^KQ11": "KOSDAQ",
+};
+
+export async function getIndexFromNaver(yahooSymbol: string): Promise<QuoteData | null> {
+  const naverCode = NAVER_INDEX_CODE[yahooSymbol];
+  if (!naverCode) return null;
+  try {
+    const res = await fetch(
+      `https://m.stock.naver.com/api/index/${naverCode}/basic`,
+      {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; stock-dashboard/1.0)" },
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+    if (!res.ok) return null;
+    const j = await res.json();
+    const toNum = (v: unknown) =>
+      parseFloat(String(v ?? "0").replace(/[,+%\s]/g, "")) || 0;
+    const price      = toNum(j.closePrice ?? j.currentPrice);
+    const change     = toNum(j.compareToPreviousClosePrice);
+    const change_pct = toNum(j.fluctuationsRatio);
+    if (price <= 0) return null;
+    return {
+      ticker:     yahooSymbol,
+      name:       naverCode,
+      price,
+      change,
+      change_pct,
+      volume:     0,
+      high:       toNum(j.highPrice) || price,
+      low:        toNum(j.lowPrice)  || price,
+      open:       toNum(j.openPrice) || price,
+      prev_close: price - change,
+      timestamp:  new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── 직접 Yahoo Finance v8 HTTP 폴백 ──────────────────────────────────────────
 // yahoo-finance2 라이브러리가 클라우드 서버에서 실패할 때 사용
 
@@ -102,8 +146,12 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
   if (hit) return hit;
 
   async function tryQuote(symbol: string): Promise<any> {
-    try { return await yf.quote(symbol); }
-    catch { return null; }
+    try {
+      return await Promise.race([
+        yf.quote(symbol),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000)),
+      ]);
+    } catch { return null; }
   }
 
   let q = await tryQuote(yt);
