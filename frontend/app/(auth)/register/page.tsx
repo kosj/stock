@@ -25,8 +25,12 @@ export default function RegisterPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, fullName }),
       });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "가입 요청 실패"); return; }
+      let data: { success?: boolean; error?: string } = {};
+      try { data = await res.json(); } catch {}
+      if (!res.ok) {
+        setError(data.error ?? `서버 오류 (${res.status})`);
+        return;
+      }
       router.push("/pending");
     } finally {
       setLoading(false);
