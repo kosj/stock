@@ -8,10 +8,11 @@ import type { BrokerType, BrokerCredentials } from "./server/providers";
 
 export type { BrokerType, BrokerCredentials } from "./server/providers";
 
-const STORAGE_KEY_PREFIX   = "broker-config-";
-const MASTER_PWD_HASH_KEY  = "__master_pwd_hash__";
-const MASTER_PWD_KEY       = "__master_password__";
-const MASTER_PWD_SET_KEY   = "__master_password_set__";
+const STORAGE_KEY_PREFIX  = "broker-config-";
+// 해시는 localStorage에 저장 — 브라우저 재시작 후에도 설정 여부 판별 가능
+const MASTER_PWD_HASH_KEY = "__master_pwd_hash__";
+// 평문 패스워드는 sessionStorage에만 — 탭/브라우저 종료 시 자동 삭제
+const MASTER_PWD_KEY      = "__master_password__";
 
 export interface StoredBrokerConfig {
   type: BrokerType;
@@ -37,33 +38,46 @@ export class BrokerConfigManager {
       throw new Error("마스터 패스워드는 대문자, 소문자, 숫자를 포함해야 합니다");
     }
     const hash = await hashPassword(password);
-    sessionStorage.setItem(MASTER_PWD_HASH_KEY, hash);
-    sessionStorage.setItem(MASTER_PWD_SET_KEY, "true");
+    // 해시는 localStorage — 브라우저 재시작 후에도 "패스워드 설정됨" 상태 유지
+    localStorage.setItem(MASTER_PWD_HASH_KEY, hash);
+    // 평문은 sessionStorage — 탭/브라우저 닫으면 자동 삭제
     sessionStorage.setItem(MASTER_PWD_KEY, password);
   }
 
   /** 마스터 패스워드 검증 (비동기) */
   static async verifyMasterPassword(password: string): Promise<boolean> {
     if (!isClient()) return false;
-    const stored = sessionStorage.getItem(MASTER_PWD_HASH_KEY);
+    const stored = localStorage.getItem(MASTER_PWD_HASH_KEY);
     if (!stored) return false;
     const hash = await hashPassword(password);
     if (hash !== stored) return false;
-    // 검증 성공 시 세션에 저장
     sessionStorage.setItem(MASTER_PWD_KEY, password);
     return true;
   }
 
+  /** 마스터 패스워드가 설정된 적 있는지 (localStorage 해시 존재 여부) */
   static isMasterPasswordSet(): boolean {
     if (!isClient()) return false;
-    return sessionStorage.getItem(MASTER_PWD_SET_KEY) === "true";
+    return localStorage.getItem(MASTER_PWD_HASH_KEY) !== null;
   }
 
+  /** 현재 세션이 잠금 해제 상태인지 (sessionStorage 평문 존재 여부) */
+  static isSessionUnlocked(): boolean {
+    if (!isClient()) return false;
+    return sessionStorage.getItem(MASTER_PWD_KEY) !== null;
+  }
+
+  /** 현재 세션 잠금 (평문만 삭제, 해시는 유지 → 다음 열 때 "비밀번호 입력" 화면) */
   static clearMasterPassword(): void {
     if (!isClient()) return;
     sessionStorage.removeItem(MASTER_PWD_KEY);
-    sessionStorage.removeItem(MASTER_PWD_SET_KEY);
-    sessionStorage.removeItem(MASTER_PWD_HASH_KEY);
+  }
+
+  /** 마스터 패스워드 완전 초기화 (해시 포함 삭제 → 다음 열 때 "신규 설정" 화면) */
+  static resetMasterPassword(): void {
+    if (!isClient()) return;
+    sessionStorage.removeItem(MASTER_PWD_KEY);
+    localStorage.removeItem(MASTER_PWD_HASH_KEY);
   }
 
   /** 증권사 설정 저장 (비동기 — AES 암호화 필요) */

@@ -63,9 +63,22 @@ export function BrokerSettingsPage() {
     setAnthropicKey(ApiKeyManager.getKey("anthropic"));
     setFredKey(ApiKeyManager.getKey("fred"));
 
-    const isMasterSet = BrokerConfigManager.isMasterPasswordSet();
-    setIsLocked(!isMasterSet);
-    setMasterPasswordMode(isMasterSet ? "verify" : "setup");
+    const isPasswordSet = BrokerConfigManager.isMasterPasswordSet();   // localStorage 해시 존재
+    const isUnlocked    = BrokerConfigManager.isSessionUnlocked();     // sessionStorage 평문 존재
+
+    if (!isPasswordSet) {
+      // 처음 설정: 마스터 패스워드 생성
+      setMasterPasswordMode("setup");
+      setIsLocked(true);
+    } else if (!isUnlocked) {
+      // 브라우저 재시작 등으로 세션만 만료: 비밀번호 입력으로 잠금 해제
+      setMasterPasswordMode("verify");
+      setIsLocked(true);
+    } else {
+      // 이미 잠금 해제된 세션
+      setMasterPasswordMode("none");
+      setIsLocked(false);
+    }
 
     setConfiguredBrokers({
       kis: BrokerConfigManager.hasBrokerConfig("kis"),
@@ -116,9 +129,18 @@ export function BrokerSettingsPage() {
   };
 
   const handleLock = () => {
-    BrokerConfigManager.clearMasterPassword();
+    BrokerConfigManager.clearMasterPassword();   // 세션만 잠금, 해시 유지
     setIsLocked(true);
     setMasterPasswordMode("verify");
+  };
+
+  const handleResetMasterPassword = () => {
+    if (!confirm("마스터 패스워드를 초기화하면 저장된 모든 증권사 API 설정이 복호화 불가 상태가 됩니다.\n계속하시겠습니까?")) return;
+    BrokerConfigManager.resetMasterPassword();
+    ALL_BROKER_TYPES.forEach((t) => BrokerConfigManager.removeBrokerConfig(t));
+    setIsLocked(true);
+    setMasterPasswordMode("setup");
+    setConfiguredBrokers({ kis: false, kb: false, shinhan: false, meritz: false });
   };
 
   const handleEditStart = async (type: BrokerType) => {
@@ -230,7 +252,10 @@ export function BrokerSettingsPage() {
 
           {masterPasswordMode === "verify" && (
             <Card className="border-yellow-500/20 bg-yellow-500/5 p-6">
-              <h2 className="text-lg font-semibold mb-4">마스터 패스워드 인증</h2>
+              <h2 className="text-lg font-semibold mb-1">마스터 패스워드 입력</h2>
+              <p className="text-xs text-muted-foreground mb-4">
+                저장된 API 키가 있습니다. 마스터 패스워드를 입력하면 바로 사용할 수 있습니다.
+              </p>
               <div className="space-y-4">
                 <input
                   type="password"
@@ -239,10 +264,17 @@ export function BrokerSettingsPage() {
                   placeholder="마스터 패스워드 입력"
                   className="w-full px-3 py-2 rounded border border-border bg-muted text-sm"
                   onKeyDown={(e) => e.key === "Enter" && handleVerifyMasterPassword()}
+                  autoFocus
                 />
                 <Button onClick={handleVerifyMasterPassword} className="w-full">
-                  인증
+                  잠금 해제
                 </Button>
+                <button
+                  onClick={handleResetMasterPassword}
+                  className="w-full text-xs text-muted-foreground hover:text-red-400 transition-colors py-1"
+                >
+                  패스워드를 잊으셨나요? 초기화 (API 키 전체 삭제)
+                </button>
               </div>
             </Card>
           )}
@@ -547,7 +579,7 @@ export function BrokerSettingsPage() {
             <li><strong>PBKDF2-SHA256:</strong> 100,000 iterations로 강력한 키 유도</li>
             <li><strong>Random Salt & IV:</strong> 각 저장마다 새로운 128비트 난수 생성</li>
             <li><strong>HMAC-SHA256:</strong> 데이터 무결성 및 위조 방지 검증</li>
-            <li><strong>세션 저장:</strong> 마스터 패스워드는 sessionStorage에만 저장 (탭 닫으면 삭제)</li>
+            <li><strong>세션 저장:</strong> 패스워드 평문은 sessionStorage (브라우저 닫으면 삭제), 해시만 localStorage에 보관</li>
           </ul>
         </div>
       </Card>
