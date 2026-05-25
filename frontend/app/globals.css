@@ -42,3 +42,13 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+/* 모바일 하단 탭 바 공간 확보 (md: 미만에서만 적용) */
+.app-main {
+  padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 768px) {
+  .app-main {
+    padding-bottom: 0;
+  }
+}

@@ -11,6 +11,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#080f1a",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -18,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko" className="h-full">
       <body className="flex h-full">
         <Sidebar />
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto min-w-0 app-main">
           {children}
         </main>
         <Toaster theme="dark" position="top-right" richColors />
