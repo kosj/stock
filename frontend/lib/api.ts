@@ -22,6 +22,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const err = await res.text();
     throw new Error(err || `HTTP ${res.status}`);
   }
+  // 204 No Content 등 본문 없는 응답은 res.json() 불가
+  if (res.status === 204 || res.status === 205) {
+    return undefined as unknown as T;
+  }
   return res.json();
 }
 
