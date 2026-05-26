@@ -430,11 +430,15 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
         </Card>
       </div>
 
-      {/* 손절 시그널 분석 */}
-      <StopLossCard result={stopLossResult} loading={isStopLossLoading} avgPrice={avgPrice} />
+      {/* 손절 시그널 — 보유 포지션 있을 때는 손실(-) 구간에서만 표시 */}
+      {(!hasPosition || positionPnlPct === null || positionPnlPct < 0) && (
+        <StopLossCard result={stopLossResult} loading={isStopLossLoading} avgPrice={avgPrice} />
+      )}
 
-      {/* 익절 시그널 분석 */}
-      <ProfitTakingCard result={profitTakingResult} loading={isProfitTakingLoading} />
+      {/* 익절 시그널 — 보유 포지션 있을 때는 수익(+) 구간에서만 표시 */}
+      {(!hasPosition || positionPnlPct === null || positionPnlPct > 0) && (
+        <ProfitTakingCard result={profitTakingResult} loading={isProfitTakingLoading} />
+      )}
 
       {/* 눌림목 패턴 분석 */}
       <PullbackCard result={pullbackResult} loading={isPullbackLoading} />

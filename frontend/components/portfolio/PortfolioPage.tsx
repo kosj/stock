@@ -467,17 +467,25 @@ export function PortfolioPage() {
                           )}
                         </td>
                         <td className="py-3 px-3">
-                          {stopLossMap.has(pos.ticker) ? (
-                            <StopLossBadge result={stopLossMap.get(pos.ticker)!} />
+                          {pnlPct < 0 ? (
+                            stopLossMap.has(pos.ticker) ? (
+                              <StopLossBadge result={stopLossMap.get(pos.ticker)!} />
+                            ) : (
+                              <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
+                            )
                           ) : (
-                            <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
+                            <span className="text-xs text-muted-foreground/30">수익중</span>
                           )}
                         </td>
                         <td className="py-3 px-3">
-                          {profitTakingMap.has(pos.ticker) ? (
-                            <ProfitTakingBadge result={profitTakingMap.get(pos.ticker)!} />
+                          {pnlPct > 0 ? (
+                            profitTakingMap.has(pos.ticker) ? (
+                              <ProfitTakingBadge result={profitTakingMap.get(pos.ticker)!} />
+                            ) : (
+                              <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
+                            )
                           ) : (
-                            <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
+                            <span className="text-xs text-muted-foreground/30">손실중</span>
                           )}
                         </td>
                         <td className="py-3 px-3">
