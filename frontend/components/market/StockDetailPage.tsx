@@ -10,7 +10,9 @@ import { StockChart, RsiChart, MacdChart } from "@/components/charts/StockChart"
 import { formatNumber, formatPercent, colorByChange, recommendationColor } from "@/lib/utils";
 import { TrendingUp, TrendingDown, RefreshCw, Zap, Calendar, DollarSign } from "lucide-react";
 import { PullbackCard } from "./PullbackCard";
+import { ProfitTakingCard } from "./ProfitTakingCard";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
+import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 
 const PERIODS = ["1m", "3m", "6m", "1y", "2y", "5y"] as const;
 type Period = typeof PERIODS[number];
@@ -87,6 +89,22 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     () => api.analysis.get(ticker, undefined, avgPrice ?? undefined, quantity ?? undefined),
     swrConfig,
   );
+
+  // 익절 시그널 분석 (6개월 데이터 기준)
+  const { data: profitTakingRaw, isLoading: isProfitTakingLoading } = useSWR<ProfitTakingResult[]>(
+    `profit-taking-${ticker}`,
+    async () => {
+      const res = await fetch("/api/analysis/profit-taking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers: [ticker] }),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    { revalidateOnFocus: false, dedupingInterval: 300_000 },
+  );
+  const profitTakingResult = profitTakingRaw?.[0] ?? null;
 
   // 눌림목 패턴 분석 (3개월 데이터 기준)
   const { data: pullbackRaw, isLoading: isPullbackLoading } = useSWR<PullbackResult[]>(
@@ -393,6 +411,9 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
           )}
         </Card>
       </div>
+
+      {/* 익절 시그널 분석 */}
+      <ProfitTakingCard result={profitTakingResult} loading={isProfitTakingLoading} />
 
       {/* 눌림목 패턴 분석 */}
       <PullbackCard result={pullbackResult} loading={isPullbackLoading} />
