@@ -15,12 +15,30 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
+  const { ticker, name, sector } = body ?? {};
+
+  if (!ticker) {
+    return NextResponse.json({ error: "ticker 필드가 필요합니다." }, { status: 400 });
+  }
+
+  // 이미 존재하면 기존 항목 반환 (중복 추가 방지)
+  const { data: existing } = await supabase
+    .from("watchlist")
+    .select("*")
+    .eq("ticker", String(ticker).toUpperCase())
+    .maybeSingle();
+
+  if (existing) {
+    return NextResponse.json(existing, { status: 200 });
+  }
+
   const { data, error } = await supabase
     .from("watchlist")
-    .upsert(
-      { ticker: body.ticker, name: body.name, sector: body.sector ?? null },
-      { onConflict: "ticker" },
-    )
+    .insert({
+      ticker: String(ticker).toUpperCase(),
+      name:   String(name ?? ticker),
+      sector: sector ?? null,
+    })
     .select()
     .single();
 

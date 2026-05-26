@@ -64,6 +64,7 @@ export const api = {
       request(`/api/portfolio/${id}/auto-fill`, { method: "POST" }),
     kisPositions: () => request("/api/portfolio/kis/positions"),
     kisBalance: () => request("/api/portfolio/kis/balance"),
+    allPositionsWithTargets: () => request("/api/portfolio/positions"),
     watchlist: () => request("/api/portfolio/watchlist/"),
     addWatchlist: (body: object) =>
       request("/api/portfolio/watchlist/", { method: "POST", body: JSON.stringify(body) }),
