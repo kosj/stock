@@ -105,18 +105,39 @@ export class KISProvider extends BrokerProvider {
       return this.accessToken;
     }
 
-    const res = await axios.post<KISTokenResponse>(
-      `${KIS_BASE}/oauth2/tokenP`,
-      {
-        grant_type: 'client_credentials',
-        appkey: this.credentials.appKey,
-        appsecret: this.credentials.appSecret,
-      },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 8000 },
-    );
+    let res: Awaited<ReturnType<typeof axios.post<KISTokenResponse>>>;
+    try {
+      res = await axios.post<KISTokenResponse>(
+        `${KIS_BASE}/oauth2/tokenP`,
+        {
+          grant_type: 'client_credentials',
+          appkey: this.credentials.appKey,
+          appsecret: this.credentials.appSecret,
+        },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 10_000 },
+      );
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        const d = err.response?.data as Record<string, unknown> | undefined;
+        const kisMsg = d?.msg1 ?? d?.message ?? d?.error_description;
+        const status = err.response?.status;
+        if (kisMsg) throw new Error(`KIS 인증 실패: ${kisMsg}`);
+        if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+          throw new Error('KIS 서버 연결 시간 초과 — 네트워크 또는 IP 차단 확인 필요');
+        }
+        throw new Error(`KIS 인증 실패 (HTTP ${status ?? 'unknown'}): ${err.message}`);
+      }
+      throw err;
+    }
+
+    // rt_cd가 있는 경우 오류 코드 확인 (일부 토큰 응답에 포함)
+    const d = res.data as Record<string, unknown>;
+    if (d.rt_cd && d.rt_cd !== '0') {
+      throw new Error(`KIS 인증 거부: ${d.msg1 ?? d.rt_cd}`);
+    }
 
     const token = res.data.access_token;
-    if (!token) throw new Error('KIS 인증 실패: access_token 없음');
+    if (!token) throw new Error('KIS 인증 실패: access_token 없음 — AppKey/AppSecret 확인 필요');
 
     this.accessToken = token;
     this.tokenExpireTime = Date.now() + (res.data.expires_in ?? 86400) * 1000;
@@ -140,7 +161,8 @@ export class KISProvider extends BrokerProvider {
     const { cano, acntPrdtCd } = this.parseAccountNumber(this.credentials.accountNumber);
     const trId = this.credentials.isDemo ? 'VTTC8434R' : 'TTTC8434R';
 
-    const res = await axios.get(
+    // axios 오류는 kisApiError()로 의미 있는 메시지로 변환
+    const resData = await axios.get(
       `${KIS_BASE}/uapi/domestic-stock/v1/trading/inquire-balance`,
       {
         headers: {
@@ -164,18 +186,33 @@ export class KISProvider extends BrokerProvider {
           CTX_AREA_FK100: '',
           CTX_AREA_NK100: '',
         },
-        timeout: 10_000,
+        timeout: 15_000,
       },
-    );
+    ).catch((err: unknown) => {
+      if (axios.isAxiosError(err)) {
+        const d = err.response?.data as Record<string, unknown> | undefined;
+        const kisMsg = d?.msg1 ?? d?.message;
+        const status = err.response?.status;
+        if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+          throw new Error('KIS 서버 연결 시간 초과 — IP 접근 차단 가능성 있음 (Vercel IP는 KIS 화이트리스트 등록 불가)');
+        }
+        if (status === 401 || status === 403) {
+          throw new Error(`KIS 인증 오류 (${status}): IP 화이트리스트 또는 AppKey 확인 필요${kisMsg ? ` — ${kisMsg}` : ''}`);
+        }
+        throw new Error(`KIS 잔고조회 실패 (HTTP ${status ?? 'unknown'})${kisMsg ? `: ${kisMsg}` : `: ${err.message}`}`);
+      }
+      throw err;
+    });
 
-    if (res.data.rt_cd !== '0') {
-      throw new Error(`KIS API 오류: ${res.data.msg1 ?? res.data.rt_cd}`);
+    if (resData.data.rt_cd !== '0') {
+      const msg = resData.data.msg1 ?? resData.data.msg_cd ?? resData.data.rt_cd;
+      throw new Error(`KIS 잔고조회 오류: ${msg}`);
     }
 
-    const items: KISBalanceItem[] = res.data.output1 ?? [];
+    const items: KISBalanceItem[] = resData.data.output1 ?? [];
     return items
-      .filter((h) => parseInt(h.hldg_qty, 10) > 0)
-      .map((h) => ({
+      .filter((h: KISBalanceItem) => parseInt(h.hldg_qty, 10) > 0)
+      .map((h: KISBalanceItem) => ({
         ticker: h.pdno,
         name: h.prdt_name,
         quantity: parseInt(h.hldg_qty, 10),
