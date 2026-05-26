@@ -12,11 +12,13 @@ import { PortfolioCreateModal } from "./PortfolioCreateModal";
 import { BrokerHoldingsModal } from "./BrokerHoldingsModal";
 import { PullbackBadge } from "./PullbackBadge";
 import { ProfitTakingBadge } from "./ProfitTakingBadge";
+import { StopLossBadge } from "./StopLossBadge";
 import { toast } from "sonner";
 import { useRealtimePrices } from "@/lib/websocket";
 import { BrokerConfigManager } from "@/lib/apiConfig";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
+import type { StopLossResult } from "@/lib/server/stop-loss-signal";
 
 export function PortfolioPage() {
   const { data: portfolios, mutate: mutatePortfolios } = useSWR("portfolios", () => api.portfolio.list());
@@ -108,6 +110,28 @@ export function PortfolioPage() {
   );
   const profitTakingMap = new Map<string, ProfitTakingResult>(
     profitTakingData?.map((r) => [r.ticker, r]) ?? [],
+  );
+
+  // ── 손절 시그널 분석 ──────────────────────────────────────────────────────
+  const { data: stopLossData } = useSWR<StopLossResult[]>(
+    tickers.length > 0 ? `stop-loss-${tickers.join(",")}` : null,
+    async () => {
+      const res = await fetch("/api/analysis/stop-loss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers }),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    {
+      revalidateOnFocus: false,
+      refreshInterval: 300_000,
+      dedupingInterval: 60_000,
+    },
+  );
+  const stopLossMap = new Map<string, StopLossResult>(
+    stopLossData?.map((r) => [r.ticker, r]) ?? [],
   );
 
   // 포트폴리오 변경 시 요약 데이터 재갱신
@@ -380,7 +404,7 @@ export function PortfolioPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "평균단가", "현재가", "손익금", "수익률", "눌림목", "익절신호", "손절/목표", "대응전략", ""].map((h) => (
+                    {["종목", "수량", "평균단가", "현재가", "손익금", "수익률", "눌림목", "손절신호", "익절신호", "손절/목표", "대응전략", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -438,6 +462,13 @@ export function PortfolioPage() {
                         <td className="py-3 px-3">
                           {pullbackMap.has(pos.ticker) ? (
                             <PullbackBadge result={pullbackMap.get(pos.ticker)!} />
+                          ) : (
+                            <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {stopLossMap.has(pos.ticker) ? (
+                            <StopLossBadge result={stopLossMap.get(pos.ticker)!} />
                           ) : (
                             <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
                           )}

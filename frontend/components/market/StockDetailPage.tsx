@@ -11,8 +11,10 @@ import { formatNumber, formatPercent, colorByChange, recommendationColor } from 
 import { TrendingUp, TrendingDown, RefreshCw, Zap, Calendar, DollarSign } from "lucide-react";
 import { PullbackCard } from "./PullbackCard";
 import { ProfitTakingCard } from "./ProfitTakingCard";
+import { StopLossCard } from "./StopLossCard";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
+import type { StopLossResult } from "@/lib/server/stop-loss-signal";
 
 const PERIODS = ["1m", "3m", "6m", "1y", "2y", "5y"] as const;
 type Period = typeof PERIODS[number];
@@ -89,6 +91,22 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     () => api.analysis.get(ticker, undefined, avgPrice ?? undefined, quantity ?? undefined),
     swrConfig,
   );
+
+  // 손절 시그널 분석 (3개월 데이터 기준)
+  const { data: stopLossRaw, isLoading: isStopLossLoading } = useSWR<StopLossResult[]>(
+    `stop-loss-${ticker}`,
+    async () => {
+      const res = await fetch("/api/analysis/stop-loss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers: [ticker] }),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    { revalidateOnFocus: false, dedupingInterval: 300_000 },
+  );
+  const stopLossResult = stopLossRaw?.[0] ?? null;
 
   // 익절 시그널 분석 (6개월 데이터 기준)
   const { data: profitTakingRaw, isLoading: isProfitTakingLoading } = useSWR<ProfitTakingResult[]>(
@@ -411,6 +429,9 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
           )}
         </Card>
       </div>
+
+      {/* 손절 시그널 분석 */}
+      <StopLossCard result={stopLossResult} loading={isStopLossLoading} avgPrice={avgPrice} />
 
       {/* 익절 시그널 분석 */}
       <ProfitTakingCard result={profitTakingResult} loading={isProfitTakingLoading} />
