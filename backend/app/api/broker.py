@@ -21,6 +21,13 @@ class BrokerRequest(BaseModel):
     accountNumber: str | None = None
 
 
+class HoldingsRequest(BaseModel):
+    appKey: str
+    appSecret: str
+    accountNumber: str
+    isDemo: bool = False
+
+
 class PerRequestKISService:
     """요청별 API 키로 동작하는 KIS 서비스 (전역 설정 키 불필요)"""
 
@@ -93,6 +100,72 @@ class PerRequestKISService:
             "timestamp": datetime.now().isoformat(),
         }
 
+    def _parse_account_number(self, raw: str) -> tuple[str, str]:
+        cleaned = raw.replace("-", "").replace(" ", "")
+        return cleaned[:8], cleaned[8:10] or "01"
+
+    async def get_holdings(self, account_number: str, is_demo: bool = False) -> list[dict]:
+        token = await self.get_access_token()
+        cano, acnt_prdt_cd = self._parse_account_number(account_number)
+        tr_id = "VTTC8434R" if is_demo else "TTTC8434R"
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{settings.KIS_BASE_URL}/uapi/domestic-stock/v1/trading/inquire-balance",
+                params={
+                    "CANO": cano,
+                    "ACNT_PRDT_CD": acnt_prdt_cd,
+                    "AFHR_FLPR_YN": "N",
+                    "OFL_YN": "",
+                    "INQR_DVSN": "02",
+                    "UNPR_DVSN": "01",
+                    "FUND_STTL_ICLD_YN": "N",
+                    "FNCG_AMT_AUTO_RDPT_YN": "N",
+                    "PRCS_DVSN": "01",
+                    "CTX_AREA_FK100": "",
+                    "CTX_AREA_NK100": "",
+                },
+                headers={
+                    "content-type": "application/json; charset=utf-8",
+                    "authorization": f"Bearer {token}",
+                    "appkey": self._app_key,
+                    "appsecret": self._app_secret,
+                    "tr_id": tr_id,
+                    "custtype": "P",
+                },
+                timeout=15.0,
+            )
+
+        if resp.status_code != 200:
+            data = resp.json()
+            msg = data.get("msg1") or data.get("message") or str(resp.status_code)
+            if resp.status_code in (401, 403):
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"KIS 인증 오류 ({resp.status_code}): IP 화이트리스트 또는 AppKey 확인 필요 — {msg}",
+                )
+            raise HTTPException(status_code=502, detail=f"KIS 잔고조회 실패 ({resp.status_code}): {msg}")
+
+        data = resp.json()
+        if data.get("rt_cd") != "0":
+            msg = data.get("msg1") or data.get("msg_cd") or data.get("rt_cd")
+            raise HTTPException(status_code=502, detail=f"KIS 잔고조회 오류: {msg}")
+
+        items = data.get("output1") or []
+        return [
+            {
+                "ticker": h["pdno"],
+                "name": h["prdt_name"],
+                "quantity": int(h["hldg_qty"]),
+                "avg_price": float(h["pchs_avg_pric"] or 0),
+                "current_price": float(h["prpr"] or 0),
+                "pnl_amount": float(h["evlu_pfls_amt"] or 0),
+                "pnl_rate": float(h["evlu_pfls_rt"] or 0),
+            }
+            for h in items
+            if int(h.get("hldg_qty", 0)) > 0
+        ]
+
     async def get_index(self, index_code: str) -> dict:
         """국내 주요 지수 조회 (KOSPI: 0001, KOSDAQ: 1001)"""
         token = await self.get_access_token()
@@ -113,6 +186,21 @@ class PerRequestKISService:
         change = float(data.get("bstp_nmix_prdy_vrss", 0))
         change_pct = float(data.get("bstp_nmix_prdy_ctrt", 0))
         return {"price": price, "change": change, "change_pct": change_pct}
+
+
+@router.post("/holdings")
+async def broker_holdings(body: HoldingsRequest):
+    """KIS 보유종목(잔고) 조회 — Vercel에서 프록시 경유"""
+    try:
+        svc = PerRequestKISService(body.appKey, body.appSecret)
+        holdings = await svc.get_holdings(body.accountNumber, body.isDemo)
+        return {"holdings": holdings}
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"KIS API 오류: {e.response.status_code}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"증권사 API 오류: {e}")
 
 
 @router.post("/quote/{ticker}")

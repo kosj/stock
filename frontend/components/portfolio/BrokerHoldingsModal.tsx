@@ -7,7 +7,6 @@ import { X, Download, Loader2, AlertCircle, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { BrokerConfigManager } from "@/lib/apiConfig";
 import type { BrokerHolding } from "@/lib/server/providers";
-import { getKisPositions } from "@/lib/client/kis-browser";
 
 interface Props {
   portfolioId: number;
@@ -31,11 +30,20 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
           return;
         }
 
-        const holdingsList = await getKisPositions(config.credentials);
+        const res = await fetch("/api/broker/holdings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(config.credentials),
+        });
+        const data = await res.json();
 
-        setHoldings(holdingsList);
+        if (!res.ok) {
+          throw new Error(data.error ?? `HTTP ${res.status}`);
+        }
+
+        setHoldings(data.holdings ?? []);
         // 기본으로 전체 선택
-        setSelected(new Set(holdingsList.map((h: BrokerHolding) => h.ticker)));
+        setSelected(new Set((data.holdings ?? []).map((h: BrokerHolding) => h.ticker)));
         setStatus("ready");
       } catch (err) {
         setErrorMsg(err instanceof Error ? err.message : String(err));

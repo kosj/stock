@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { KISProvider } from "@/lib/server/providers";
-import type { BrokerCredentials } from "@/lib/server/providers";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+
+const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,11 +20,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const credentials: BrokerCredentials = { appKey, appSecret, accountNumber, isDemo: !!isDemo };
-    const provider = new KISProvider(credentials);
-    const holdings = await provider.getPositions();
+    const res = await fetch(`${BACKEND}/api/broker/holdings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appKey, appSecret, accountNumber, isDemo: !!isDemo }),
+    });
 
-    return NextResponse.json({ holdings });
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data?.detail ?? data?.error ?? `Railway HTTP ${res.status}`;
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
+
+    return NextResponse.json(data);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[broker/holdings] 오류:", msg);

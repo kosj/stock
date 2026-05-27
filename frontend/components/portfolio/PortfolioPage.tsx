@@ -404,7 +404,7 @@ export function PortfolioPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "평균단가", "현재가", "손익금", "수익률", "눌림목", "손절신호", "익절신호", "손절/목표", "대응전략", ""].map((h) => (
+                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "눌림목", "손절신호", "익절신호", "손절/목표", "대응전략", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -435,10 +435,10 @@ export function PortfolioPage() {
                           </Link>
                         </td>
                         <td className="py-3 px-3 tabular-nums">{formatNumber(pos.quantity)}</td>
-                        <td className="py-3 px-3 tabular-nums">{formatNumber(pos.avg_price)}원</td>
                         <td className="py-3 px-3 tabular-nums">
-                          <div className="flex items-center gap-1">
-                            {formatNumber(currentPrice)}원
+                          <div className="text-xs text-muted-foreground">{formatNumber(pos.avg_price)}원</div>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="font-medium">{formatNumber(currentPrice)}원</span>
                             {live ? (
                               <span className={`text-xs ${colorByChange(live.change_pct)}`}>
                                 {live.change_pct !== undefined ? formatPercent(live.change_pct) : ""}
@@ -453,11 +453,13 @@ export function PortfolioPage() {
                             )}
                           </div>
                         </td>
-                        <td className={`py-3 px-3 tabular-nums font-medium ${colorByChange(pnlAmt)}`}>
-                          {pnlAmt >= 0 ? "+" : ""}{formatNumber(pnlAmt)}원
-                        </td>
-                        <td className={`py-3 px-3 tabular-nums font-medium ${colorByChange(pnlPct)}`}>
-                          {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                        <td className="py-3 px-3 tabular-nums">
+                          <div className={`font-medium ${colorByChange(pnlAmt)}`}>
+                            {pnlAmt >= 0 ? "+" : ""}{formatNumber(pnlAmt)}원
+                          </div>
+                          <div className={`text-xs ${colorByChange(pnlPct)}`}>
+                            {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                          </div>
                         </td>
                         <td className="py-3 px-3">
                           {pullbackMap.has(pos.ticker) ? (
