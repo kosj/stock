@@ -50,7 +50,7 @@ export function ProfitTakingBadge({ result }: Props) {
             <div className="bg-muted/40 rounded px-2 py-1 flex justify-between">
               <span className="text-muted-foreground">저항선</span>
               <span className={`font-semibold tabular-nums ${result.resistance_distance_pct != null && result.resistance_distance_pct <= 2 ? "text-orange-400" : ""}`}>
-                {Math.round(result.resistance_level).toLocaleString()}원
+                {Math.round(result.resistance_level).toLocaleString()}
                 {result.resistance_distance_pct != null && ` (${result.resistance_distance_pct.toFixed(1)}%)`}
               </span>
             </div>

@@ -29,6 +29,8 @@ export interface ProphetForecastResult {
   predictions: ProphetPoint[];
   /** Model fit over last 60 historical days (for chart overlay) */
   history_fit: ProphetPoint[];
+  /** Actual close prices for last 60 days (for accuracy comparison) */
+  history_actual: { date: string; price: number }[];
   recommendation: "strong_buy" | "buy" | "hold" | "sell" | "strong_sell";
   /** Predicted price change over next 7 trading days (%) */
   predicted_return_7d: number;
@@ -221,6 +223,7 @@ export async function prophetForecast(
     current_price:          0,
     predictions:            [],
     history_fit:            [],
+    history_actual:         [],
     recommendation:         "hold",
     predicted_return_7d:    0,
     predicted_return_30d:   0,
@@ -281,7 +284,7 @@ export async function prophetForecast(
     };
   });
 
-  // ── Historical fit (last 60 days) ────────────────────────────────────────────
+  // ── Historical fit + actual prices (last 60 days) ────────────────────────────
   const histStart  = Math.max(0, n - 60);
   const history_fit: ProphetPoint[] = dates.slice(histStart).map((d, i) => {
     const idx = histStart + i;
@@ -293,6 +296,11 @@ export async function prophetForecast(
       trend:       evalTrend(ts[idx], beta, cps),
     };
   });
+
+  const history_actual = dates.slice(histStart).map((d, i) => ({
+    date:  d.toISOString().slice(0, 10),
+    price: prices[histStart + i],
+  }));
 
   // ── Recommendation ────────────────────────────────────────────────────────────
   const currentPrice   = prices[n - 1];
@@ -326,6 +334,7 @@ export async function prophetForecast(
     current_price:          currentPrice,
     predictions,
     history_fit,
+    history_actual,
     recommendation,
     predicted_return_7d:    return7d,
     predicted_return_30d:   return30d,

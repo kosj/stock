@@ -158,7 +158,7 @@ export function StopLossCard({ result, loading, avgPrice }: Props) {
         {result.ma20 != null && result.ma20_distance_pct != null && (
           <div className="text-right shrink-0">
             <div className="text-[10px] text-muted-foreground">20일선</div>
-            <div className="text-sm font-semibold tabular-nums">{formatNumber(result.ma20)}원</div>
+            <div className="text-sm font-semibold tabular-nums">{formatNumber(result.ma20)}</div>
             <div
               className={`text-[11px] font-semibold tabular-nums ${
                 result.ma20_distance_pct <= -2
@@ -234,7 +234,7 @@ export function StopLossCard({ result, loading, avgPrice }: Props) {
           style={{ background: "var(--muted)", opacity: 0.85 }}
         >
           <span className="text-muted-foreground">
-            평단({formatNumber(avgPrice)}원) 대비 20일선
+            평단({formatNumber(avgPrice)}) 대비 20일선
           </span>
           <span
             className={`font-semibold tabular-nums ${

@@ -10,107 +10,152 @@ interface Props {
   loading: boolean;
 }
 
-// ── Recommendation meta ───────────────────────────────────────────────────────
-
 const REC_META = {
   strong_buy:  { label: "강력 매수", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/30" },
-  buy:         { label: "매수",     color: "text-green-400",   bg: "bg-green-500/10  border-green-500/30"  },
-  hold:        { label: "관망",     color: "text-yellow-400",  bg: "bg-yellow-500/10 border-yellow-500/30" },
-  sell:        { label: "매도",     color: "text-orange-400",  bg: "bg-orange-500/10 border-orange-500/30" },
-  strong_sell: { label: "강력 매도", color: "text-red-400",    bg: "bg-red-500/10    border-red-500/30"    },
+  buy:         { label: "매수",      color: "text-green-400",   bg: "bg-green-500/10  border-green-500/30"  },
+  hold:        { label: "관망",      color: "text-yellow-400",  bg: "bg-yellow-500/10 border-yellow-500/30" },
+  sell:        { label: "매도",      color: "text-orange-400",  bg: "bg-orange-500/10 border-orange-500/30" },
+  strong_sell: { label: "강력 매도", color: "text-red-400",     bg: "bg-red-500/10    border-red-500/30"    },
 } as const;
 
-// ── Mini prediction chart (SVG) ───────────────────────────────────────────────
+// ── 정확도 비교 차트 (실제 vs 예측) ─────────────────────────────────────────────
 
-function PredictionChart({ history, predictions, isUp }: {
-  history: ProphetPoint[];
+function AccuracyChart({
+  actual,
+  fit,
+  predictions,
+  isUp,
+}: {
+  actual:      { date: string; price: number }[];
+  fit:         ProphetPoint[];
   predictions: ProphetPoint[];
-  isUp: boolean;
+  isUp:        boolean;
 }) {
-  const W = 520, H = 130, PAD = { t: 10, r: 12, b: 24, l: 50 };
-  const all = [...history, ...predictions];
-  if (all.length === 0) return null;
-
-  const prices = all.flatMap(p => [p.yhat, p.yhat_lower, p.yhat_upper]).filter(isFinite);
-  const minP = Math.min(...prices) * 0.998;
-  const maxP = Math.max(...prices) * 1.002;
-  const range = maxP - minP || 1;
-
+  const W = 540, H = 160;
+  const PAD = { t: 12, r: 12, b: 28, l: 52 };
   const chartW = W - PAD.l - PAD.r;
   const chartH = H - PAD.t - PAD.b;
 
-  const totalPoints = all.length;
-  function cx(i: number) { return PAD.l + (i / (totalPoints - 1)) * chartW; }
-  function cy(v: number) { return PAD.t + chartH - ((v - minP) / range) * chartH; }
+  const totalN = actual.length + predictions.length;
+  if (totalN === 0 || actual.length === 0) return null;
 
-  const histN = history.length;
+  // 전체 가격 범위 (실제 + 예측 + 신뢰구간)
+  const allVals = [
+    ...actual.map(p => p.price),
+    ...fit.map(p => p.yhat),
+    ...predictions.map(p => p.yhat_upper),
+    ...predictions.map(p => p.yhat_lower),
+  ].filter(isFinite);
+  const minP = Math.min(...allVals) * 0.997;
+  const maxP = Math.max(...allVals) * 1.003;
+  const range = maxP - minP || 1;
+
+  function cx(i: number, total: number) {
+    return PAD.l + (i / (total - 1)) * chartW;
+  }
+  function cy(v: number) {
+    return PAD.t + chartH - ((v - minP) / range) * chartH;
+  }
+
+  const histN = actual.length;
   const predN = predictions.length;
 
-  // Polyline points
-  const histLine = history.map((p, i) => `${cx(i)},${cy(p.yhat)}`).join(" ");
-  const predLine = predictions.map((p, i) => `${cx(histN + i)},${cy(p.yhat)}`).join(" ");
+  // 실제가 폴리라인
+  const actualLine = actual.map((p, i) => `${cx(i, totalN)},${cy(p.price)}`).join(" ");
+  // 모델 fit 폴리라인 (점선)
+  const fitLine    = fit.map((p, i) => `${cx(i, totalN)},${cy(p.yhat)}`).join(" ");
+  // 예측 폴리라인
+  const predLine   = predictions.map((p, i) => `${cx(histN + i, totalN)},${cy(p.yhat)}`).join(" ");
 
-  // Confidence band polygon (future only)
-  const bandUpper = predictions.map((p, i) => `${cx(histN + i)},${cy(p.yhat_upper)}`).join(" ");
-  const bandLower = [...predictions].reverse().map((p, i) => `${cx(histN + predN - 1 - i)},${cy(p.yhat_lower)}`).join(" ");
-  const bandPoly  = bandUpper + " " + bandLower;
+  // 신뢰구간 밴드 (예측 구간)
+  const bandUp  = predictions.map((p, i) => `${cx(histN + i, totalN)},${cy(p.yhat_upper)}`).join(" ");
+  const bandDn  = [...predictions].reverse().map((p, i) => `${cx(histN + predN - 1 - i, totalN)},${cy(p.yhat_lower)}`).join(" ");
 
-  // Y-axis ticks (3)
+  // MAPE 계산 (실제 vs fit)
+  const mape = fit.length > 0
+    ? fit.reduce((sum, fp, i) => sum + Math.abs((fp.yhat - actual[i].price) / actual[i].price), 0) / fit.length * 100
+    : null;
+
+  // Y축 틱
   const yTicks = [minP, (minP + maxP) / 2, maxP];
+  // X축 레이블
+  const startDate  = actual[0]?.date?.slice(5) ?? "";
+  const nowDate    = actual[actual.length - 1]?.date?.slice(5) ?? "";
+  const endDate    = predictions[predictions.length - 1]?.date?.slice(5) ?? "";
 
-  // X-axis labels
-  const firstDate    = history[0]?.date?.slice(5)  ?? "";
-  const splitDate    = history[history.length - 1]?.date?.slice(5) ?? "";
-  const lastPredDate = predictions[predictions.length - 1]?.date?.slice(5) ?? "";
-
-  const accentColor = isUp ? "#34d399" : "#f87171"; // green or red
-  const bandColor   = isUp ? "#34d39930" : "#f8717130";
+  const accentColor = isUp ? "#34d399" : "#f87171";
+  const bandFill    = isUp ? "#34d39922" : "#f8717122";
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: "130px" }}>
-      {/* Y-axis ticks */}
-      {yTicks.map((v, i) => (
-        <g key={i}>
-          <line x1={PAD.l - 4} y1={cy(v)} x2={PAD.l + chartW} y2={cy(v)}
-            stroke="#ffffff12" strokeWidth="1" />
-          <text x={PAD.l - 6} y={cy(v) + 4} textAnchor="end" fontSize="9" fill="#888">
-            {formatNumber(Math.round(v))}
-          </text>
-        </g>
-      ))}
+    <div className="space-y-1">
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-3 text-xs">
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-6 h-0.5 bg-white/70" />
+            <span className="text-muted-foreground">실제가</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-6 h-0.5 bg-blue-400 opacity-70" style={{ borderTop: "2px dashed" }} />
+            <span className="text-muted-foreground">모델 적합</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-6 h-0.5" style={{ background: accentColor }} />
+            <span className="text-muted-foreground">예측</span>
+          </span>
+        </div>
+        {mape !== null && (
+          <span className="text-xs text-muted-foreground">
+            과거 오차 <span className={mape < 3 ? "text-green-400" : mape < 7 ? "text-yellow-400" : "text-red-400"}>
+              {mape.toFixed(1)}%
+            </span>
+          </span>
+        )}
+      </div>
 
-      {/* Divider between history and forecast */}
-      <line
-        x1={cx(histN - 1)} y1={PAD.t}
-        x2={cx(histN - 1)} y2={PAD.t + chartH}
-        stroke="#ffffff30" strokeWidth="1" strokeDasharray="3,3"
-      />
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: "160px" }}>
+        {/* 그리드 */}
+        {yTicks.map((v, i) => (
+          <g key={i}>
+            <line x1={PAD.l} y1={cy(v)} x2={PAD.l + chartW} y2={cy(v)}
+              stroke="#ffffff0e" strokeWidth="1" />
+            <text x={PAD.l - 6} y={cy(v) + 4} textAnchor="end" fontSize="9" fill="#666">
+              {formatNumber(Math.round(v))}
+            </text>
+          </g>
+        ))}
 
-      {/* Confidence band */}
-      <polygon points={bandPoly} fill={bandColor} />
+        {/* 현재 시점 구분선 */}
+        <line
+          x1={cx(histN - 1, totalN)} y1={PAD.t}
+          x2={cx(histN - 1, totalN)} y2={PAD.t + chartH}
+          stroke="#ffffff40" strokeWidth="1" strokeDasharray="4,3"
+        />
 
-      {/* Historical fit line */}
-      <polyline points={histLine} fill="none" stroke="#60a5fa" strokeWidth="1.5"
-        strokeDasharray="4,2" opacity="0.7" />
+        {/* 예측 신뢰구간 */}
+        <polygon points={`${bandUp} ${bandDn}`} fill={bandFill} />
 
-      {/* Forecast line */}
-      {predLine && (
-        <polyline points={predLine} fill="none" stroke={accentColor} strokeWidth="2" />
-      )}
+        {/* 모델 fit (파란 점선) */}
+        <polyline points={fitLine} fill="none" stroke="#60a5fa" strokeWidth="1.5"
+          strokeDasharray="5,3" opacity="0.75" />
 
-      {/* X-axis labels */}
-      <text x={cx(0)}            y={H - 6} textAnchor="start"  fontSize="9" fill="#666">{firstDate}</text>
-      <text x={cx(histN - 1)}    y={H - 6} textAnchor="middle" fontSize="9" fill="#aaa">현재</text>
-      <text x={cx(totalPoints-1)}y={H - 6} textAnchor="end"    fontSize="9" fill="#666">{lastPredDate}</text>
+        {/* 실제 가격 (흰색 실선) */}
+        <polyline points={actualLine} fill="none" stroke="#ffffffb0" strokeWidth="2" />
 
-      {/* "예측" label */}
-      <text x={cx(histN + predN / 2)} y={PAD.t + 12} textAnchor="middle" fontSize="9"
-        fill={accentColor} opacity="0.7">예측 ({predN}거래일)</text>
-    </svg>
+        {/* 예측 선 */}
+        {predLine && (
+          <polyline points={predLine} fill="none" stroke={accentColor} strokeWidth="2" />
+        )}
+
+        {/* X축 레이블 */}
+        <text x={cx(0, totalN)}           y={H - 6} textAnchor="start"  fontSize="9" fill="#555">{startDate}</text>
+        <text x={cx(histN - 1, totalN)}   y={H - 6} textAnchor="middle" fontSize="9" fill="#999">현재</text>
+        <text x={cx(totalN - 1, totalN)}  y={H - 6} textAnchor="end"    fontSize="9" fill="#555">{endDate}</text>
+      </svg>
+    </div>
   );
 }
 
-// ── Main card ─────────────────────────────────────────────────────────────────
+// ── 메인 카드 ─────────────────────────────────────────────────────────────────
 
 export function ProphetForecastCard({ result, loading }: Props) {
   const [expanded, setExpanded] = useState(true);
@@ -120,7 +165,7 @@ export function ProphetForecastCard({ result, loading }: Props) {
       <div className="rounded-xl border p-4 space-y-3 animate-pulse"
         style={{ background: "var(--card)", borderColor: "var(--border)" }}>
         <div className="h-4 bg-white/5 rounded w-40" />
-        <div className="h-32 bg-white/3 rounded" />
+        <div className="h-40 bg-white/3 rounded" />
       </div>
     );
   }
@@ -150,7 +195,7 @@ export function ProphetForecastCard({ result, loading }: Props) {
     <div className="rounded-xl border overflow-hidden"
       style={{ background: "var(--card)", borderColor: "var(--border)" }}>
 
-      {/* Header */}
+      {/* 헤더 */}
       <button
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/2 transition-colors"
         onClick={() => setExpanded(v => !v)}
@@ -161,7 +206,8 @@ export function ProphetForecastCard({ result, loading }: Props) {
             {meta.label}
           </span>
           <span className={`text-xs tabular-nums font-medium ${isUp ? "text-green-400" : "text-red-400"}`}>
-            {result.predicted_return_30d >= 0 ? "+" : ""}{result.predicted_return_30d.toFixed(1)}% <span className="text-muted-foreground font-normal">(30일)</span>
+            {result.predicted_return_30d >= 0 ? "+" : ""}{result.predicted_return_30d.toFixed(1)}%
+            <span className="text-muted-foreground font-normal ml-1">(30일)</span>
           </span>
         </div>
         {expanded ? <ChevronUp size={15} className="text-muted-foreground" /> : <ChevronDown size={15} className="text-muted-foreground" />}
@@ -170,30 +216,30 @@ export function ProphetForecastCard({ result, loading }: Props) {
       {expanded && (
         <div className="px-4 pb-4 space-y-4">
 
-          {/* Prediction chart */}
-          <PredictionChart
-            history={result.history_fit}
+          {/* 과거 실제 vs 예측 비교 차트 */}
+          <AccuracyChart
+            actual={result.history_actual}
+            fit={result.history_fit}
             predictions={result.predictions}
             isUp={isUp}
           />
 
-          {/* Stats grid */}
+          {/* 통계 그리드 */}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
-              { label: "7일 예측",  value: `${result.predicted_return_7d  >= 0 ? "+" : ""}${result.predicted_return_7d.toFixed(1)}%`,  color: result.predicted_return_7d  >= 0 ? "text-green-400" : "text-red-400" },
-              { label: "30일 예측", value: `${result.predicted_return_30d >= 0 ? "+" : ""}${result.predicted_return_30d.toFixed(1)}%`, color: result.predicted_return_30d >= 0 ? "text-green-400" : "text-red-400" },
-              { label: "연간 추세", value: `${result.trend_slope_annual_pct.toFixed(1)}%`, color: trendColor },
+              { label: "7일 예측",   value: `${result.predicted_return_7d  >= 0 ? "+" : ""}${result.predicted_return_7d.toFixed(1)}%`,  color: result.predicted_return_7d  >= 0 ? "text-green-400" : "text-red-400" },
+              { label: "30일 예측",  value: `${result.predicted_return_30d >= 0 ? "+" : ""}${result.predicted_return_30d.toFixed(1)}%`, color: result.predicted_return_30d >= 0 ? "text-green-400" : "text-red-400" },
+              { label: "연간 추세",  value: `${result.trend_slope_annual_pct.toFixed(1)}%`, color: trendColor },
               { label: "모델 적합도", value: `R² ${r2Pct}%`, color: r2Pct >= 60 ? "text-blue-400" : "text-yellow-400" },
             ].map(({ label, value, color }) => (
-              <div key={label} className="rounded-lg p-2.5"
-                style={{ background: "var(--background)" }}>
+              <div key={label} className="rounded-lg p-2.5" style={{ background: "var(--background)" }}>
                 <div className="text-xs text-muted-foreground mb-1">{label}</div>
                 <div className={`text-sm font-semibold tabular-nums ${color}`}>{value}</div>
               </div>
             ))}
           </div>
 
-          {/* Trend direction */}
+          {/* 추세 방향 + 변화점 */}
           <div className="flex items-center gap-2 text-sm">
             <TrendIcon size={14} className={trendColor} />
             <span className={`text-xs font-medium ${trendColor}`}>
@@ -201,12 +247,12 @@ export function ProphetForecastCard({ result, loading }: Props) {
             </span>
             {result.changepoint_dates.length > 0 && (
               <span className="text-xs text-muted-foreground ml-2">
-                추세 변화: {result.changepoint_dates.slice(0, 3).join(", ")}
+                추세 변화점: {result.changepoint_dates.slice(0, 3).join(", ")}
               </span>
             )}
           </div>
 
-          {/* Prediction table (first 7 days) */}
+          {/* 7거래일 예측 테이블 */}
           {result.predictions.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -226,7 +272,7 @@ export function ProphetForecastCard({ result, loading }: Props) {
                         <td className="py-1.5 px-2 text-muted-foreground">{p.date}</td>
                         <td className={`py-1.5 px-2 font-medium tabular-nums ${ret >= 0 ? "text-green-400" : "text-red-400"}`}>
                           {formatNumber(Math.round(p.yhat))}
-                          <span className="ml-1 text-xs opacity-70">
+                          <span className="ml-1 opacity-70">
                             ({ret >= 0 ? "+" : ""}{ret.toFixed(1)}%)
                           </span>
                         </td>

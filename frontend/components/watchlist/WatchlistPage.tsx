@@ -284,7 +284,7 @@ export function WatchlistPage() {
                   {q ? (
                     <>
                       <div className="text-right hidden sm:block">
-                        <div className="font-bold tabular-nums text-sm">{formatNumber(q.price)}원</div>
+                        <div className="font-bold tabular-nums text-sm">{formatNumber(q.price)}</div>
                         <div className={`flex items-center justify-end gap-1 text-xs ${colorByChange(change)}`}>
                           <Icon size={11} />
                           {formatPercent(change)}

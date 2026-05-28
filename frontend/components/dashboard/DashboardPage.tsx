@@ -128,10 +128,10 @@ export function DashboardPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             {[
               { label: "투자원금",   value: formatNumber(summary.total_invested) + "원" },
-              { label: "평가금액",   value: formatNumber(summary.total_value) + "원" },
+              { label: "평가금액",   value: formatNumber(summary.total_value) },
               {
                 label: "손익",
-                value: formatNumber(summary.total_pnl) + "원",
+                value: formatNumber(summary.total_pnl),
                 color: colorByChange(summary.total_pnl),
               },
               {
@@ -159,10 +159,10 @@ export function DashboardPage() {
                       {p.name}
                     </Link>
                     {p.is_near_stop && (
-                      <span className="text-xs text-red-400">손절가 근접 ({formatNumber(p.stop_loss)}원)</span>
+                      <span className="text-xs text-red-400">손절가 근접 ({formatNumber(p.stop_loss)})</span>
                     )}
                     {p.is_near_target && (
-                      <span className="text-xs text-green-400">목표가 근접 ({formatNumber(p.take_profit)}원)</span>
+                      <span className="text-xs text-green-400">목표가 근접 ({formatNumber(p.take_profit)})</span>
                     )}
                   </div>
                 ))}

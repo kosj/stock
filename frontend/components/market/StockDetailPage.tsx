@@ -188,7 +188,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
           {q && (
             <div className="flex items-center gap-3 mt-1">
               <span className="text-3xl font-bold tabular-nums">
-                {formatNumber(q.price)}원
+                {formatNumber(q.price)}
               </span>
               <span className={`flex items-center gap-1 text-base font-medium ${colorByChange(priceChange)}`}>
                 {priceChange >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
@@ -201,7 +201,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
           {hasPosition && (
             <div className="flex items-center gap-3 mt-1.5 text-sm">
               <span className="text-muted-foreground">
-                {quantity ? `보유 ${formatNumber(quantity)}주 · ` : ""}평균단가 {formatNumber(avgPrice!)}원
+                {quantity ? `보유 ${formatNumber(quantity)}주 · ` : ""}평균단가 {formatNumber(avgPrice!)}
               </span>
               {positionPnlPct !== null && (
                 <span className={`font-semibold ${colorByChange(positionPnlPct)}`}>
@@ -278,8 +278,8 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
                   { label: "EPS 성장",   value: f.earnings_growth ? `${f.earnings_growth.toFixed(1)}%` : "-" },
                   { label: "배당수익률", value: f.dividend_yield ? `${f.dividend_yield.toFixed(2)}%` : "-" },
                   { label: "베타",       value: f.beta ? f.beta.toFixed(2) : "-" },
-                  { label: "52주 고가",  value: f.week_52_high ? `${formatNumber(f.week_52_high)}원` : "-" },
-                  { label: "52주 저가",  value: f.week_52_low  ? `${formatNumber(f.week_52_low)}원`  : "-" },
+                  { label: "52주 고가",  value: f.week_52_high ? `${formatNumber(f.week_52_high)}` : "-" },
+                  { label: "52주 저가",  value: f.week_52_low  ? `${formatNumber(f.week_52_low)}`  : "-" },
                   { label: "D/E 비율",   value: f.debt_to_equity ? f.debt_to_equity.toFixed(1) : "-" },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex justify-between py-1.5 border-b" style={{ borderColor: "var(--border)" }}>
@@ -399,7 +399,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
                 {a.target_price && (
                   <div className="flex-1 rounded-lg p-2.5 text-center" style={{ background: "rgba(34,197,94,0.08)" }}>
                     <div className="text-xs text-green-400 mb-0.5">목표가</div>
-                    <div className="font-bold text-green-400">{formatNumber(a.target_price)}원</div>
+                    <div className="font-bold text-green-400">{formatNumber(a.target_price)}</div>
                     {hasPosition && (
                       <div className="text-xs text-green-400/70 mt-0.5">
                         평단 대비 +{(((a.target_price - avgPrice!) / avgPrice!) * 100).toFixed(1)}%
@@ -410,7 +410,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
                 {a.stop_price && (
                   <div className="flex-1 rounded-lg p-2.5 text-center" style={{ background: "rgba(239,68,68,0.08)" }}>
                     <div className="text-xs text-red-400 mb-0.5">손절가</div>
-                    <div className="font-bold text-red-400">{formatNumber(a.stop_price)}원</div>
+                    <div className="font-bold text-red-400">{formatNumber(a.stop_price)}</div>
                     {hasPosition && (
                       <div className="text-xs text-red-400/70 mt-0.5">
                         평단 대비 {(((a.stop_price - avgPrice!) / avgPrice!) * 100).toFixed(1)}%

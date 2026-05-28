@@ -161,7 +161,7 @@ export function AlertsPage() {
         direction:   type === "stop_loss" ? "below" : "above",
         threshold,
         position_id: pos.id,
-        message:     `${pos.name} ${type === "stop_loss" ? "손절가" : "목표가"} ${formatNumber(threshold)}원`,
+        message:     `${pos.name} ${type === "stop_loss" ? "손절가" : "목표가"} ${formatNumber(threshold)}`,
       });
       await mutateAlerts();
       toast.success(
@@ -250,7 +250,7 @@ export function AlertsPage() {
                       <span className="text-xs text-muted-foreground">{pos.ticker}</span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      평균 {formatNumber(pos.avg_price)}원 · {pos.quantity}주
+                      평균 {formatNumber(pos.avg_price)} · {pos.quantity}주
                     </div>
                   </div>
 
@@ -261,7 +261,7 @@ export function AlertsPage() {
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-blue-400">
                           <ShieldAlert size={11} className="inline mr-0.5" />
-                          손절 {formatNumber(pos.stop_loss!)}원
+                          손절 {formatNumber(pos.stop_loss!)}
                         </span>
                         {stopAdded ? (
                           <span className="text-xs text-muted-foreground px-2 py-1 rounded bg-muted">
@@ -283,7 +283,7 @@ export function AlertsPage() {
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-red-400">
                           <Target size={11} className="inline mr-0.5" />
-                          목표 {formatNumber(pos.take_profit!)}원
+                          목표 {formatNumber(pos.take_profit!)}
                         </span>
                         {targetAdded ? (
                           <span className="text-xs text-muted-foreground px-2 py-1 rounded bg-muted">
@@ -419,7 +419,7 @@ export function AlertsPage() {
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      {formatNumber(a.threshold)}원 {dirLabel}
+                      {formatNumber(a.threshold)} {dirLabel}
                       {a.message && (
                         <span className="ml-1 text-muted-foreground/60">· {a.message}</span>
                       )}

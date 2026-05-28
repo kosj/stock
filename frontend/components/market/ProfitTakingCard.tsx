@@ -125,7 +125,7 @@ export function ProfitTakingCard({ result, loading }: Props) {
           <div className="text-right">
             <div className="text-[10px] text-muted-foreground">저항선</div>
             <div className="text-sm font-semibold tabular-nums">
-              {Math.round(result.resistance_level).toLocaleString()}원
+              {Math.round(result.resistance_level).toLocaleString()}
             </div>
             <div className={`text-[10px] tabular-nums ${result.resistance_distance_pct <= 2 ? "text-orange-400 font-semibold" : "text-muted-foreground"}`}>
               {result.resistance_distance_pct <= 2 ? "⚠ " : ""}{result.resistance_distance_pct.toFixed(1)}% 이내

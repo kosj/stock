@@ -460,9 +460,9 @@ export function PortfolioPage() {
                         </td>
                         <td className="py-3 px-3 tabular-nums">{formatNumber(pos.quantity)}</td>
                         <td className="py-3 px-3 tabular-nums">
-                          <div className="text-xs text-muted-foreground">{formatNumber(pos.avg_price)}원</div>
+                          <div className="text-xs text-muted-foreground">{formatNumber(pos.avg_price)}</div>
                           <div className="flex items-center gap-1 mt-0.5">
-                            <span className="font-medium">{formatNumber(currentPrice)}원</span>
+                            <span className="font-medium">{formatNumber(currentPrice)}</span>
                             {live ? (
                               <span className={`text-xs ${colorByChange(live.change_pct)}`}>
                                 {live.change_pct !== undefined ? formatPercent(live.change_pct) : ""}
@@ -479,7 +479,7 @@ export function PortfolioPage() {
                         </td>
                         <td className="py-3 px-3 tabular-nums">
                           <div className={`font-medium ${colorByChange(pnlAmt)}`}>
-                            {pnlAmt >= 0 ? "+" : ""}{formatNumber(pnlAmt)}원
+                            {pnlAmt >= 0 ? "+" : ""}{formatNumber(pnlAmt)}
                           </div>
                           <div className={`text-xs ${colorByChange(pnlPct)}`}>
                             {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%

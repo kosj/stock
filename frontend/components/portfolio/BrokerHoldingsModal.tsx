@@ -243,10 +243,10 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
                           </div>
                           <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
                             <span>{formatNumber(h.quantity)}주</span>
-                            <span>평균 {formatNumber(h.avg_price)}원</span>
-                            <span>현재 {formatNumber(h.current_price)}원</span>
+                            <span>평균 {formatNumber(h.avg_price)}</span>
+                            <span>현재 {formatNumber(h.current_price)}</span>
                             <span className={colorByChange(h.pnl_amount)}>
-                              {h.pnl_amount >= 0 ? "+" : ""}{formatNumber(h.pnl_amount)}원
+                              {h.pnl_amount >= 0 ? "+" : ""}{formatNumber(h.pnl_amount)}
                             </span>
                           </div>
                         </div>

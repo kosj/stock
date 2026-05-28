@@ -89,7 +89,7 @@ export function ProphetBadge({ result }: Props) {
                   <div key={p.date} className="flex justify-between text-xs">
                     <span className="text-muted-foreground">+{i + 1}일 ({p.date.slice(5)})</span>
                     <span className={dayRet >= 0 ? "text-green-400" : "text-red-400"}>
-                      {Math.round(p.yhat).toLocaleString()}원
+                      {Math.round(p.yhat).toLocaleString()}
                       <span className="ml-1 opacity-70">({dayRet >= 0 ? "+" : ""}{dayRet.toFixed(1)}%)</span>
                     </span>
                   </div>

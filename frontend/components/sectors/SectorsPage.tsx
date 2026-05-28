@@ -85,7 +85,7 @@ function SectorEtfPanel({ sector, activePeriod }: { sector: string; activePeriod
           </div>
           <div className="flex-1" />
           <span className="text-xs text-muted-foreground tabular-nums w-20 text-right hidden md:block">
-            {etf.price?.toLocaleString()}원
+            {etf.price?.toLocaleString()}
           </span>
           <div className="hidden md:flex gap-3">
             {PERIODS.map((p) => (
