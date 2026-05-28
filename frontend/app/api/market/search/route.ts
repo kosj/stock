@@ -42,9 +42,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json([]);
   }
 
-  // 영문/코드 검색 → Yahoo 우선, 브로커 폴백
-  const yahooResults = await searchStocks(q);
-  if (yahooResults.length > 0) return NextResponse.json(yahooResults);
+  // 영문/숫자 검색 — Yahoo + 네이버 병렬 실행 (NC, SK, LG 같은 한국 기업 약칭 커버)
+  const [yahooResults, naverResults] = await Promise.all([
+    searchStocks(q),
+    searchStocksNaver(q),
+  ]);
+
+  if (yahooResults.length > 0 || naverResults.length > 0) {
+    // 한국 종목(네이버) 우선, Yahoo 결과를 뒤에 추가하되 중복 ticker 제거
+    const seen = new Set<string>();
+    const merged = [...naverResults, ...yahooResults].filter((r) => {
+      if (seen.has(r.ticker)) return false;
+      seen.add(r.ticker);
+      return true;
+    });
+    return NextResponse.json(merged);
+  }
 
   if (provider) {
     try {
