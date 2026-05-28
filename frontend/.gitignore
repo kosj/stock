@@ -42,3 +42,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# lock files — platform-specific native binaries cause cross-platform build failures
+package-lock.json
