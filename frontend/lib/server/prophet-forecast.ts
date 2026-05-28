@@ -22,6 +22,25 @@ export interface ProphetPoint {
   trend: number;
 }
 
+export interface ScenarioPoint {
+  date: string;
+  price: number;
+}
+
+export interface ProphetScenarios {
+  bull: ScenarioPoint[];
+  base: ScenarioPoint[];
+  bear: ScenarioPoint[];
+  /** % return vs current price at day 30 */
+  bull_return_30d: number;
+  base_return_30d: number;
+  bear_return_30d: number;
+  /** Absolute price at day 30 */
+  bull_price_30d: number;
+  base_price_30d: number;
+  bear_price_30d: number;
+}
+
 export interface ProphetForecastResult {
   ticker: string;
   current_price: number;
@@ -31,6 +50,8 @@ export interface ProphetForecastResult {
   history_fit: ProphetPoint[];
   /** Actual close prices for last 60 days (for accuracy comparison) */
   history_actual: { date: string; price: number }[];
+  /** Bull / Base / Bear scenario fan */
+  scenarios: ProphetScenarios;
   recommendation: "strong_buy" | "buy" | "hold" | "sell" | "strong_sell";
   /** Predicted price change over next 7 trading days (%) */
   predicted_return_7d: number;
@@ -224,6 +245,11 @@ export async function prophetForecast(
     predictions:            [],
     history_fit:            [],
     history_actual:         [],
+    scenarios: {
+      bull: [], base: [], bear: [],
+      bull_return_30d: 0, base_return_30d: 0, bear_return_30d: 0,
+      bull_price_30d: 0,  base_price_30d: 0,  bear_price_30d: 0,
+    },
     recommendation:         "hold",
     predicted_return_7d:    0,
     predicted_return_30d:   0,
@@ -329,12 +355,64 @@ export async function prophetForecast(
     adjReturn > -3 ? "hold"        :
     adjReturn > -8 ? "sell"        : "strong_sell";
 
+  // ── Bull / Base / Bear scenarios ─────────────────────────────────────────────
+  //
+  // Methodology:
+  //   Base  = Prophet MAP prediction (yhat)
+  //   Bull  = Base + scenario_spread (optimistic: trend accelerates or reverses)
+  //   Bear  = Base - scenario_spread × 1.15 (pessimistic, slightly asymmetric)
+  //
+  // spread(i) = trend_component(i) + noise_component(i)
+  //   trend_component : proportional to |30d base slope| → captures directional uncertainty
+  //   noise_component : σ × √(i/30)                     → captures model fit uncertainty
+  //
+  // Both components grow with forecast horizon so the fan widens naturally.
+
+  const dailyAbsSlope = Math.abs(pred30d - currentPrice) / FORECAST_DAYS;
+
+  function scenarioSpread(i: number): number {
+    const horizonFrac  = (i + 1) / FORECAST_DAYS;
+    const trendPart    = dailyAbsSlope * (i + 1) * 0.55;
+    const noisePart    = sigma * Math.sqrt(horizonFrac) * 0.80;
+    return trendPart + noisePart;
+  }
+
+  const scenarioBull: ScenarioPoint[] = predictions.map((p, i) => ({
+    date:  p.date,
+    price: Math.max(0, p.yhat + scenarioSpread(i)),
+  }));
+  const scenarioBase: ScenarioPoint[] = predictions.map(p => ({
+    date:  p.date,
+    price: Math.max(0, p.yhat),
+  }));
+  const scenarioBear: ScenarioPoint[] = predictions.map((p, i) => ({
+    date:  p.date,
+    price: Math.max(0, p.yhat - scenarioSpread(i) * 1.15),
+  }));
+
+  const bull30 = scenarioBull[FORECAST_DAYS - 1]?.price ?? currentPrice;
+  const base30 = scenarioBase[FORECAST_DAYS - 1]?.price ?? currentPrice;
+  const bear30 = scenarioBear[FORECAST_DAYS - 1]?.price ?? currentPrice;
+
+  const scenarios: ProphetScenarios = {
+    bull: scenarioBull,
+    base: scenarioBase,
+    bear: scenarioBear,
+    bull_return_30d: ((bull30 - currentPrice) / currentPrice) * 100,
+    base_return_30d: return30d,
+    bear_return_30d: ((bear30 - currentPrice) / currentPrice) * 100,
+    bull_price_30d:  bull30,
+    base_price_30d:  base30,
+    bear_price_30d:  bear30,
+  };
+
   return {
     ticker,
     current_price:          currentPrice,
     predictions,
     history_fit,
     history_actual,
+    scenarios,
     recommendation,
     predicted_return_7d:    return7d,
     predicted_return_30d:   return30d,
