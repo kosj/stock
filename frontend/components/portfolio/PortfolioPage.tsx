@@ -13,12 +13,14 @@ import { BrokerHoldingsModal } from "./BrokerHoldingsModal";
 import { PullbackBadge } from "./PullbackBadge";
 import { ProfitTakingBadge } from "./ProfitTakingBadge";
 import { StopLossBadge } from "./StopLossBadge";
+import { ProphetBadge } from "./ProphetBadge";
 import { toast } from "sonner";
 import { useRealtimePrices } from "@/lib/websocket";
 import { BrokerConfigManager } from "@/lib/apiConfig";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 import type { StopLossResult } from "@/lib/server/stop-loss-signal";
+import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
 
 export function PortfolioPage() {
   const { data: portfolios, mutate: mutatePortfolios } = useSWR("portfolios", () => api.portfolio.list());
@@ -132,6 +134,28 @@ export function PortfolioPage() {
   );
   const stopLossMap = new Map<string, StopLossResult>(
     stopLossData?.map((r) => [r.ticker, r]) ?? [],
+  );
+
+  // ── Prophet 가격 예측 ─────────────────────────────────────────────────────
+  const { data: prophetData } = useSWR<ProphetForecastResult[]>(
+    tickers.length > 0 ? `prophet-portfolio-${tickers.join(",")}` : null,
+    async () => {
+      const res = await fetch("/api/analysis/prophet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers }),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    {
+      revalidateOnFocus: false,
+      refreshInterval:   600_000,   // 10분
+      dedupingInterval:  120_000,
+    },
+  );
+  const prophetMap = new Map<string, ProphetForecastResult>(
+    prophetData?.map((r) => [r.ticker, r]) ?? [],
   );
 
   // 포트폴리오 변경 시 요약 데이터 재갱신
@@ -404,7 +428,7 @@ export function PortfolioPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "눌림목", "손절신호", "익절신호", "손절/목표", "대응전략", ""].map((h) => (
+                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "눌림목", "손절신호", "익절신호", "Prophet예측", "손절/목표", "대응전략", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -488,6 +512,13 @@ export function PortfolioPage() {
                             )
                           ) : (
                             <span className="text-xs text-muted-foreground/30">손실중</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {prophetMap.has(pos.ticker) ? (
+                            <ProphetBadge result={prophetMap.get(pos.ticker)!} />
+                          ) : (
+                            <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
                           )}
                         </td>
                         <td className="py-3 px-3">

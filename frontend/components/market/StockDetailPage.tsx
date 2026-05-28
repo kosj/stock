@@ -12,9 +12,11 @@ import { TrendingUp, TrendingDown, RefreshCw, Zap, Calendar, DollarSign } from "
 import { PullbackCard } from "./PullbackCard";
 import { ProfitTakingCard } from "./ProfitTakingCard";
 import { StopLossCard } from "./StopLossCard";
+import { ProphetForecastCard } from "./ProphetForecastCard";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 import type { StopLossResult } from "@/lib/server/stop-loss-signal";
+import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
 
 const PERIODS = ["1m", "3m", "6m", "1y", "2y", "5y"] as const;
 type Period = typeof PERIODS[number];
@@ -123,6 +125,22 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     { revalidateOnFocus: false, dedupingInterval: 300_000 },
   );
   const profitTakingResult = profitTakingRaw?.[0] ?? null;
+
+  // Prophet 가격 예측
+  const { data: prophetRaw, isLoading: isProphetLoading } = useSWR<ProphetForecastResult[]>(
+    `prophet-${ticker}`,
+    async () => {
+      const res = await fetch("/api/analysis/prophet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers: [ticker] }),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    { revalidateOnFocus: false, dedupingInterval: 600_000 },
+  );
+  const prophetResult = prophetRaw?.[0] ?? null;
 
   // 눌림목 패턴 분석 (3개월 데이터 기준)
   const { data: pullbackRaw, isLoading: isPullbackLoading } = useSWR<PullbackResult[]>(
@@ -429,6 +447,9 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
           )}
         </Card>
       </div>
+
+      {/* Prophet 가격 예측 */}
+      <ProphetForecastCard result={prophetResult} loading={isProphetLoading} />
 
       {/* 손절 시그널 — 보유 포지션 있을 때는 손실(-) 구간에서만 표시 */}
       {(!hasPosition || positionPnlPct === null || positionPnlPct < 0) && (
