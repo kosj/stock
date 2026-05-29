@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: "Prophet TOP 10 분석 실행"
         run: |
-          echo "=== WORKFLOW VERSION: v5-debug ==="
+          echo "=== WORKFLOW VERSION: v6 ==="
 
           RESPONSE=$(curl -sfL --max-time 120 \
             -X POST "${{ secrets.VERCEL_APP_URL }}/api/cron/prophet-top10" \
@@ -31,29 +31,28 @@ jobs:
           echo "=== END BODY ==="
 
           if [ "$HTTP_STATUS" != "200" ]; then
-            echo "❌ 요청 실패 (HTTP $HTTP_STATUS)"
+            echo "요청 실패 (HTTP $HTTP_STATUS)"
             exit 1
           fi
 
           if [ -z "$BODY" ]; then
-            echo "❌ BODY가 비어 있습니다"
+            echo "BODY가 비어 있습니다"
             exit 1
           fi
 
           echo "$BODY" | python3 -c '
 import json, sys
 raw = sys.stdin.read().strip()
-print("=== PYTHON: raw bytes =", len(raw), "===")
+print("=== PYTHON stdin bytes:", len(raw), "===")
 if not raw:
-    print("❌ Python stdin이 비어 있습니다")
+    print("Python stdin이 비어 있습니다")
     sys.exit(1)
 data = json.loads(raw)
-print("✅ 분석 완료: {}/{} 종목".format(data["analyzed"], data["total"]))
-print("📅 기준일: {}".format(data["run_date"]))
-print()
-print("📊 TOP 3 추천:")
+print("분석 완료: {}/{} 종목".format(data["analyzed"], data["total"]))
+print("기준일: {}".format(data["run_date"]))
+print("TOP 3 추천:")
 for r in data.get("top3", []):
-    print("  {}위  {} ({}) — Base {:+.1f}% / Bull {:+.1f}% / Bear {:+.1f}%  [{}]".format(
+    print("  {}위 {} ({}) Base {:+.1f}% Bull {:+.1f}% Bear {:+.1f}% [{}]".format(
         r["rank"], r["name"], r["ticker"],
         r["base_return_30d"], r["bull_return_30d"], r["bear_return_30d"],
         r["recommendation"]))
