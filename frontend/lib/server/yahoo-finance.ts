@@ -80,6 +80,7 @@ export async function getIndexFromNaver(yahooSymbol: string): Promise<QuoteData 
       open:       toNum(j.openPrice) || price,
       prev_close: price - change,
       timestamp:  new Date().toISOString(),
+      market_cap: null,
     };
   } catch {
     return null;
@@ -137,6 +138,7 @@ async function getQuoteFromNaverPolling(ticker: string): Promise<QuoteData | nul
       open:       Number(d.ov) || price,
       prev_close: Number(d.sv) || price,
       timestamp:  new Date().toISOString(),
+      market_cap: null,
     };
   } catch {
     return null;
@@ -176,6 +178,7 @@ async function getQuoteFromNaver(ticker: string): Promise<QuoteData | null> {
       open:       toNum(d.openPrice)  || price,
       prev_close: price - change,
       timestamp:  new Date().toISOString(),
+      market_cap: null,
     };
   } catch {
     return null;
@@ -211,8 +214,9 @@ async function getQuoteDirect(yahooSymbol: string): Promise<QuoteData | null> {
       high:       (meta.regularMarketDayHigh ?? price) as number,
       low:        (meta.regularMarketDayLow  ?? price) as number,
       open:       (meta.regularMarketOpen    ?? price) as number,
-      prev_close: prev,
-      timestamp:  new Date().toISOString(),
+      prev_close:  prev,
+      timestamp:   new Date().toISOString(),
+      market_cap:  null,
     };
   } catch {
     return null;
@@ -233,6 +237,7 @@ export interface QuoteData {
   open: number;
   prev_close: number;
   timestamp: string;
+  market_cap: number | null;
 }
 
 export async function getQuote(ticker: string): Promise<QuoteData | null> {
@@ -264,8 +269,9 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
       high:       q.regularMarketDayHigh ?? q.regularMarketPrice,
       low:        q.regularMarketDayLow  ?? q.regularMarketPrice,
       open:       q.regularMarketOpen    ?? q.regularMarketPrice,
-      prev_close: q.regularMarketPreviousClose ?? q.regularMarketPrice,
-      timestamp:  new Date().toISOString(),
+      prev_close:  q.regularMarketPreviousClose ?? q.regularMarketPrice,
+      timestamp:   new Date().toISOString(),
+      market_cap:  q.marketCap ?? null,
     };
     cacheSet(key, data, TTL.QUOTE);
     return data;

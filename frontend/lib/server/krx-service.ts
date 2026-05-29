@@ -52,6 +52,13 @@ function getLastTradingDay(): string {
 
 export type InvestorRow = { name: string; buy: number; sell: number; net: number };
 
+export interface StockInvestorDay {
+  date: string;            // "2024.05.24"
+  foreign_net: number;     // 외국인 순매수 (주)
+  institution_net: number; // 기관계 순매수 (주)
+  individual_net: number;  // 개인 순매수 (주)
+}
+
 // ─── 소스 1: KRX 공식 JSON API ────────────────────────────────────────────────
 
 // KRX 투자자명 → 내부 키 매핑
@@ -441,5 +448,72 @@ export class KrxService {
     const bizdate = extra.trdDd || getLastTradingDay();
     const rows    = await fetchInvestorSync(bizdate, "01");
     return { date: bizdate, source: "krx+naver", rows };
+  }
+
+  /**
+   * 종목별 5거래일 외국인/기관/개인 순매수 (주수).
+   * Naver Finance `sise_investor.naver` 스크래핑.
+   */
+  static async getStockInvestorTrend(
+    code: string,
+    days = 5,
+  ): Promise<StockInvestorDay[]> {
+    const cleanCode = code.replace(/\D/g, "").padStart(6, "0");
+    const cacheKey  = `stock_inv_${cleanCode}`;
+    const cached    = cache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return cached.data as StockInvestorDay[];
+    }
+
+    try {
+      const html = await fetchHtml(
+        `https://finance.naver.com/item/sise_investor.naver?code=${cleanCode}`,
+      );
+      const $ = cheerio.load(html);
+
+      // 투자자 유형 컬럼 인덱스 탐지 (순매수 = 그룹 3번째 열)
+      // 헤더 구조: 날짜(1) | 외국인(3) | 기관계(3) | 개인(3) | 기타법인(3) ...
+      let foreignOff = -1, institutionOff = -1, individualOff = -1;
+      let col = 1; // 날짜 다음부터
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      $("table.type2 thead tr:first-child th").each((_: number, th: any) => {
+        const text    = $(th).text().trim();
+        const colspan = parseInt($(th).attr("colspan") ?? "1");
+        if (text === "외국인")   foreignOff     = col + 2; // 매도/매수/순매수 → 3번째
+        if (text.startsWith("기관")) institutionOff = col + 2;
+        if (text === "개인")     individualOff  = col + 2;
+        col += colspan;
+      });
+
+      // 헤더 탐지 실패 시 고정 인덱스 (Naver 기본 레이아웃)
+      if (foreignOff < 0) { foreignOff = 3; institutionOff = 6; individualOff = 9; }
+
+      const result: StockInvestorDay[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      $("table.type2 tbody tr").each((_: number, tr: any) => {
+        if (result.length >= days) return false;
+        const tds      = $(tr).find("td");
+        const dateText = tds.eq(0).text().trim();
+        if (!/^\d{4}\.\d{2}\.\d{2}/.test(dateText)) return;
+
+        const parseNet = (idx: number) => {
+          const raw = tds.eq(idx).text().trim().replace(/[,+\s]/g, "");
+          return parseInt(raw) || 0;
+        };
+
+        result.push({
+          date:            dateText,
+          foreign_net:     parseNet(foreignOff),
+          institution_net: parseNet(institutionOff),
+          individual_net:  parseNet(individualOff),
+        });
+      });
+
+      cache.set(cacheKey, { ts: Date.now(), data: result });
+      return result;
+    } catch (e) {
+      console.error(`[KRX] StockInvestorTrend (${cleanCode}):`, e instanceof Error ? e.message : e);
+      return [];
+    }
   }
 }
