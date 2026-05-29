@@ -31,25 +31,20 @@ jobs:
             exit 1
           fi
 
-          echo "$BODY" > /tmp/prophet_result.json
-
-      - name: "결과 요약 출력"
-        if: success()
-        run: |
-          python3 << 'EOF'
-          import json, sys
-
-          try:
-              with open('/tmp/prophet_result.json') as f:
-                  data = json.load(f)
-          except Exception as e:
-              print(f"⚠️ 결과 파일 읽기 실패: {e}")
-              sys.exit(1)
-
-          print(f"✅ 분석 완료: {data['analyzed']}/{data['total']} 종목")
-          print(f"📅 기준일: {data['run_date']}")
-          print()
-          print("📊 TOP 3 추천:")
-          for r in data.get('top3', []):
-              print(f"  {r['rank']}위  {r['name']} ({r['ticker']}) — Base {r['base_return_30d']:+.1f}% / Bull {r['bull_return_30d']:+.1f}% / Bear {r['bear_return_30d']:+.1f}%  [{r['recommendation']}]")
-          EOF
+          echo "$BODY" | python3 -c '
+import json, sys
+raw = sys.stdin.read().strip()
+if not raw:
+    print("⚠️ 응답 본문이 비어 있습니다")
+    sys.exit(1)
+data = json.loads(raw)
+print("✅ 분석 완료: {}/{} 종목".format(data["analyzed"], data["total"]))
+print("📅 기준일: {}".format(data["run_date"]))
+print()
+print("📊 TOP 3 추천:")
+for r in data.get("top3", []):
+    print("  {}위  {} ({}) — Base {:+.1f}% / Bull {:+.1f}% / Bear {:+.1f}%  [{}]".format(
+        r["rank"], r["name"], r["ticker"],
+        r["base_return_30d"], r["bull_return_30d"], r["bear_return_30d"],
+        r["recommendation"]))
+'
