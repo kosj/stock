@@ -62,17 +62,19 @@ export function PortfolioCreateModal({ onClose, onCreated }: Props) {
     try {
       const portfolio = await api.portfolio.create({ name: name.trim(), description: description.trim() || undefined }) as any;
 
-      // 종목 순차 추가
-      for (const r of rows) {
-        await api.portfolio.addPosition(portfolio.id, {
-          ticker: r.ticker.toUpperCase(),
-          name: r.name,
-          quantity: Number(r.quantity),
-          avg_price: Number(r.avg_price),
-          stop_loss: r.stop_loss ? Number(r.stop_loss) : null,
-          take_profit: r.take_profit ? Number(r.take_profit) : null,
-        });
-      }
+      // 종목 병렬 추가
+      await Promise.all(
+        rows.map((r) =>
+          api.portfolio.addPosition(portfolio.id, {
+            ticker: r.ticker.toUpperCase(),
+            name: r.name,
+            quantity: Number(r.quantity),
+            avg_price: Number(r.avg_price),
+            stop_loss: r.stop_loss ? Number(r.stop_loss) : null,
+            take_profit: r.take_profit ? Number(r.take_profit) : null,
+          })
+        )
+      );
 
       toast.success(`포트폴리오 "${portfolio.name}" 생성 완료${rows.length ? ` (종목 ${rows.length}개 추가)` : ""}`);
       onCreated();

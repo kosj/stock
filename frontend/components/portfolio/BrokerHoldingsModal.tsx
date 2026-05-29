@@ -92,20 +92,17 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
     let failCount = 0;
     const today = new Date().toLocaleDateString("ko-KR");
 
-    for (const h of targets) {
-      try {
+    const results = await Promise.allSettled(
+      targets.map((h) => {
         const existing = existingByTicker.get(h.ticker);
         if (existing) {
-          // 기존 포지션: 수량·평균가 갱신 (손절/목표가·전략은 유지)
-          await api.portfolio.updatePosition(existing.id, {
+          return api.portfolio.updatePosition(existing.id, {
             quantity: h.quantity,
             avg_price: h.avg_price,
             notes: `한국투자증권 연동 갱신 (${today})`,
-          });
-          updatedCount++;
+          }).then(() => "updated" as const);
         } else {
-          // 신규 포지션 추가
-          await api.portfolio.addPosition(portfolioId, {
+          return api.portfolio.addPosition(portfolioId, {
             ticker: h.ticker,
             name: h.name,
             quantity: h.quantity,
@@ -114,10 +111,16 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
             take_profit: null,
             strategy: null,
             notes: `한국투자증권 연동 (${today})`,
-          });
-          addedCount++;
+          }).then(() => "added" as const);
         }
-      } catch {
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "updated") updatedCount++;
+        else addedCount++;
+      } else {
         failCount++;
       }
     }

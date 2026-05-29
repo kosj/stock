@@ -196,7 +196,6 @@ export function PortfolioPage() {
   function handleSelectPortfolio(id: number) {
     if (editingPortfolioId) return; // 이름 편집 중엔 탭 전환 무시
     setSelectedId(id);
-    autoFillPositions(id);
   }
 
   // ── 이름 편집 ───────────────────────────────────────────────────────────
@@ -267,7 +266,7 @@ export function PortfolioPage() {
                 ),
               }
             : cur,
-        { revalidate: true },
+        { revalidate: false },
       );
       toast.success("종목 삭제 완료");
     } catch (err: any) {
