@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Briefcase, TrendingUp,
   Globe, BarChart2, Bell, Building2, Settings, Star,
-  Menu, X, LogOut, Shield,
+  Menu, X, LogOut, Shield, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -14,8 +14,9 @@ const NAV = [
   { href: "/",          label: "대시보드",     icon: LayoutDashboard },
   { href: "/portfolio", label: "포트폴리오",    icon: Briefcase },
   { href: "/watchlist", label: "관심 종목",     icon: Star },
-  { href: "/market",    label: "시세 분석",     icon: TrendingUp },
-  { href: "/macro",     label: "거시경제",      icon: Globe },
+  { href: "/market",           label: "시세 분석",  icon: TrendingUp },
+  { href: "/recommendations", label: "추천 종목",  icon: Sparkles },
+  { href: "/macro",           label: "거시경제",   icon: Globe },
   { href: "/sectors",   label: "섹터 로테이션", icon: BarChart2 },
   { href: "/krx",       label: "국내증시 통계", icon: Building2 },
   { href: "/alerts",    label: "알림 설정",     icon: Bell },
