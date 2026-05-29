@@ -13,10 +13,12 @@ import { PullbackCard } from "./PullbackCard";
 import { ProfitTakingCard } from "./ProfitTakingCard";
 import { StopLossCard } from "./StopLossCard";
 import { ProphetForecastCard } from "./ProphetForecastCard";
+import { CompanyOverviewCard } from "./CompanyOverviewCard";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 import type { StopLossResult } from "@/lib/server/stop-loss-signal";
 import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
+import type { DartCompanyInfo } from "@/lib/server/dart";
 
 const PERIODS = ["1m", "3m", "6m", "1y", "2y", "5y"] as const;
 type Period = typeof PERIODS[number];
@@ -158,6 +160,13 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   );
   const pullbackResult = pullbackRaw?.[0] ?? null;
 
+  // DART 기업 기본 정보
+  const { data: dartRaw, isLoading: isDartLoading } = useSWR<DartCompanyInfo & { available?: boolean }>(
+    `dart-company-${ticker}`,
+    () => fetch(`/api/market/dart-company/${ticker}`).then(r => r.json()),
+    { revalidateOnFocus: false, dedupingInterval: 86_400_000 }, // 24시간
+  );
+
   const q = quote as any;
   const c = chart as any;
   const f = financials as any;
@@ -215,6 +224,14 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
           <RefreshCw size={13} />
         </Button>
       </div>
+
+      {/* ── 기업 개요 (최상단) ───────────────────────────────────────── */}
+      <CompanyOverviewCard
+        ticker={ticker}
+        dart={dartRaw ?? null}
+        financials={f ?? null}
+        loading={isDartLoading}
+      />
 
       {/* 차트 */}
       <Card>
@@ -464,13 +481,6 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
       {/* 눌림목 패턴 분석 */}
       <PullbackCard result={pullbackResult} loading={isPullbackLoading} />
 
-      {/* 기업 개요 */}
-      {f?.summary && (
-        <Card>
-          <CardHeader><CardTitle>기업 개요</CardTitle></CardHeader>
-          <p className="text-sm text-muted-foreground leading-relaxed">{f.summary}</p>
-        </Card>
-      )}
     </div>
   );
 }
