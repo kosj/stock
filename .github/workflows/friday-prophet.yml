@@ -15,7 +15,7 @@ jobs:
       - name: "Prophet TOP 10 분석 실행"
         id: call
         run: |
-          RESPONSE=$(curl -sf --max-time 120 \
+          RESPONSE=$(curl -sfL --max-time 120 \
             -X POST "${{ secrets.VERCEL_APP_URL }}/api/cron/prophet-top10" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
