@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: "Prophet TOP 10 분석 실행"
         run: |
+          echo "=== WORKFLOW VERSION: v5-debug ==="
+
           RESPONSE=$(curl -sfL --max-time 120 \
             -X POST "${{ secrets.VERCEL_APP_URL }}/api/cron/prophet-top10" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
@@ -24,18 +26,26 @@ jobs:
           BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
 
           echo "HTTP Status: $HTTP_STATUS"
-          echo "Response: $BODY"
+          echo "=== BODY (${#BODY} bytes) ==="
+          echo "$BODY"
+          echo "=== END BODY ==="
 
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "❌ 요청 실패 (HTTP $HTTP_STATUS)"
             exit 1
           fi
 
+          if [ -z "$BODY" ]; then
+            echo "❌ BODY가 비어 있습니다"
+            exit 1
+          fi
+
           echo "$BODY" | python3 -c '
 import json, sys
 raw = sys.stdin.read().strip()
+print("=== PYTHON: raw bytes =", len(raw), "===")
 if not raw:
-    print("⚠️ 응답 본문이 비어 있습니다")
+    print("❌ Python stdin이 비어 있습니다")
     sys.exit(1)
 data = json.loads(raw)
 print("✅ 분석 완료: {}/{} 종목".format(data["analyzed"], data["total"]))
