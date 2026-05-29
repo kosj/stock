@@ -36,11 +36,16 @@ jobs:
 
       - name: "결과 요약 출력"
         if: success()
+        env:
+          PROPHET_BODY: ${{ steps.call.outputs.body }}
         run: |
-          echo '${{ steps.call.outputs.body }}' | python3 - <<'EOF'
-          import json, sys
+          python3 << 'EOF'
+          import json, os, sys
 
-          raw = sys.stdin.read().strip()
+          raw = os.environ.get('PROPHET_BODY', '').strip()
+          if not raw:
+              print("⚠️ 응답 데이터 없음")
+              sys.exit(1)
           data = json.loads(raw)
 
           print(f"✅ 분석 완료: {data['analyzed']}/{data['total']} 종목")
