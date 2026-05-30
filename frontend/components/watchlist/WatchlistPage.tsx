@@ -195,19 +195,29 @@ export function WatchlistPage() {
         </div>
 
         {searchOpen && searchResults.length > 0 && (
-          <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-border shadow-xl overflow-hidden"
-            style={{ background: "var(--card)" }}>
+          <div
+            className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-border shadow-xl overflow-hidden"
+            style={{ background: "var(--card)" }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             {searchResults.map((result) => {
               const isAlready = alreadyWatched.has(result.ticker);
+              const canAdd = !isAlready && adding !== result.ticker;
               return (
                 <button
                   key={result.ticker}
-                  onClick={() => !isAlready && handleAdd(result)}
-                  disabled={isAlready || adding === result.ticker}
-                  className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors
+                  type="button"
+                  disabled={!canAdd}
+                  onTouchEnd={(e) => {
+                    if (!canAdd) return;
+                    e.preventDefault();
+                    handleAdd(result);
+                  }}
+                  onClick={() => canAdd && handleAdd(result)}
+                  className={`w-full flex items-center justify-between px-4 py-3 text-sm transition-colors
                     ${isAlready
                       ? "opacity-50 cursor-not-allowed"
-                      : "hover:bg-white/5 cursor-pointer"
+                      : "hover:bg-white/5 active:bg-white/10 cursor-pointer"
                     }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -224,6 +234,8 @@ export function WatchlistPage() {
                       <span className="text-xs text-yellow-400 flex items-center gap-1">
                         <Star size={12} className="fill-yellow-400" /> 추가됨
                       </span>
+                    ) : adding === result.ticker ? (
+                      <RefreshCw size={14} className="text-muted-foreground animate-spin" />
                     ) : (
                       <Plus size={16} className="text-muted-foreground" />
                     )}
