@@ -431,7 +431,7 @@ export function PortfolioPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "눌림목", "손절신호", "익절신호", "Prophet예측", "손절/목표", "대응전략", ""].map((h) => (
+                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "Prophet예측", "손절/목표", "대응전략", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -489,33 +489,27 @@ export function PortfolioPage() {
                           </div>
                         </td>
                         <td className="py-3 px-3">
-                          {pullbackMap.has(pos.ticker) ? (
-                            <PullbackBadge result={pullbackMap.get(pos.ticker)!} />
-                          ) : (
-                            <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3">
-                          {pnlPct < 0 ? (
-                            stopLossMap.has(pos.ticker) ? (
-                              <StopLossBadge result={stopLossMap.get(pos.ticker)!} />
+                          <div className="flex flex-col gap-1">
+                            {pullbackMap.has(pos.ticker) ? (
+                              <PullbackBadge result={pullbackMap.get(pos.ticker)!} />
                             ) : (
                               <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                            )
-                          ) : (
-                            <span className="text-xs text-muted-foreground/30">수익중</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3">
-                          {pnlPct > 0 ? (
-                            profitTakingMap.has(pos.ticker) ? (
-                              <ProfitTakingBadge result={profitTakingMap.get(pos.ticker)!} />
-                            ) : (
-                              <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                            )
-                          ) : (
-                            <span className="text-xs text-muted-foreground/30">손실중</span>
-                          )}
+                            )}
+                            {pnlPct < 0 && (
+                              stopLossMap.has(pos.ticker) ? (
+                                <StopLossBadge result={stopLossMap.get(pos.ticker)!} />
+                              ) : (
+                                <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
+                              )
+                            )}
+                            {pnlPct > 0 && (
+                              profitTakingMap.has(pos.ticker) ? (
+                                <ProfitTakingBadge result={profitTakingMap.get(pos.ticker)!} />
+                              ) : (
+                                <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
+                              )
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-3">
                           {prophetMap.has(pos.ticker) ? (

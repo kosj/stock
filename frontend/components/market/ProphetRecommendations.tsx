@@ -65,18 +65,6 @@ function RetCell({ v, small }: { v: number; small?: boolean }) {
   );
 }
 
-function ScenarioBar({ bull, base, bear }: { bull: number; base: number; bear: number }) {
-  const clamp = (v: number) => Math.max(0, Math.min(100, ((v + 20) / 40) * 100));
-  return (
-    <div className="relative w-24 h-2 bg-white/5 rounded-full overflow-hidden">
-      <div className="absolute top-0 h-full bg-blue-500/20 rounded-full"
-        style={{ left: `${clamp(bear)}%`, width: `${clamp(bull) - clamp(bear)}%` }} />
-      <div className={`absolute top-0 h-full w-0.5 ${base >= 0 ? "bg-green-400" : "bg-red-400"}`}
-        style={{ left: `${clamp(base)}%` }} />
-      <div className="absolute top-0 h-full w-px bg-white/25" style={{ left: "50%" }} />
-    </div>
-  );
-}
 
 // ── 투자자 추이 차트 ──────────────────────────────────────────────────────────
 
@@ -291,7 +279,7 @@ export function ProphetRecommendations() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                {["#", "종목", "시장", "현재가", "7일", "30일(Base)", "시나리오 범위", "추천", "R²", "추세", ""].map(h => (
+                {["#", "종목", "시장", "현재가", "7일", "30일(Base)", "추천", "R²", "추세", ""].map(h => (
                   <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -355,18 +343,6 @@ export function ProphetRecommendations() {
                       {/* 7일 / 30일 */}
                       <td className="py-3 px-3"><RetCell v={row.predicted_return_7d} /></td>
                       <td className="py-3 px-3"><RetCell v={row.base_return_30d} /></td>
-
-                      {/* 시나리오 범위 */}
-                      <td className="py-3 px-3">
-                        <div className="flex items-center gap-2">
-                          <ScenarioBar bull={row.bull_return_30d} base={row.base_return_30d} bear={row.bear_return_30d} />
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">
-                            <span className="text-red-400">{row.bear_return_30d.toFixed(1)}%</span>
-                            {" ~ "}
-                            <span className="text-green-400">+{row.bull_return_30d.toFixed(1)}%</span>
-                          </span>
-                        </div>
-                      </td>
 
                       {/* 추천 */}
                       <td className="py-3 px-3">

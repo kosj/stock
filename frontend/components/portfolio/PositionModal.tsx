@@ -38,13 +38,13 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
   const [searchLoading, setSearchLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isValidated, setIsValidated] = useState(isEdit); // 수정 모드는 이미 유효
-  const [brokerCreds, setBrokerCreds] = useState<{ type: string; appKey: string; appSecret: string } | null>(null);
+  const brokerCredsRef = useRef<{ type: string; appKey: string; appSecret: string } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     BrokerConfigManager.getDefaultBrokerConfig().then((config) => {
       if (!config) return;
-      setBrokerCreds({ type: config.type, appKey: config.credentials.appKey, appSecret: config.credentials.appSecret });
+      brokerCredsRef.current = { type: config.type, appKey: config.credentials.appKey, appSecret: config.credentials.appSecret };
     });
   }, []);
 
@@ -73,7 +73,7 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
     searchTimer.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const data = await api.market.search(val, brokerCreds) as SearchResult[];
+        const data = await api.market.search(val, brokerCredsRef.current) as SearchResult[];
         setSearchResults(data.slice(0, 8));
         setShowDropdown(data.length > 0);
       } catch {
@@ -216,7 +216,7 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
             {/* 검색 드롭다운 */}
             {showDropdown && searchResults.length > 0 && (
               <div
-                className="absolute z-10 w-full mt-1 rounded-lg border shadow-lg overflow-hidden"
+                className="absolute z-[200] w-full mt-1 rounded-lg border shadow-lg overflow-hidden"
                 style={{ background: "var(--card)", borderColor: "var(--border)" }}
               >
                 {searchResults.map((r) => (
