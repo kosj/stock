@@ -113,14 +113,29 @@ export function WatchlistPage() {
     setSearchOpen(false);
     setSearchQuery("");
     setSearchResults([]);
+
+    // 낙관적 업데이트: API 응답 전에 즉시 목록에 추가
+    const tempId = -Date.now();
+    const optimistic: WatchlistItem & { quote: QuoteData | null } = {
+      id: tempId,
+      ticker: result.ticker,
+      name: result.name,
+      sector: result.sector || "",
+      added_at: new Date().toISOString(),
+      quote: null,
+    };
+    mutate((cur) => [...(cur ?? []), optimistic], { revalidate: false });
+
     try {
       await api.portfolio.addWatchlist({
         ticker: result.ticker,
         name: result.name,
         sector: result.sector || "",
       });
-      await mutate();
+      mutate(); // 백그라운드에서 실제 ID·시세 반영
     } catch (e) {
+      // 실패 시 낙관적 항목 제거
+      mutate((cur) => (cur ?? []).filter((i) => i.id !== tempId), { revalidate: false });
       alert(`추가 실패: ${e instanceof Error ? e.message : "오류 발생"}`);
     } finally {
       setAdding(null);
@@ -130,10 +145,17 @@ export function WatchlistPage() {
   const handleRemove = async (id: number, name: string) => {
     if (!confirm(`${name}을(를) 관심 종목에서 삭제하시겠습니까?`)) return;
     setRemoving(id);
+
+    // 낙관적 업데이트: 즉시 목록에서 제거
+    const snapshot = items;
+    mutate((cur) => (cur ?? []).filter((i) => i.id !== id), { revalidate: false });
+
     try {
       await api.portfolio.removeWatchlist(id);
-      await mutate();
+      mutate(); // 백그라운드 재검증
     } catch (e) {
+      // 실패 시 원래 목록 복원
+      mutate(snapshot, { revalidate: false });
       alert(`삭제 실패: ${e instanceof Error ? e.message : "오류 발생"}`);
     } finally {
       setRemoving(null);

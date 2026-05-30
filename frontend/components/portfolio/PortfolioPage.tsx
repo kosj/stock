@@ -645,7 +645,33 @@ export function PortfolioPage() {
           portfolioId={portfolioId}
           initial={editPosition}
           onClose={() => { setShowAddPos(false); setEditPosition(null); }}
-          onSaved={() => { mutateSummary(undefined, { revalidate: true }); setShowAddPos(false); setEditPosition(null); }}
+          onSaved={(data) => {
+            // 낙관적 업데이트: 서버 재조회 없이 즉시 캐시 반영
+            mutateSummary((cur: any) => {
+              if (!cur) return cur;
+              if (data.position_id) {
+                // 수정: 해당 포지션만 업데이트
+                return {
+                  ...cur,
+                  positions: (cur.positions ?? []).map((p: any) =>
+                    p.position_id === data.position_id ? { ...p, ...data } : p,
+                  ),
+                };
+              }
+              // 추가: 새 포지션을 즉시 목록에 반영 (현재가는 평균단가로 임시 표시)
+              const optimistic = {
+                position_id: -Date.now(),
+                current_price: data.avg_price,
+                is_near_stop: false,
+                is_near_target: false,
+                price_available: false,
+                ...data,
+              };
+              return { ...cur, positions: [...(cur.positions ?? []), optimistic] };
+            }, { revalidate: true }); // 백그라운드에서 실제 시세로 갱신
+            setShowAddPos(false);
+            setEditPosition(null);
+          }}
         />
       )}
 

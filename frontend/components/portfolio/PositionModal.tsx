@@ -6,11 +6,23 @@ import { Button } from "@/components/ui/Button";
 import { toast } from "sonner";
 import { X, Search, Zap, Loader2 } from "lucide-react";
 
+export interface SavedPositionData {
+  ticker: string;
+  name: string;
+  quantity: number;
+  avg_price: number;
+  stop_loss: number | null;
+  take_profit: number | null;
+  strategy: string | null;
+  notes: string | null;
+  position_id?: number; // 수정 시에만 포함
+}
+
 interface Props {
   portfolioId: number;
   initial?: any;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (data: SavedPositionData) => void;
 }
 
 interface SearchResult {
@@ -170,7 +182,10 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
         await api.portfolio.addPosition(portfolioId, body);
         toast.success("종목 추가 완료");
       }
-      onSaved();
+      onSaved({
+        ...body,
+        ...(isEdit ? { position_id: initial.position_id } : {}),
+      });
     } catch (err: any) {
       toast.error(err.message ?? "오류 발생");
     } finally {
