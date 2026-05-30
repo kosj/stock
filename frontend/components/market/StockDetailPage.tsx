@@ -13,6 +13,7 @@ import { PullbackCard } from "./PullbackCard";
 import { ProfitTakingCard } from "./ProfitTakingCard";
 import { StopLossCard } from "./StopLossCard";
 import { ProphetForecastCard } from "./ProphetForecastCard";
+import { TftAnalysisCard } from "./TftAnalysisCard";
 import { CompanyOverviewCard } from "./CompanyOverviewCard";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
@@ -143,6 +144,17 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     { revalidateOnFocus: false, dedupingInterval: 600_000 },
   );
   const prophetResult = prophetRaw?.[0] ?? null;
+
+  // TFT 멀티팩터 분석
+  const { data: tftResult, isLoading: isTftLoading } = useSWR<import("@/app/api/analysis/tft/route").TftResult>(
+    `tft-${ticker}`,
+    async () => {
+      const res = await fetch(`/api/analysis/tft?ticker=${encodeURIComponent(ticker)}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    { revalidateOnFocus: false, dedupingInterval: 300_000 },
+  );
 
   // 눌림목 패턴 분석 (3개월 데이터 기준)
   const { data: pullbackRaw, isLoading: isPullbackLoading } = useSWR<PullbackResult[]>(
@@ -467,6 +479,9 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
 
       {/* Prophet 가격 예측 */}
       <ProphetForecastCard result={prophetResult} loading={isProphetLoading} />
+
+      {/* TFT 멀티팩터 분석 */}
+      <TftAnalysisCard result={tftResult ?? null} loading={isTftLoading} />
 
       {/* 손절 시그널 — 보유 포지션 있을 때는 손실(-) 구간에서만 표시 */}
       {(!hasPosition || positionPnlPct === null || positionPnlPct < 0) && (
