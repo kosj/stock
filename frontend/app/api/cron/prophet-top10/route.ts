@@ -4,7 +4,7 @@
  * 매주 금요일 GitHub Actions에서 호출.
  * 1. 시총 5000억 미만 종목 사전 제거 (getQuote.market_cap 기준)
  * 2. 통과 종목에 Prophet 예측 실행
- * 3. base_return_30d 상위 10종목을 Supabase에 저장
+ * 3. base_return_30d 상위 30종목을 Supabase에 저장
  *
  * 인증: Authorization: Bearer <CRON_SECRET>
  * Vercel Pro: maxDuration=60 필요 (Hobby=10s)
@@ -65,14 +65,14 @@ export async function POST(request: NextRequest) {
     .map(r => r.value)
     .filter(r => !r.insufficient_data && r.current_price > 0 && isFinite(r.scenarios.base_return_30d));
 
-  // base_return_30d 내림차순 → 상위 10
+  // base_return_30d 내림차순 → 상위 30
   valid.sort((a, b) => b.scenarios.base_return_30d - a.scenarios.base_return_30d);
-  const top10 = valid.slice(0, 10);
+  const top30 = valid.slice(0, 30);
 
-  // ── Step 3: 상위 10 Supabase upsert ──────────────────────────────────────
+  // ── Step 3: 상위 30 Supabase upsert ──────────────────────────────────────
   const stockMap = new Map(candidates.map(s => [s.ticker, s]));
 
-  const rows = top10.map((r, i) => ({
+  const rows = top30.map((r, i) => ({
     run_date:             runDate,
     rank:                 i + 1,
     ticker:               r.ticker,
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const top3Summary = top10.slice(0, 3).map((r, i) => ({
+  const top3Summary = top30.slice(0, 3).map((r, i) => ({
     rank:            i + 1,
     ticker:          r.ticker,
     name:            r.stock_name,
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
     recommendation:  r.recommendation,
   }));
 
-  console.log(`[cron] ${runDate}: ${valid.length}/${candidates.length} 분석, 상위 10 저장`);
+  console.log(`[cron] ${runDate}: ${valid.length}/${candidates.length} 분석, 상위 30 저장`);
 
   return NextResponse.json({
     success:  true,

@@ -481,6 +481,47 @@ export function ProphetForecastCard({ result, loading }: Props) {
                 currentPrice={result.current_price}
               />
 
+              {/* 30일 예측 vs 실제 오차 계산 */}
+              {(() => {
+                const hist = result.history_actual;
+                const fit  = result.history_fit;
+                const n    = hist.length;
+                if (n < 32 || fit.length < 32) return null;
+                const startPrice     = hist[n - 31].price;
+                const actualNow      = result.current_price;
+                const fitNow         = fit[fit.length - 1]?.yhat;
+                if (!startPrice || !fitNow) return null;
+                const actualRet30    = (actualNow - startPrice) / startPrice * 100;
+                const predictedRet30 = (fitNow   - startPrice) / startPrice * 100;
+                const errPct         = actualRet30 - predictedRet30;
+                const errColor       = Math.abs(errPct) < 3 ? "text-green-400" : Math.abs(errPct) < 7 ? "text-yellow-400" : "text-red-400";
+                return (
+                  <div className="rounded-lg p-3 border" style={{ background: "var(--background)", borderColor: "var(--border)" }}>
+                    <div className="text-xs text-muted-foreground mb-2 font-medium">과거 30일 예측 정확도</div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-0.5">실제 수익률</div>
+                        <div className={`text-sm font-semibold tabular-nums ${actualRet30 >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          {actualRet30 >= 0 ? "+" : ""}{actualRet30.toFixed(1)}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-0.5">예측 수익률</div>
+                        <div className={`text-sm font-semibold tabular-nums ${predictedRet30 >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          {predictedRet30 >= 0 ? "+" : ""}{predictedRet30.toFixed(1)}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-0.5">오차</div>
+                        <div className={`text-sm font-semibold tabular-nums ${errColor}`}>
+                          {errPct >= 0 ? "+" : ""}{errPct.toFixed(1)}%p
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* 통계 그리드 */}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[

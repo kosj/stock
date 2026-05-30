@@ -1,4 +1,4 @@
-name: "Prophet Weekly Top 10"
+name: "Prophet Weekly Top 30"
 
 # 매주 금요일 15:30 KST (= 06:30 UTC) — 한국장 마감 후 30분
 on:
@@ -9,10 +9,10 @@ on:
 jobs:
   run-prophet:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
-      - name: "Prophet TOP 10 분석 실행"
+      - name: "Prophet TOP 30 분석 실행"
         run: |
           RESPONSE=$(curl -sfL --max-time 120 \
             -X POST "${{ secrets.VERCEL_APP_URL }}/api/cron/prophet-top10" \
