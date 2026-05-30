@@ -272,3 +272,61 @@ export async function GET(req: NextRequest) {
     insufficient_data: false,
   } as TftResult);
 }
+
+// ── 배치 POST (포트폴리오 테이블용) ──────────────────────────────────────────
+
+async function analyzeSingle(ticker: string): Promise<TftResult> {
+  const candles = await getChart(ticker, "1y").catch(() => []);
+  if (candles.length < 40) {
+    return { ticker, signal: "hold", composite_score: 0, factors: [], insufficient_data: true };
+  }
+  const closes     = candles.map(c => c.close);
+  const price      = closes[closes.length - 1];
+  const rawCandles = candles.map(c => ({ close: c.close, volume: c.volume }));
+
+  const rsi      = calcRSI(closes);
+  const macd     = calcMACD(closes);
+  const bbPos    = calcBB(closes);
+  const volSig   = calcVolumeSignal(rawCandles);
+  const cross520 = calcMACross(closes, 5, 20);
+  const mom20    = calcMomentum(closes, 20);
+  const vol      = calcVolatility(closes);
+
+  const factors: TftFactor[] = [
+    { key: "rsi",        label: "RSI",          category: "past_dynamic", score: scoreRSI(rsi),                        weight: 0.20, contribution: 0, value: rsi.toFixed(1),                          description: rsi < 30 ? "과매도" : rsi > 70 ? "과매수" : "중립" },
+    { key: "macd",       label: "MACD",         category: "past_dynamic", score: scoreMACD(macd.hist, macd.histPrev, price), weight: 0.18, contribution: 0, value: `${macd.hist >= 0 ? "+" : ""}${macd.hist.toFixed(2)}`, description: macd.hist > 0 ? "상승 모멘텀" : "하락 추세" },
+    { key: "bb",         label: "볼린저밴드",    category: "past_dynamic", score: scoreBB(bbPos),                       weight: 0.15, contribution: 0, value: `${(bbPos * 100).toFixed(0)}%`,          description: bbPos < 0.2 ? "과매도" : bbPos > 0.8 ? "과열" : "중간" },
+    { key: "volume",     label: "거래량",        category: "past_dynamic", score: Math.max(-1, Math.min(1, volSig)),   weight: 0.15, contribution: 0, value: `${volSig >= 0 ? "+" : ""}${(volSig * 100).toFixed(0)}%`, description: volSig > 0.3 ? "매수세" : volSig < -0.3 ? "매도세" : "보통" },
+    { key: "ma_cross",   label: "MA교차",        category: "past_dynamic", score: scoreMACross(cross520),               weight: 0.12, contribution: 0, value: `${cross520 >= 0 ? "+" : ""}${cross520.toFixed(2)}%`, description: cross520 > 2 ? "골든크로스" : cross520 < -2 ? "데드크로스" : "중립" },
+    { key: "mom20",      label: "20일모멘텀",    category: "past_dynamic", score: scoreMomentum(mom20),                weight: 0.12, contribution: 0, value: `${mom20 >= 0 ? "+" : ""}${mom20.toFixed(1)}%`,         description: mom20 > 10 ? "강상승" : mom20 < -10 ? "강하락" : "보합" },
+    { key: "volatility", label: "변동성",        category: "static",       score: scoreVolatility(vol),                weight: 0.08, contribution: 0, value: `${vol.toFixed(1)}%`,                     description: vol < 20 ? "안정적" : vol > 50 ? "고위험" : "보통" },
+  ];
+
+  factors.forEach(f => { f.contribution = f.score * f.weight; });
+  const raw  = factors.reduce((s, f) => s + f.contribution, 0);
+  const wsum = factors.reduce((s, f) => s + f.weight, 0);
+  const composite_score = Math.round((raw / wsum) * 100);
+
+  return {
+    ticker,
+    signal: toSignal(composite_score),
+    composite_score,
+    factors: factors.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution)),
+    insufficient_data: false,
+  };
+}
+
+export async function POST(req: NextRequest) {
+  const { tickers } = await req.json().catch(() => ({ tickers: [] }));
+  if (!Array.isArray(tickers) || !tickers.length) {
+    return NextResponse.json({ error: "tickers array required" }, { status: 400 });
+  }
+  const results = await Promise.allSettled(tickers.map(t => analyzeSingle(t)));
+  return NextResponse.json(
+    results.map((r, i) =>
+      r.status === "fulfilled"
+        ? r.value
+        : { ticker: tickers[i], signal: "hold", composite_score: 0, factors: [], insufficient_data: true }
+    )
+  );
+}

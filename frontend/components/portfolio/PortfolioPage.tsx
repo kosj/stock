@@ -136,6 +136,24 @@ export function PortfolioPage() {
     stopLossData?.map((r) => [r.ticker, r]) ?? [],
   );
 
+  // ── TFT 멀티팩터 분석 ────────────────────────────────────────────────────
+  const { data: tftData } = useSWR<import("@/app/api/analysis/tft/route").TftResult[]>(
+    tickers.length > 0 ? `tft-portfolio-${tickers.join(",")}` : null,
+    async () => {
+      const res = await fetch("/api/analysis/tft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers }),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    { revalidateOnFocus: false, refreshInterval: 300_000, dedupingInterval: 60_000 },
+  );
+  const tftMap = new Map<string, import("@/app/api/analysis/tft/route").TftResult>(
+    tftData?.map((r) => [r.ticker, r]) ?? [],
+  );
+
   // ── Prophet 가격 예측 ─────────────────────────────────────────────────────
   const { data: prophetData } = useSWR<ProphetForecastResult[]>(
     tickers.length > 0 ? `prophet-portfolio-${tickers.join(",")}` : null,
@@ -431,7 +449,7 @@ export function PortfolioPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "Prophet예측", "손절/목표", "대응전략", ""].map((h) => (
+                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "Prophet예측", "TFT신호", "손절/목표", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -518,6 +536,32 @@ export function PortfolioPage() {
                             <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
                           )}
                         </td>
+                        {/* TFT 신호 */}
+                        <td className="py-3 px-3">
+                          {(() => {
+                            const t = tftMap.get(pos.ticker);
+                            if (!t) return <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>;
+                            if (t.insufficient_data) return <span className="text-xs text-muted-foreground/40">-</span>;
+                            const COLOR: Record<string, string> = {
+                              strong_buy: "text-emerald-400 bg-emerald-500/10 border-emerald-500/25",
+                              buy:        "text-green-400   bg-green-500/10   border-green-500/20",
+                              hold:       "text-yellow-400  bg-yellow-500/10  border-yellow-500/20",
+                              sell:       "text-orange-400  bg-orange-500/10  border-orange-500/20",
+                              strong_sell:"text-red-400     bg-red-500/10     border-red-500/20",
+                            };
+                            const LABEL: Record<string, string> = { strong_buy: "강력매수", buy: "매수", hold: "보유", sell: "매도", strong_sell: "강력매도" };
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                <span className={`text-xs font-medium px-1.5 py-0.5 rounded border w-fit whitespace-nowrap ${COLOR[t.signal] ?? ""}`}>
+                                  {LABEL[t.signal] ?? t.signal}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+                                  {t.composite_score >= 0 ? "+" : ""}{t.composite_score}점
+                                </span>
+                              </div>
+                            );
+                          })()}
+                        </td>
                         <td className="py-3 px-3">
                           <div className="flex flex-col gap-0.5">
                             {pos.stop_loss ? (
@@ -535,15 +579,6 @@ export function PortfolioPage() {
                               <span className="text-xs text-muted-foreground/40">목표 -</span>
                             )}
                           </div>
-                        </td>
-                        <td className="py-3 px-3 max-w-[180px]">
-                          {pos.strategy ? (
-                            <div className="text-xs text-muted-foreground truncate" title={pos.strategy}>
-                              {pos.strategy}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/40">-</span>
-                          )}
                         </td>
                         <td className="py-3 px-3">
                           <div className="flex gap-1">

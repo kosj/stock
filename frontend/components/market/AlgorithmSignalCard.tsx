@@ -1,8 +1,5 @@
 "use client";
 
-import type { PullbackResult } from "@/lib/server/pullback-analysis";
-import type { StopLossResult } from "@/lib/server/stop-loss-signal";
-import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
 import type { TftResult } from "@/app/api/analysis/tft/route";
 
@@ -12,30 +9,10 @@ interface AlgoSignal {
   name: string;
   signal: Signal;
   detail: string;
+  description?: string;
 }
 
 // ── 각 알고리즘 → Signal 변환 ────────────────────────────────────────────────
-
-function fromPullback(r: PullbackResult | null | undefined): AlgoSignal {
-  if (!r || r.insufficient_data) return { name: "눌림목", signal: "no_data", detail: "데이터 부족" };
-  const map: Record<string, Signal> = { strong: "buy", moderate: "buy", weak: "hold", none: "hold" };
-  const detail: Record<string, string> = {
-    strong: "강한 눌림목 패턴", moderate: "눌림목 탐지", weak: "약한 신호", none: "패턴 없음",
-  };
-  return { name: "눌림목", signal: map[r.signal] ?? "hold", detail: detail[r.signal] ?? "" };
-}
-
-function fromStopLoss(r: StopLossResult | null | undefined): AlgoSignal {
-  if (!r) return { name: "손절신호", signal: "no_data", detail: "데이터 부족" };
-  const map: Record<string, Signal> = { hold: "hold", caution: "hold", consider_stop: "sell", stop: "strong_sell" };
-  return { name: "손절신호", signal: map[r.recommendation] ?? "hold", detail: r.summary ?? "" };
-}
-
-function fromProfitTaking(r: ProfitTakingResult | null | undefined): AlgoSignal {
-  if (!r) return { name: "익절신호", signal: "no_data", detail: "데이터 부족" };
-  const map: Record<string, Signal> = { hold: "hold", watch: "hold", partial_sell: "sell", sell: "strong_sell" };
-  return { name: "익절신호", signal: map[r.recommendation] ?? "hold", detail: r.summary ?? "" };
-}
 
 function fromProphet(r: ProphetForecastResult | null | undefined): AlgoSignal {
   if (!r || r.insufficient_data) return { name: "Prophet", signal: "no_data", detail: "데이터 부족" };
@@ -44,9 +21,10 @@ function fromProphet(r: ProphetForecastResult | null | undefined): AlgoSignal {
   };
   const ret = r.predicted_return_30d;
   return {
-    name:   "Prophet",
-    signal: map[r.recommendation] ?? "hold",
-    detail: `30일 예측 ${ret >= 0 ? "+" : ""}${ret.toFixed(1)}%`,
+    name:        "Prophet",
+    signal:      map[r.recommendation] ?? "hold",
+    detail:      `30일 예측 ${ret >= 0 ? "+" : ""}${ret.toFixed(1)}%`,
+    description: "시계열 분해(추세·계절성·잔차) 기반 30일 가격 예측. Base 시나리오 수익률과 R² 적합도로 판단.",
   };
 }
 
@@ -55,26 +33,33 @@ function fromTft(r: TftResult | null | undefined): AlgoSignal {
   const map: Record<string, Signal> = {
     strong_buy: "strong_buy", buy: "buy", hold: "hold", sell: "sell", strong_sell: "strong_sell",
   };
+  const score = r.composite_score;
+
+  // 주요 기여 팩터 추출 (상위 2개)
+  const topFactors = r.factors
+    .slice(0, 2)
+    .map(f => `${f.label}(${f.score >= 0 ? "+" : ""}${f.score.toFixed(1)})`)
+    .join(", ");
+
   return {
-    name:   "TFT",
-    signal: map[r.signal] ?? "hold",
-    detail: `종합점수 ${r.composite_score >= 0 ? "+" : ""}${r.composite_score}`,
+    name:        "TFT",
+    signal:      map[r.signal] ?? "hold",
+    detail:      `종합점수 ${score >= 0 ? "+" : ""}${score}점`,
+    description: `RSI·MACD·볼린저밴드·거래량·MA교차·모멘텀·변동성 7개 팩터 가중합. -100(강매도)~+100(강매수). 주요: ${topFactors || "분석 중"}`,
   };
 }
 
 // ── 신호 메타 ─────────────────────────────────────────────────────────────────
 
-const SIGNAL_META: Record<Signal, { label: string; short: string; color: string; bg: string; border: string }> = {
-  strong_buy:  { label: "강력 매수", short: "강력 매수", color: "text-emerald-400", bg: "bg-emerald-500/12", border: "border-emerald-500/30" },
-  buy:         { label: "매수",      short: "매수",     color: "text-green-400",   bg: "bg-green-500/10",   border: "border-green-500/25"   },
-  hold:        { label: "보유",      short: "보유",     color: "text-yellow-400",  bg: "bg-yellow-500/10",  border: "border-yellow-500/25"  },
-  sell:        { label: "매도",      short: "매도",     color: "text-orange-400",  bg: "bg-orange-500/10",  border: "border-orange-500/25"  },
-  strong_sell: { label: "강력 매도", short: "강력 매도",color: "text-red-400",     bg: "bg-red-500/10",     border: "border-red-500/25"     },
-  loading:     { label: "분석 중",   short: "분석 중",  color: "text-muted-foreground", bg: "bg-muted/30", border: "border-transparent"    },
-  no_data:     { label: "데이터 없음",short: "-",        color: "text-muted-foreground/50", bg: "bg-muted/20", border: "border-transparent" },
+const SIGNAL_META: Record<Signal, { label: string; color: string; bg: string; border: string }> = {
+  strong_buy:  { label: "강력 매수", color: "text-emerald-400", bg: "bg-emerald-500/12", border: "border-emerald-500/30" },
+  buy:         { label: "매수",      color: "text-green-400",   bg: "bg-green-500/10",   border: "border-green-500/25"   },
+  hold:        { label: "보유",      color: "text-yellow-400",  bg: "bg-yellow-500/10",  border: "border-yellow-500/25"  },
+  sell:        { label: "매도",      color: "text-orange-400",  bg: "bg-orange-500/10",  border: "border-orange-500/25"  },
+  strong_sell: { label: "강력 매도", color: "text-red-400",     bg: "bg-red-500/10",     border: "border-red-500/25"     },
+  loading:     { label: "분석 중",   color: "text-muted-foreground", bg: "bg-muted/30",  border: "border-transparent"    },
+  no_data:     { label: "-",         color: "text-muted-foreground/50", bg: "bg-muted/20", border: "border-transparent"  },
 };
-
-// ── 종합 판단 ─────────────────────────────────────────────────────────────────
 
 const SCORE: Record<Signal, number> = {
   strong_buy: 2, buy: 1, hold: 0, sell: -1, strong_sell: -2, loading: 0, no_data: 0,
@@ -94,21 +79,15 @@ function calcOverall(signals: AlgoSignal[]): Signal {
 // ── 컴포넌트 ──────────────────────────────────────────────────────────────────
 
 interface Props {
-  pullback:     PullbackResult     | null;
-  stopLoss:     StopLossResult     | null;
-  profitTaking: ProfitTakingResult | null;
-  prophet:      ProphetForecastResult | null;
-  tft:          TftResult          | null;
-  loadingMap:   Partial<Record<"pullback" | "stopLoss" | "profitTaking" | "prophet" | "tft", boolean>>;
+  prophet:    ProphetForecastResult | null;
+  tft:        TftResult             | null;
+  loadingMap: Partial<Record<"prophet" | "tft", boolean>>;
 }
 
-export function AlgorithmSignalCard({ pullback, stopLoss, profitTaking, prophet, tft, loadingMap }: Props) {
+export function AlgorithmSignalCard({ prophet, tft, loadingMap }: Props) {
   const algo: AlgoSignal[] = [
-    loadingMap.prophet     ? { name: "Prophet",  signal: "loading", detail: "" } : fromProphet(prophet),
-    loadingMap.tft         ? { name: "TFT",       signal: "loading", detail: "" } : fromTft(tft),
-    loadingMap.pullback    ? { name: "눌림목",    signal: "loading", detail: "" } : fromPullback(pullback),
-    loadingMap.stopLoss    ? { name: "손절신호",  signal: "loading", detail: "" } : fromStopLoss(stopLoss),
-    loadingMap.profitTaking? { name: "익절신호",  signal: "loading", detail: "" } : fromProfitTaking(profitTaking),
+    loadingMap.prophet ? { name: "Prophet", signal: "loading", detail: "" } : fromProphet(prophet),
+    loadingMap.tft     ? { name: "TFT",     signal: "loading", detail: "" } : fromTft(tft),
   ];
 
   const overall = calcOverall(algo);
@@ -131,25 +110,38 @@ export function AlgorithmSignalCard({ pullback, stopLoss, profitTaking, prophet,
             {om.label}
           </span>
         </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-3 text-xs">
           <span className="text-green-400 font-medium">{buyCount} 매수</span>
           <span className="text-yellow-400 font-medium">{holdCount} 보유</span>
           <span className="text-red-400 font-medium">{sellCount} 매도</span>
         </div>
       </div>
 
-      {/* 알고리즘별 신호 그리드 */}
-      <div className="grid grid-cols-5 divide-x" style={{ borderColor: "var(--border)" }}>
+      {/* 알고리즘별 신호 */}
+      <div className="grid grid-cols-2 divide-x" style={{ borderColor: "var(--border)" }}>
         {algo.map((a) => {
           const m = SIGNAL_META[a.signal];
           return (
-            <div key={a.name} className="px-3 py-3 flex flex-col items-center gap-1.5 text-center">
-              <span className="text-xs text-muted-foreground font-medium">{a.name}</span>
-              <span className={`px-2 py-0.5 rounded-md text-xs font-semibold border whitespace-nowrap ${m.bg} ${m.color} ${m.border} ${a.signal === "loading" ? "animate-pulse" : ""}`}>
-                {m.short}
-              </span>
+            <div key={a.name} className="px-4 py-4 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">{a.name}</span>
+                <span className={`px-2 py-0.5 rounded-md text-xs font-semibold border whitespace-nowrap ${m.bg} ${m.color} ${m.border} ${a.signal === "loading" ? "animate-pulse" : ""}`}>
+                  {m.label}
+                </span>
+              </div>
               {a.detail && (
-                <span className="text-[10px] text-muted-foreground/60 leading-tight">{a.detail}</span>
+                <span className={`text-sm font-medium tabular-nums ${
+                  a.signal === "strong_buy" || a.signal === "buy" ? "text-green-400" :
+                  a.signal === "sell" || a.signal === "strong_sell" ? "text-red-400" :
+                  "text-muted-foreground"
+                }`}>
+                  {a.detail}
+                </span>
+              )}
+              {a.description && (
+                <p className="text-xs text-muted-foreground/60 leading-relaxed">
+                  {a.description}
+                </p>
               )}
             </div>
           );

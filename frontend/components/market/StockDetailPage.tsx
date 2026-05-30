@@ -480,17 +480,11 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
 
       {/* 알고리즘 종합 신호 */}
       <AlgorithmSignalCard
-        pullback={pullbackResult}
-        stopLoss={stopLossResult}
-        profitTaking={profitTakingResult}
         prophet={prophetResult}
         tft={tftResult ?? null}
         loadingMap={{
-          pullback:     isPullbackLoading,
-          stopLoss:     isStopLossLoading,
-          profitTaking: isProfitTakingLoading,
-          prophet:      isProphetLoading,
-          tft:          isTftLoading,
+          prophet: isProphetLoading,
+          tft:     isTftLoading,
         }}
       />
 
