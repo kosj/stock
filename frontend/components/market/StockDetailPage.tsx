@@ -14,6 +14,7 @@ import { ProfitTakingCard } from "./ProfitTakingCard";
 import { StopLossCard } from "./StopLossCard";
 import { ProphetForecastCard } from "./ProphetForecastCard";
 import { TftAnalysisCard } from "./TftAnalysisCard";
+import { AlgorithmSignalCard } from "./AlgorithmSignalCard";
 import { CompanyOverviewCard } from "./CompanyOverviewCard";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
@@ -476,6 +477,22 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
           )}
         </Card>
       </div>
+
+      {/* 알고리즘 종합 신호 */}
+      <AlgorithmSignalCard
+        pullback={pullbackResult}
+        stopLoss={stopLossResult}
+        profitTaking={profitTakingResult}
+        prophet={prophetResult}
+        tft={tftResult ?? null}
+        loadingMap={{
+          pullback:     isPullbackLoading,
+          stopLoss:     isStopLossLoading,
+          profitTaking: isProfitTakingLoading,
+          prophet:      isProphetLoading,
+          tft:          isTftLoading,
+        }}
+      />
 
       {/* Prophet 가격 예측 */}
       <ProphetForecastCard result={prophetResult} loading={isProphetLoading} />
