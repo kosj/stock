@@ -98,9 +98,12 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     swrConfig,
   );
 
-  // 손절 시그널 분석 (3개월 데이터 기준)
+  // 포트폴리오 보유 종목 여부 (avgPrice 있으면 portfolio에서 진입한 것)
+  const hasPosition = avgPrice != null && avgPrice > 0;
+
+  // 손절 시그널 분석 — 포트폴리오 보유 종목만
   const { data: stopLossRaw, isLoading: isStopLossLoading } = useSWR<StopLossResult[]>(
-    `stop-loss-${ticker}`,
+    hasPosition ? `stop-loss-${ticker}` : null,
     async () => {
       const res = await fetch("/api/analysis/stop-loss", {
         method: "POST",
@@ -114,9 +117,9 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   );
   const stopLossResult = stopLossRaw?.[0] ?? null;
 
-  // 익절 시그널 분석 (6개월 데이터 기준)
+  // 익절 시그널 분석 — 포트폴리오 보유 종목만
   const { data: profitTakingRaw, isLoading: isProfitTakingLoading } = useSWR<ProfitTakingResult[]>(
-    `profit-taking-${ticker}`,
+    hasPosition ? `profit-taking-${ticker}` : null,
     async () => {
       const res = await fetch("/api/analysis/profit-taking", {
         method: "POST",
@@ -186,7 +189,6 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   const a = analysis as any;
 
   const priceChange = q?.change ?? 0;
-  const hasPosition = avgPrice != null && avgPrice > 0;
   const currentPrice = q?.price;
   const positionPnlPct = hasPosition && currentPrice
     ? ((currentPrice - avgPrice!) / avgPrice!) * 100
