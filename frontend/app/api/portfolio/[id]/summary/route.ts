@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getQuote } from "@/lib/server/yahoo-finance";
 import { createBrokerProvider } from "@/lib/server/providers";
 import type { BrokerType, BrokerProvider } from "@/lib/server/providers";
@@ -38,7 +39,11 @@ async function fetchQuoteWithFallback(
 export async function GET(req: NextRequest, { params }: Ctx) {
   const { id } = await params;
 
-  const { data: pf } = await supabase.from("portfolios").select("*").eq("id", id).single();
+  const serverClient = await createSupabaseServerClient();
+  const { data: { user } } = await serverClient.auth.getUser();
+  if (!user) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+
+  const { data: pf } = await supabase.from("portfolios").select("*").eq("id", id).eq("user_id", user.id).single();
   if (!pf) return NextResponse.json({ error: "포트폴리오를 찾을 수 없습니다." }, { status: 404 });
 
   const { data: positions } = await supabase

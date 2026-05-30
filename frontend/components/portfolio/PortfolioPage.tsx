@@ -277,7 +277,11 @@ export function PortfolioPage() {
 
   async function handlePortfolioCreated() {
     try {
-      await mutatePortfolios();
+      const updated = await mutatePortfolios() as any[];
+      // 새로 생성된 포트폴리오(최신순 첫 번째)를 자동 선택
+      if (updated && updated.length > 0) {
+        setSelectedId(updated[0].id);
+      }
       setShowCreate(false);
     } catch (err: any) {
       toast.error(err.message ?? "포트폴리오 목록 갱신 실패");
@@ -612,7 +616,7 @@ export function PortfolioPage() {
           portfolioId={portfolioId}
           initial={editPosition}
           onClose={() => { setShowAddPos(false); setEditPosition(null); }}
-          onSaved={() => { mutateSummary(); setShowAddPos(false); setEditPosition(null); }}
+          onSaved={() => { mutateSummary(undefined, { revalidate: true }); setShowAddPos(false); setEditPosition(null); }}
         />
       )}
 
@@ -621,7 +625,7 @@ export function PortfolioPage() {
         <BrokerHoldingsModal
           portfolioId={portfolioId}
           onClose={() => setShowBrokerHoldings(false)}
-          onImported={() => { mutateSummary(); }}
+          onImported={() => { mutateSummary(undefined, { revalidate: true }); }}
         />
       )}
     </div>
