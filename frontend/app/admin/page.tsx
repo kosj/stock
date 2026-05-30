@@ -34,8 +34,15 @@ export default function AdminPage() {
   async function handleAction(id: string, action: "approve" | "reject") {
     setActionId(id);
     try {
-      await fetch(`/api/admin/users/${id}/${action}`, { method: "POST" });
+      const res = await fetch(`/api/admin/users/${id}/${action}`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`${action === "approve" ? "승인" : "거절"} 실패: ${err.error ?? res.status}\n\nVercel 환경변수 SUPABASE_SERVICE_ROLE_KEY가 설정되어 있는지 확인하세요.`);
+        return;
+      }
       await fetchUsers();
+    } catch (e) {
+      alert(`요청 중 오류: ${e}`);
     } finally {
       setActionId(null);
     }
