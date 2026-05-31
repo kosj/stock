@@ -17,6 +17,7 @@ import { ProphetBadge } from "./ProphetBadge";
 import { toast } from "sonner";
 import { useRealtimePrices } from "@/lib/websocket";
 import { BrokerConfigManager } from "@/lib/apiConfig";
+import type { BrokerHolding } from "@/lib/server/providers";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 import type { StopLossResult } from "@/lib/server/stop-loss-signal";
@@ -40,12 +41,20 @@ export function PortfolioPage() {
 
   // 증권사 보유종목 가져오기 상태
   const [showBrokerHoldings, setShowBrokerHoldings] = useState(false);
-  const [hasBrokerConfig, setHasBrokerConfig] = useState(false);
   const [brokerCreds, setBrokerCreds] = useState<{ type: string; appKey: string; appSecret: string } | null>(null);
+  const [autoSyncing, setAutoSyncing] = useState(false);
+  const autoSyncedRef = useRef(false); // 자동 동기화는 세션당 1회만
 
-  // 브로커 설정 확인 + 크레덴셜 로드
+  // DB 기반 브로커 설정 확인 (localStorage 대신 서버 API)
+  const { data: brokerSettingsData } = useSWR<{ configured: string[] }>(
+    "broker-settings-configured",
+    () => fetch("/api/settings/broker").then((r) => r.json()),
+    { revalidateOnFocus: false },
+  );
+  const hasBrokerConfig = (brokerSettingsData?.configured?.length ?? 0) > 0;
+
+  // 실시간 시세용 크레덴셜은 localStorage에서 유지 (기존 호환)
   useEffect(() => {
-    setHasBrokerConfig(BrokerConfigManager.getConfiguredBrokers().length > 0);
     BrokerConfigManager.getDefaultBrokerConfig().then((config) => {
       if (!config) return;
       setBrokerCreds({ type: config.type, appKey: config.credentials.appKey, appSecret: config.credentials.appSecret });
@@ -180,8 +189,62 @@ export function PortfolioPage() {
   useEffect(() => {
     if (portfolioId) {
       mutateSummary();
+      autoSyncedRef.current = false; // 포트폴리오 전환 시 자동동기화 재허용
     }
   }, [portfolioId, mutateSummary]);
+
+  // 자동 동기화: 브로커 연동 + 포지션 0개 → 보유종목 자동 가져오기
+  const s = summary as any;
+  useEffect(() => {
+    if (
+      !portfolioId             ||   // 포트폴리오 미선택
+      !hasBrokerConfig         ||   // 브로커 미연동
+      autoSyncedRef.current    ||   // 이미 동기화함
+      autoSyncing              ||   // 동기화 진행 중
+      s === undefined          ||   // 아직 로딩 중
+      (s?.positions?.length ?? -1) !== 0  // 포지션 있음
+    ) return;
+
+    autoSyncedRef.current = true;
+
+    (async () => {
+      setAutoSyncing(true);
+      const toastId = toast.loading("증권사 보유종목 자동 동기화 중…");
+      try {
+        const res  = await fetch("/api/broker/holdings", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok || !data.holdings?.length) {
+          toast.dismiss(toastId);
+          return;
+        }
+
+        const holdings: BrokerHolding[] = data.holdings;
+        const today = new Date().toLocaleDateString("ko-KR");
+
+        await Promise.allSettled(
+          holdings.map((h) =>
+            api.portfolio.addPosition(portfolioId, {
+              ticker:      h.ticker,
+              name:        h.name,
+              quantity:    h.quantity,
+              avg_price:   h.avg_price,
+              stop_loss:   null,
+              take_profit: null,
+              strategy:    null,
+              notes:       `한국투자증권 연동 (${today})`,
+            }),
+          ),
+        );
+
+        await mutateSummary();
+        toast.success(`${holdings.length}개 보유종목 자동 동기화 완료`, { id: toastId });
+      } catch {
+        toast.dismiss(toastId);
+      } finally {
+        setAutoSyncing(false);
+      }
+    })();
+  }, [portfolioId, hasBrokerConfig, s, autoSyncing, mutateSummary]);
 
   // ── AI 전체 갱신 ────────────────────────────────────────────────────────
   const autoFillPositions = useCallback(async (id: number) => {
@@ -305,8 +368,6 @@ export function PortfolioPage() {
       toast.error(err.message ?? "포트폴리오 목록 갱신 실패");
     }
   }
-
-  const s = summary as any;
 
   return (
     <div className="p-6 space-y-6">
@@ -609,7 +670,14 @@ export function PortfolioPage() {
               </table>
               {!s.positions?.length && (
                 <div className="py-12 text-center text-muted-foreground text-sm">
-                  보유 종목이 없습니다. &quot;종목 추가&quot; 버튼으로 추가하세요.
+                  {autoSyncing ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <RefreshCw size={18} className="animate-spin text-blue-400" />
+                      <span className="text-blue-400">증권사 보유종목 자동 동기화 중…</span>
+                    </div>
+                  ) : (
+                    <>보유 종목이 없습니다. &quot;종목 추가&quot; 버튼으로 추가하세요.</>
+                  )}
                 </div>
               )}
             </div>

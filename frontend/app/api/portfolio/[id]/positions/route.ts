@@ -41,6 +41,20 @@ export async function GET(_: NextRequest, { params }: Ctx) {
   return NextResponse.json(data ?? []);
 }
 
+/** 포트폴리오의 모든 포지션 삭제 (보유종목 전체 교체 시 사용) */
+export async function DELETE(_: NextRequest, { params }: Ctx) {
+  const [userId, { id }] = await Promise.all([getCurrentUserId(), params]);
+  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+
+  if (!await verifyPortfolioOwner(id, userId)) {
+    return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+  }
+
+  const { error } = await supabase.from("positions").delete().eq("portfolio_id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
 export async function POST(req: NextRequest, { params }: Ctx) {
   // userId·params·body 병렬로 읽어 순차 대기 제거
   const [userId, { id }, body] = await Promise.all([

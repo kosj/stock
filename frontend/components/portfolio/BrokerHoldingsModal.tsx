@@ -69,56 +69,42 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
     if (!targets.length) { toast.error("가져올 종목을 선택해주세요."); return; }
 
     setImporting(true);
-
-    let existingPositions: any[] = [];
-    try { existingPositions = (await api.portfolio.positions(portfolioId)) as any[]; } catch { /* 진행 */ }
-    const existingByTicker = new Map(existingPositions.map((p: any) => [p.ticker, p]));
-
-    let addedCount = 0, updatedCount = 0, failCount = 0;
     const today = new Date().toLocaleDateString("ko-KR");
 
-    const results = await Promise.allSettled(
-      targets.map((h) => {
-        const existing = existingByTicker.get(h.ticker);
-        if (existing) {
-          return api.portfolio.updatePosition(existing.id, {
-            quantity:  h.quantity,
-            avg_price: h.avg_price,
-            notes:     `한국투자증권 연동 갱신 (${today})`,
-          }).then(() => "updated" as const);
-        }
-        return api.portfolio.addPosition(portfolioId, {
-          ticker:      h.ticker,
-          name:        h.name,
-          quantity:    h.quantity,
-          avg_price:   h.avg_price,
-          stop_loss:   null,
-          take_profit: null,
-          strategy:    null,
-          notes:       `한국투자증권 연동 (${today})`,
-        }).then(() => "added" as const);
-      }),
-    );
+    try {
+      // 기존 포지션 전체 삭제 후 증권사 보유종목으로 완전 교체
+      await api.portfolio.clearPositions(portfolioId);
 
-    for (const r of results) {
-      if (r.status === "fulfilled") { if (r.value === "updated") updatedCount++; else addedCount++; }
-      else failCount++;
-    }
+      const results = await Promise.allSettled(
+        targets.map((h) =>
+          api.portfolio.addPosition(portfolioId, {
+            ticker:      h.ticker,
+            name:        h.name,
+            quantity:    h.quantity,
+            avg_price:   h.avg_price,
+            stop_loss:   null,
+            take_profit: null,
+            strategy:    null,
+            notes:       `한국투자증권 연동 (${today})`,
+          }),
+        ),
+      );
 
-    setImporting(false);
+      const addedCount = results.filter((r) => r.status === "fulfilled").length;
+      const failCount  = results.filter((r) => r.status === "rejected").length;
 
-    const successCount = addedCount + updatedCount;
-    if (successCount > 0) {
-      const parts: string[] = [];
-      if (addedCount   > 0) parts.push(`${addedCount}개 신규 추가`);
-      if (updatedCount > 0) parts.push(`${updatedCount}개 갱신`);
-      const msg = parts.join(", ");
-      if (failCount === 0) toast.success(msg + " 완료");
-      else toast.warning(`${msg} 완료, ${failCount}개 실패`);
-      onImported();
-      onClose();
-    } else {
-      toast.error("종목 추가/갱신에 실패했습니다.");
+      if (addedCount > 0) {
+        if (failCount === 0) toast.success(`${addedCount}개 종목으로 포트폴리오 구성 완료`);
+        else toast.warning(`${addedCount}개 추가, ${failCount}개 실패`);
+        onImported();
+        onClose();
+      } else {
+        toast.error("종목 추가에 실패했습니다.");
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? "가져오기 실패");
+    } finally {
+      setImporting(false);
     }
   }
 

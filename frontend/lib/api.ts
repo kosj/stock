@@ -54,6 +54,8 @@ export const api = {
           : {},
       }),
     positions: (id: number) => request(`/api/portfolio/${id}/positions`),
+    clearPositions: (id: number) =>
+      request(`/api/portfolio/${id}/positions`, { method: "DELETE" }),
     addPosition: (id: number, body: object) =>
       request(`/api/portfolio/${id}/positions`, { method: "POST", body: JSON.stringify(body) }),
     updatePosition: (posId: number, body: object) =>
