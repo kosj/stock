@@ -62,11 +62,26 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at  TIMESTAMPTZ  DEFAULT NOW()
 );
 
+-- user_broker_configs
+-- 사용자별 증권사 API 자격증명 (서버사이드 AES-256-GCM 암호화 저장)
+-- BROKER_ENCRYPTION_KEY 환경변수로 암호화 (Vercel 설정 필요)
+CREATE TABLE IF NOT EXISTS user_broker_configs (
+  id           BIGSERIAL    PRIMARY KEY,
+  user_id      UUID         NOT NULL,         -- auth.users.id
+  broker_type  VARCHAR(20)  NOT NULL,          -- 'kis' | 'kb' | ...
+  config_enc   TEXT         NOT NULL,          -- AES-256-GCM 암호화 JSON
+  created_at   TIMESTAMPTZ  DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ  DEFAULT NOW(),
+  UNIQUE(user_id, broker_type)
+);
+CREATE INDEX IF NOT EXISTS idx_broker_configs_user ON user_broker_configs(user_id);
+
 -- ============================================================
 -- RLS 비활성화 (개인 프로젝트 — 서버사이드 API Route만 접근)
 -- ============================================================
-ALTER TABLE portfolios       DISABLE ROW LEVEL SECURITY;
-ALTER TABLE positions        DISABLE ROW LEVEL SECURITY;
-ALTER TABLE watchlist        DISABLE ROW LEVEL SECURITY;
-ALTER TABLE price_alerts     DISABLE ROW LEVEL SECURITY;
-ALTER TABLE push_subscriptions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE portfolios           DISABLE ROW LEVEL SECURITY;
+ALTER TABLE positions            DISABLE ROW LEVEL SECURITY;
+ALTER TABLE watchlist            DISABLE ROW LEVEL SECURITY;
+ALTER TABLE price_alerts         DISABLE ROW LEVEL SECURITY;
+ALTER TABLE push_subscriptions   DISABLE ROW LEVEL SECURITY;
+ALTER TABLE user_broker_configs  DISABLE ROW LEVEL SECURITY;
