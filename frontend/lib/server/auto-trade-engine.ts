@@ -58,14 +58,14 @@ async function getLatestProphetRecs(): Promise<{ ticker: string; name: string; r
 
 // ── 사용자 계좌 조회 (없으면 생성) ───────────────────────────────────────────
 
-async function getOrCreateAccount(userId: string): Promise<{ cash: number } | null> {
+async function getOrCreateAccount(userId: string): Promise<{ cash: number; auto_trade_capital: number | null } | null> {
   let { data: account } = await supabase
-    .from("mock_accounts").select("cash").eq("user_id", userId).single();
+    .from("mock_accounts").select("cash, auto_trade_capital").eq("user_id", userId).single();
   if (!account) {
     const { data: created } = await supabase
       .from("mock_accounts")
       .insert({ user_id: userId, cash: INITIAL_CASH })
-      .select("cash").single();
+      .select("cash, auto_trade_capital").single();
     account = created;
   }
   return account;
@@ -202,10 +202,14 @@ export async function runAutoTrade(userId: string): Promise<AutoTradeResult> {
     if (availableSlots > 0 && buyCandidates.length > 0 && account.cash > 0) {
       // 계좌 재조회 (매도로 현금 증가됐을 수 있음)
       const { data: refreshed } = await supabase
-        .from("mock_accounts").select("cash").eq("user_id", userId).single();
+        .from("mock_accounts").select("cash, auto_trade_capital").eq("user_id", userId).single();
       const currentCash = refreshed?.cash ?? account.cash;
 
-      const budget = Math.floor(currentCash / Math.max(1, availableSlots));
+      // 자본금 한도: 설정된 경우 min(보유현금, 자본금), 미설정이면 전체 현금
+      const capital = refreshed?.auto_trade_capital ?? account.auto_trade_capital ?? null;
+      const effectiveBudget = capital !== null ? Math.min(currentCash, capital) : currentCash;
+
+      const budget = Math.floor(effectiveBudget / Math.max(1, availableSlots));
 
       let boughtCount = 0;
       for (const candidate of buyCandidates) {

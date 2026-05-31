@@ -82,12 +82,15 @@ CREATE INDEX IF NOT EXISTS idx_broker_configs_user ON user_broker_configs(user_i
 
 -- 모의 계좌 (사용자당 1개, 최초 접근 시 자동 생성)
 CREATE TABLE IF NOT EXISTS mock_accounts (
-  id         BIGSERIAL    PRIMARY KEY,
-  user_id    UUID         NOT NULL UNIQUE,
-  cash       FLOAT        NOT NULL DEFAULT 10000000,  -- 초기 자금 1000만원
-  created_at TIMESTAMPTZ  DEFAULT NOW(),
-  updated_at TIMESTAMPTZ  DEFAULT NOW()
+  id                   BIGSERIAL    PRIMARY KEY,
+  user_id              UUID         NOT NULL UNIQUE,
+  cash                 FLOAT        NOT NULL DEFAULT 10000000,  -- 초기 자금 1000만원
+  auto_trade_capital   FLOAT,       -- 자동매매 투입 자본금 (NULL = 전체 현금 사용)
+  created_at           TIMESTAMPTZ  DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ  DEFAULT NOW()
 );
+-- 기존 테이블에 컬럼 추가 (이미 생성된 경우)
+ALTER TABLE mock_accounts ADD COLUMN IF NOT EXISTS auto_trade_capital FLOAT;
 
 -- 모의 보유 포지션
 CREATE TABLE IF NOT EXISTS mock_positions (

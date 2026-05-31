@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getQuote } from "@/lib/server/yahoo-finance";
@@ -66,11 +66,32 @@ export async function GET() {
   const total_pnl_pct  = total_invested > 0 ? (total_pnl / total_invested) * 100 : 0;
 
   return NextResponse.json({
-    cash:          Math.round(account.cash),
-    stock_value:   Math.round(stock_value),
-    total_value:   Math.round(total_value),
-    total_pnl:     Math.round(total_pnl),
-    total_pnl_pct: Math.round(total_pnl_pct * 100) / 100,
-    positions:     enriched,
+    cash:                Math.round(account.cash),
+    stock_value:         Math.round(stock_value),
+    total_value:         Math.round(total_value),
+    total_pnl:           Math.round(total_pnl),
+    total_pnl_pct:       Math.round(total_pnl_pct * 100) / 100,
+    auto_trade_capital:  account.auto_trade_capital ?? null,
+    positions:           enriched,
   });
+}
+
+/** 자동매매 자본금 설정 */
+export async function PUT(req: NextRequest) {
+  const [userId, body] = await Promise.all([getUserId(), req.json()]);
+  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+
+  const { auto_trade_capital } = body ?? {};
+
+  // null이면 제한 없음, 숫자면 최소 1원
+  const capital = auto_trade_capital === null || auto_trade_capital === undefined
+    ? null
+    : Math.max(1, Number(auto_trade_capital));
+
+  await supabase
+    .from("mock_accounts")
+    .update({ auto_trade_capital: capital, updated_at: new Date().toISOString() })
+    .eq("user_id", userId);
+
+  return NextResponse.json({ ok: true, auto_trade_capital: capital });
 }
