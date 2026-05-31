@@ -25,31 +25,23 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const userId = await getCurrentUserId();
+  // userId·body를 병렬로 읽어 순차 대기 제거
+  const [userId, body] = await Promise.all([
+    getCurrentUserId(),
+    req.json(),
+  ]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const body = await req.json();
   const { ticker, name, sector } = body ?? {};
-
   if (!ticker) {
     return NextResponse.json({ error: "ticker 필드가 필요합니다." }, { status: 400 });
   }
 
   const normalizedTicker = String(ticker).toUpperCase();
 
-  // 현재 사용자의 동일 ticker 중복 방지
-  const { data: existing } = await supabase
-    .from("watchlist")
-    .select("*")
-    .eq("ticker", normalizedTicker)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (existing) {
-    return NextResponse.json(existing, { status: 200 });
-  }
-
-  const { data, error } = await supabase
+  // INSERT 먼저 시도 → conflict(중복) 시에만 기존 행 조회
+  // SELECT → INSERT 2번 쿼리 → 1번 쿼리로 단축
+  const { data: inserted, error: insertError } = await supabase
     .from("watchlist")
     .insert({
       ticker:  normalizedTicker,
@@ -60,6 +52,20 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data, { status: 201 });
+  if (!insertError) {
+    return NextResponse.json(inserted, { status: 201 });
+  }
+
+  // 유니크 제약 위반(중복) → 기존 행 반환
+  if (insertError.code === "23505") {
+    const { data: existing } = await supabase
+      .from("watchlist")
+      .select("*")
+      .eq("ticker", normalizedTicker)
+      .eq("user_id", userId)
+      .single();
+    return NextResponse.json(existing, { status: 200 });
+  }
+
+  return NextResponse.json({ error: insertError.message }, { status: 500 });
 }

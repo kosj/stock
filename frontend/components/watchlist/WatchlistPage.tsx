@@ -127,12 +127,16 @@ export function WatchlistPage() {
     mutate((cur) => [...(cur ?? []), optimistic], { revalidate: false });
 
     try {
-      await api.portfolio.addWatchlist({
+      const added = await api.portfolio.addWatchlist({
         ticker: result.ticker,
         name: result.name,
         sector: result.sector || "",
-      });
-      mutate(); // 백그라운드에서 실제 ID·시세 반영
+      }) as WatchlistItem;
+      // 실제 서버 ID로만 교체 — 전체 시세 재조회 없이 캐시 유지
+      mutate(
+        (cur) => (cur ?? []).map((i) => i.id === tempId ? { ...i, id: added.id } : i),
+        { revalidate: false },
+      );
     } catch (e) {
       // 실패 시 낙관적 항목 제거
       mutate((cur) => (cur ?? []).filter((i) => i.id !== tempId), { revalidate: false });

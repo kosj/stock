@@ -42,15 +42,18 @@ export async function GET(_: NextRequest, { params }: Ctx) {
 }
 
 export async function POST(req: NextRequest, { params }: Ctx) {
-  const userId = await getCurrentUserId();
+  // userId·params·body 병렬로 읽어 순차 대기 제거
+  const [userId, { id }, body] = await Promise.all([
+    getCurrentUserId(),
+    params,
+    req.json(),
+  ]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { id } = await params;
   if (!await verifyPortfolioOwner(id, userId)) {
     return NextResponse.json({ error: "권한 없음" }, { status: 403 });
   }
 
-  const body = await req.json();
   const { data, error } = await supabase
     .from("positions")
     .insert({

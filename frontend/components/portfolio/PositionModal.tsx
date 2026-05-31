@@ -63,8 +63,6 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
   // AI 채우기 상태
   const [aiLoading, setAiLoading] = useState(false);
 
-  const [loading, setLoading] = useState(false);
-
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -150,7 +148,7 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
     }
   }
 
-  async function submit(e: React.FormEvent) {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
 
     // 신규 추가 시 유효성 검증
@@ -163,34 +161,22 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
       return;
     }
 
-    setLoading(true);
-    try {
-      const body = {
-        ticker:      form.ticker.toUpperCase(),
-        name:        form.name,
-        quantity:    Number(form.quantity),
-        avg_price:   Number(form.avg_price),
-        stop_loss:   form.stop_loss   ? Number(form.stop_loss)   : null,
-        take_profit: form.take_profit ? Number(form.take_profit) : null,
-        strategy:    form.strategy    || null,
-        notes:       form.notes       || null,
-      };
-      if (isEdit) {
-        await api.portfolio.updatePosition(initial.position_id, body);
-        toast.success("종목 수정 완료");
-      } else {
-        await api.portfolio.addPosition(portfolioId, body);
-        toast.success("종목 추가 완료");
-      }
-      onSaved({
-        ...body,
-        ...(isEdit ? { position_id: initial.position_id } : {}),
-      });
-    } catch (err: any) {
-      toast.error(err.message ?? "오류 발생");
-    } finally {
-      setLoading(false);
-    }
+    const body = {
+      ticker:      form.ticker.toUpperCase(),
+      name:        form.name,
+      quantity:    Number(form.quantity),
+      avg_price:   Number(form.avg_price),
+      stop_loss:   form.stop_loss   ? Number(form.stop_loss)   : null,
+      take_profit: form.take_profit ? Number(form.take_profit) : null,
+      strategy:    form.strategy    || null,
+      notes:       form.notes       || null,
+    };
+
+    // 즉시 부모에게 데이터 전달 — 모달 닫기·API 호출·낙관적 업데이트를 부모가 처리
+    onSaved({
+      ...body,
+      ...(isEdit ? { position_id: initial.position_id } : {}),
+    });
   }
 
   return (
@@ -322,8 +308,8 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={onClose}>취소</Button>
-            <Button type="submit" disabled={loading || aiLoading}>
-              {loading ? "저장 중..." : (isEdit ? "수정" : "추가")}
+            <Button type="submit" disabled={aiLoading}>
+              {isEdit ? "수정" : "추가"}
             </Button>
           </div>
         </form>
