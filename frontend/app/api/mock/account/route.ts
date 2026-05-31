@@ -76,22 +76,29 @@ export async function GET() {
   });
 }
 
-/** 자동매매 자본금 설정 */
+/** 계좌 설정 변경 (cash 직접 조정 / auto_trade_capital 설정) */
 export async function PUT(req: NextRequest) {
   const [userId, body] = await Promise.all([getUserId(), req.json()]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { auto_trade_capital } = body ?? {};
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
-  // null이면 제한 없음, 숫자면 최소 1원
-  const capital = auto_trade_capital === null || auto_trade_capital === undefined
-    ? null
-    : Math.max(1, Number(auto_trade_capital));
+  if ("cash" in body) {
+    const cash = Number(body.cash);
+    if (isNaN(cash) || cash < 0) {
+      return NextResponse.json({ error: "올바른 금액을 입력해주세요." }, { status: 400 });
+    }
+    updates.cash = Math.round(cash);
+  }
 
-  await supabase
-    .from("mock_accounts")
-    .update({ auto_trade_capital: capital, updated_at: new Date().toISOString() })
-    .eq("user_id", userId);
+  if ("auto_trade_capital" in body) {
+    updates.auto_trade_capital = body.auto_trade_capital === null
+      ? null
+      : Math.max(1, Number(body.auto_trade_capital));
+  }
 
-  return NextResponse.json({ ok: true, auto_trade_capital: capital });
+  const { error } = await supabase.from("mock_accounts").update(updates).eq("user_id", userId);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
 }

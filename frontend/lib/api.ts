@@ -140,6 +140,8 @@ export const api = {
 
   mock: {
     account:        () => request("/api/mock/account"),
+    setCash:        (cash: number) =>
+      request("/api/mock/account", { method: "PUT", body: JSON.stringify({ cash }) }),
     setCapital:     (capital: number | null) =>
       request("/api/mock/account", { method: "PUT", body: JSON.stringify({ auto_trade_capital: capital }) }),
     reset:          () => request("/api/mock/account/reset", { method: "POST" }),

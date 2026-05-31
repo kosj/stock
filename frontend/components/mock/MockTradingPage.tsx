@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import {
   TrendingUp, TrendingDown, Minus, RefreshCw,
   Plus, RotateCcw, Gamepad2, Bot, ChevronDown, ChevronUp,
-  CheckCircle, XCircle,
+  CheckCircle, XCircle, Pencil,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -71,8 +71,9 @@ export function MockTradingPage() {
   const [sellTarget, setSellTarget] = useState<Position | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
   const [expandedLog, setExpandedLog] = useState<number | null>(null);
-  const [capitalInput, setCapitalInput] = useState("");
-  const [capitalSaving, setCapitalSaving] = useState(false);
+  const [cashEditing, setCashEditing] = useState(false);
+  const [cashInput, setCashInput] = useState("");
+  const [cashSaving, setCashSaving] = useState(false);
 
   const {
     data: account,
@@ -83,12 +84,6 @@ export function MockTradingPage() {
     refreshInterval: 60_000,
   });
 
-  // 계좌 로드 시 자본금 입력창 초기값 설정
-  useEffect(() => {
-    if (account?.auto_trade_capital != null) {
-      setCapitalInput(String(account.auto_trade_capital));
-    }
-  }, [account?.auto_trade_capital]);
 
   const {
     data: trades,
@@ -105,22 +100,22 @@ export function MockTradingPage() {
     revalidateOnFocus: false,
   });
 
-  async function handleSaveCapital() {
-    const val = capitalInput.trim();
-    const capital = val === "" ? null : Number(val.replace(/,/g, ""));
-    if (val !== "" && (isNaN(capital!) || capital! < 1)) {
+  async function handleSaveCash() {
+    const cash = Number(cashInput.replace(/,/g, ""));
+    if (isNaN(cash) || cash < 0) {
       toast.error("올바른 금액을 입력해주세요.");
       return;
     }
-    setCapitalSaving(true);
+    setCashSaving(true);
     try {
-      await api.mock.setCapital(capital);
+      await api.mock.setCash(cash);
       await mutateAccount();
-      toast.success(capital ? `자본금 ${formatNumber(capital)}원으로 설정됨` : "자본금 제한 해제 (전액 사용)");
+      setCashEditing(false);
+      toast.success(`보유 현금이 ${formatNumber(cash)}원으로 조정됐습니다.`);
     } catch (err: any) {
       toast.error(err.message ?? "저장 실패");
     } finally {
-      setCapitalSaving(false);
+      setCashSaving(false);
     }
   }
 
@@ -189,9 +184,55 @@ export function MockTradingPage() {
         </div>
       ) : a && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* 보유 현금 — 인라인 편집 가능 */}
+          <Card className="p-3 min-w-0">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-xs text-muted-foreground">보유 현금</span>
+              {!cashEditing && (
+                <button
+                  onClick={() => { setCashInput(String(a.cash)); setCashEditing(true); }}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  title="현금 조정"
+                >
+                  <Pencil size={11} />
+                </button>
+              )}
+            </div>
+            {cashEditing ? (
+              <div className="mt-1 space-y-1.5">
+                <input
+                  type="number"
+                  value={cashInput}
+                  onChange={(e) => setCashInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveCash(); if (e.key === "Escape") setCashEditing(false); }}
+                  className="w-full px-2 py-1 rounded border border-border bg-muted text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  autoFocus
+                  min={0}
+                />
+                <div className="flex gap-1">
+                  <button
+                    onClick={handleSaveCash}
+                    disabled={cashSaving}
+                    className="flex-1 text-xs py-0.5 rounded bg-blue-600/80 hover:bg-blue-600 text-white transition-colors disabled:opacity-50"
+                  >
+                    {cashSaving ? "저장 중…" : "저장"}
+                  </button>
+                  <button
+                    onClick={() => setCashEditing(false)}
+                    className="flex-1 text-xs py-0.5 rounded bg-muted hover:bg-muted/80 text-muted-foreground transition-colors"
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-lg font-bold mt-0.5 tabular-nums truncate">{formatNumber(a.cash)}원</div>
+            )}
+          </Card>
+
+          {/* 나머지 카드 */}
           {[
-            { label: "보유 현금",  value: `${formatNumber(a.cash)}원` },
-            { label: "주식 평가",  value: `${formatNumber(a.stock_value)}원` },
+            { label: "주식 평가",   value: `${formatNumber(a.stock_value)}원` },
             { label: "총 평가금액", value: `${formatNumber(a.total_value)}원` },
             {
               label: "총 손익",
@@ -292,52 +333,8 @@ export function MockTradingPage() {
           </Button>
         </CardHeader>
 
-        {/* 자본금 설정 + 전략 설명 */}
+        {/* 전략 설명 */}
         <div className="px-5 pb-4 space-y-3">
-          {/* 자본금 입력 */}
-          <div className="flex items-end gap-2">
-            <div className="flex-1 min-w-0">
-              <label className="text-xs text-muted-foreground mb-1 block">
-                자동매매 자본금 <span className="text-muted-foreground/60">(비워두면 전체 현금 사용)</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={capitalInput}
-                  onChange={(e) => setCapitalInput(e.target.value)}
-                  placeholder={`전체 현금 (현재 ${a ? formatNumber(a.cash) : "-"}원)`}
-                  className="w-full px-3 py-2 pr-8 rounded-lg border border-border bg-muted text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  min={1}
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">원</span>
-              </div>
-              {account?.auto_trade_capital != null && (
-                <p className="text-xs text-blue-400 mt-0.5">
-                  현재 설정: {formatNumber(account.auto_trade_capital)}원
-                </p>
-              )}
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleSaveCapital}
-              disabled={capitalSaving}
-              className="shrink-0 mb-0.5"
-            >
-              {capitalSaving ? <RefreshCw size={13} className="animate-spin" /> : "저장"}
-            </Button>
-            {account?.auto_trade_capital != null && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => { setCapitalInput(""); api.mock.setCapital(null).then(() => mutateAccount()); }}
-                className="shrink-0 mb-0.5 text-muted-foreground hover:text-red-400 text-xs"
-              >
-                해제
-              </Button>
-            )}
-          </div>
-
           <div className="text-xs text-muted-foreground space-y-1 bg-muted/40 rounded-lg px-3 py-2.5">
             <div><span className="text-green-400 font-medium">매수 조건:</span> Prophet Top30 매수 추천 + TFT buy/strong_buy 동시 충족</div>
             <div><span className="text-red-400 font-medium">매도 조건:</span> 보유 종목 중 TFT sell/strong_sell 신호 발생 → 전량 청산</div>
