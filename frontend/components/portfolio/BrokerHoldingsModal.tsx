@@ -38,7 +38,9 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
         const data = await res.json();
 
         if (!res.ok) {
-          throw new Error(data.error ?? `HTTP ${res.status}`);
+          const errMsg = data.error ?? `HTTP ${res.status}`;
+          const hint = data.hint ? `\n\n💡 ${data.hint}` : "";
+          throw new Error(errMsg + hint);
         }
 
         setHoldings(data.holdings ?? []);
