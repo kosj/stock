@@ -154,15 +154,15 @@ export function DashboardPage() {
               {summary.positions
                 .filter((p: any) => p.is_near_stop || p.is_near_target)
                 .map((p: any) => (
-                  <div key={p.position_id} className="flex items-center justify-between text-sm py-1">
-                    <Link href={`/market/${p.ticker}`} className="font-medium hover:text-blue-400">
+                  <div key={p.position_id} className="flex items-center justify-between gap-2 text-sm py-1">
+                    <Link href={`/market/${p.ticker}`} className="font-medium hover:text-blue-400 truncate min-w-0">
                       {p.name}
                     </Link>
                     {p.is_near_stop && (
-                      <span className="text-xs text-red-400">손절가 근접 ({formatNumber(p.stop_loss)})</span>
+                      <span className="text-xs text-red-400 shrink-0">손절가 근접 ({formatNumber(p.stop_loss)})</span>
                     )}
                     {p.is_near_target && (
-                      <span className="text-xs text-green-400">목표가 근접 ({formatNumber(p.take_profit)})</span>
+                      <span className="text-xs text-green-400 shrink-0">목표가 근접 ({formatNumber(p.take_profit)})</span>
                     )}
                   </div>
                 ))}

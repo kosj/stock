@@ -102,15 +102,15 @@ export function AlgorithmSignalCard({ prophet, tft, loadingMap }: Props) {
       style={{ background: "var(--card)", borderColor: "var(--border)" }}>
 
       {/* 헤더 — 종합 판단 */}
-      <div className="px-4 py-3 flex items-center justify-between border-b"
+      <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-y-2 border-b"
         style={{ borderColor: "var(--border)" }}>
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold">알고리즘 종합 신호</span>
-          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${om.bg} ${om.color} ${om.border}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-sm font-semibold whitespace-nowrap">알고리즘 종합 신호</span>
+          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap ${om.bg} ${om.color} ${om.border}`}>
             {om.label}
           </span>
         </div>
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex items-center gap-3 text-xs shrink-0">
           <span className="text-green-400 font-medium">{buyCount} 매수</span>
           <span className="text-yellow-400 font-medium">{holdCount} 보유</span>
           <span className="text-red-400 font-medium">{sellCount} 매도</span>

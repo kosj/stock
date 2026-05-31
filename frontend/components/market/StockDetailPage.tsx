@@ -198,19 +198,19 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     <div className="p-6 space-y-5">
       {/* 헤더 */}
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-0.5">
-            <h1 className="text-2xl font-bold">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 mb-0.5">
+            <h1 className="text-2xl font-bold break-keep">
               {f?.name ?? q?.name ?? ticker}
             </h1>
-            <span className="text-sm text-muted-foreground">{ticker}</span>
+            <span className="text-sm text-muted-foreground shrink-0">{ticker}</span>
             {f?.sector && <Badge variant="blue">{f.sector}</Badge>}
             {q?.source && q.source !== "yahoo" && (
               <Badge variant="green">{(q.source as string).toUpperCase()} 시세</Badge>
             )}
           </div>
           {q && (
-            <div className="flex items-center gap-3 mt-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
               <span className="text-3xl font-bold tabular-nums">
                 {formatNumber(q.price)}
               </span>
@@ -223,7 +223,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
           )}
           {/* 보유 포지션 요약 */}
           {hasPosition && (
-            <div className="flex items-center gap-3 mt-1.5 text-sm">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-sm">
               <span className="text-muted-foreground">
                 {quantity ? `보유 ${formatNumber(quantity)}주 · ` : ""}평균단가 {formatNumber(avgPrice!)}
               </span>
@@ -235,7 +235,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
             </div>
           )}
         </div>
-        <Button size="sm" variant="ghost" onClick={() => refreshQuote()}>
+        <Button size="sm" variant="ghost" className="shrink-0" onClick={() => refreshQuote()}>
           <RefreshCw size={13} />
         </Button>
       </div>
@@ -250,7 +250,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
 
       {/* 차트 */}
       <Card>
-        <div className="flex gap-1 mb-3">
+        <div className="flex flex-wrap gap-1 mb-3">
           {PERIODS.map((p) => (
             <button
               key={p}

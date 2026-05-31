@@ -80,14 +80,14 @@ export function MarketSearchPage() {
               <Link
                 key={r.ticker}
                 href={`/market/${r.ticker}`}
-                className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-white/5 transition-colors border-b last:border-0"
+                className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-white/5 transition-colors border-b last:border-0"
                 style={{ borderColor: "var(--border)" }}
               >
-                <div>
-                  <span className="font-medium">{r.name}</span>
-                  <span className="text-muted-foreground ml-2 text-xs">{r.ticker}</span>
+                <div className="min-w-0">
+                  <span className="font-medium truncate block">{r.name}</span>
+                  <span className="text-muted-foreground text-xs">{r.ticker}</span>
                 </div>
-                <span className="text-xs text-muted-foreground">{r.market}</span>
+                <span className="text-xs text-muted-foreground shrink-0">{r.market}</span>
               </Link>
             ))}
           </div>

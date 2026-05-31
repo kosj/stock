@@ -52,11 +52,10 @@ function SectorEtfPanel({ sector, activePeriod }: { sector: string; activePeriod
         className="flex items-center gap-3 px-4 py-2 border-b"
         style={{ borderColor: "var(--border)", background: "var(--muted)" }}
       >
-        <span className="text-xs font-semibold text-blue-400 w-5" />
-        <div className="w-40 shrink-0 text-xs font-semibold text-muted-foreground">ETF</div>
-        <div className="flex-1" />
-        <span className="text-xs text-muted-foreground w-20 text-right hidden md:block">현재가</span>
-        <div className="hidden md:flex gap-3">
+        <span className="text-xs font-semibold text-blue-400 w-5 shrink-0" />
+        <div className="flex-1 min-w-0 text-xs font-semibold text-muted-foreground">ETF</div>
+        <span className="text-xs text-muted-foreground w-20 text-right hidden md:block shrink-0">현재가</span>
+        <div className="hidden md:flex gap-3 shrink-0">
           {PERIODS.map((p) => (
             <div
               key={p.key}
@@ -68,7 +67,7 @@ function SectorEtfPanel({ sector, activePeriod }: { sector: string; activePeriod
             </div>
           ))}
         </div>
-        <div className="w-16 text-right text-xs text-muted-foreground md:hidden">수익률</div>
+        <div className="w-16 text-right text-xs text-muted-foreground md:hidden shrink-0">수익률</div>
       </div>
 
       {/* ETF 행 */}
@@ -78,16 +77,15 @@ function SectorEtfPanel({ sector, activePeriod }: { sector: string; activePeriod
           className="flex items-center gap-3 px-4 py-2.5 border-b last:border-0 hover:bg-white/3 transition-colors"
           style={{ borderColor: "var(--border)" }}
         >
-          <span className="text-xs text-muted-foreground w-5 text-right">{i + 1}</span>
-          <div className="w-40 shrink-0">
-            <div className="text-sm font-medium leading-tight">{etf.name}</div>
+          <span className="text-xs text-muted-foreground w-5 text-right shrink-0">{i + 1}</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium leading-tight truncate">{etf.name}</div>
             <div className="text-xs text-muted-foreground">{etf.ticker}</div>
           </div>
-          <div className="flex-1" />
-          <span className="text-xs text-muted-foreground tabular-nums w-20 text-right hidden md:block">
+          <span className="text-xs text-muted-foreground tabular-nums w-20 text-right hidden md:block shrink-0">
             {etf.price?.toLocaleString()}
           </span>
-          <div className="hidden md:flex gap-3">
+          <div className="hidden md:flex gap-3 shrink-0">
             {PERIODS.map((p) => (
               <div
                 key={p.key}
@@ -99,7 +97,7 @@ function SectorEtfPanel({ sector, activePeriod }: { sector: string; activePeriod
               </div>
             ))}
           </div>
-          <span className={`text-sm tabular-nums w-16 text-right font-semibold md:hidden ${colorByChange(etf[activeField])}`}>
+          <span className={`text-sm tabular-nums w-16 text-right font-semibold md:hidden shrink-0 ${colorByChange(etf[activeField])}`}>
             {formatPercent(etf[activeField])}
           </span>
         </div>
@@ -159,12 +157,12 @@ export function SectorsPage() {
         <Card className="border-blue-500/30">
           <div className="text-xs text-blue-400 font-semibold mb-1">현재 로테이션 테마</div>
           <div className="text-sm font-medium">{r.theme}</div>
-          <div className="flex gap-4 mt-2 text-xs">
-            <div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
+            <div className="min-w-0">
               <span className="text-green-400 font-semibold">주도 섹터:</span>{" "}
               {r.leading?.join(", ")}
             </div>
-            <div>
+            <div className="min-w-0">
               <span className="text-red-400 font-semibold">부진 섹터:</span>{" "}
               {r.lagging?.join(", ")}
             </div>

@@ -399,9 +399,9 @@ export function PortfolioPage() {
               { label: "손익",      value: `${formatNumber(s.total_pnl)}원`,        color: colorByChange(s.total_pnl) },
               { label: "수익률",    value: formatPercent(s.total_pnl_percent),       color: colorByChange(s.total_pnl_percent) },
             ].map(({ label, value, color }) => (
-              <Card key={label} className="p-3">
+              <Card key={label} className="p-3 min-w-0">
                 <div className="text-xs text-muted-foreground">{label}</div>
-                <div className={`text-xl font-bold mt-0.5 tabular-nums ${color ?? ""}`}>{value}</div>
+                <div className={`text-lg font-bold mt-0.5 tabular-nums truncate ${color ?? ""}`}>{value}</div>
               </Card>
             ))}
           </div>

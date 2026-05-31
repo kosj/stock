@@ -402,13 +402,13 @@ export function AlertsPage() {
               return (
                 <div
                   key={a.id}
-                  className="flex items-center justify-between py-3 border-b last:border-0"
+                  className="flex items-center justify-between gap-3 py-3 border-b last:border-0"
                   style={{ borderColor: "var(--border)" }}
                 >
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">{a.ticker}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${
                         a.alert_type === "stop_loss"
                           ? "bg-blue-500/15 text-blue-400"
                           : a.alert_type === "take_profit"
@@ -418,7 +418,7 @@ export function AlertsPage() {
                         {typeLabel}
                       </span>
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
+                    <div className="text-xs text-muted-foreground mt-0.5 truncate">
                       {formatNumber(a.threshold)} {dirLabel}
                       {a.message && (
                         <span className="ml-1 text-muted-foreground/60">· {a.message}</span>

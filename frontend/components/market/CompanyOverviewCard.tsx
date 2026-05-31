@@ -166,10 +166,12 @@ export function CompanyOverviewCard({ ticker, dart, financials, loading }: Props
               href={website}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors min-w-0"
             >
-              <ExternalLink size={12} />
-              {website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+              <ExternalLink size={12} className="shrink-0" />
+              <span className="truncate">
+                {website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+              </span>
             </a>
           )}
         </div>
