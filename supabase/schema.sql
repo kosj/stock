@@ -77,6 +77,46 @@ CREATE TABLE IF NOT EXISTS user_broker_configs (
 CREATE INDEX IF NOT EXISTS idx_broker_configs_user ON user_broker_configs(user_id);
 
 -- ============================================================
+-- 모의 투자 (Paper Trading) — KIS 없이 내부 Supabase 저장
+-- ============================================================
+
+-- 모의 계좌 (사용자당 1개, 최초 접근 시 자동 생성)
+CREATE TABLE IF NOT EXISTS mock_accounts (
+  id         BIGSERIAL    PRIMARY KEY,
+  user_id    UUID         NOT NULL UNIQUE,
+  cash       FLOAT        NOT NULL DEFAULT 10000000,  -- 초기 자금 1000만원
+  created_at TIMESTAMPTZ  DEFAULT NOW(),
+  updated_at TIMESTAMPTZ  DEFAULT NOW()
+);
+
+-- 모의 보유 포지션
+CREATE TABLE IF NOT EXISTS mock_positions (
+  id         BIGSERIAL    PRIMARY KEY,
+  user_id    UUID         NOT NULL,
+  ticker     VARCHAR(20)  NOT NULL,
+  name       VARCHAR(100) NOT NULL,
+  quantity   INTEGER      NOT NULL,
+  avg_price  FLOAT        NOT NULL,
+  updated_at TIMESTAMPTZ  DEFAULT NOW(),
+  UNIQUE(user_id, ticker)
+);
+CREATE INDEX IF NOT EXISTS idx_mock_positions_user ON mock_positions(user_id);
+
+-- 거래 체결 내역
+CREATE TABLE IF NOT EXISTS mock_trades (
+  id           BIGSERIAL    PRIMARY KEY,
+  user_id      UUID         NOT NULL,
+  ticker       VARCHAR(20)  NOT NULL,
+  name         VARCHAR(100) NOT NULL,
+  trade_type   VARCHAR(4)   NOT NULL,  -- 'BUY' | 'SELL'
+  quantity     INTEGER      NOT NULL,
+  price        FLOAT        NOT NULL,
+  total_amount FLOAT        NOT NULL,
+  created_at   TIMESTAMPTZ  DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mock_trades_user ON mock_trades(user_id);
+
+-- ============================================================
 -- RLS 비활성화 (개인 프로젝트 — 서버사이드 API Route만 접근)
 -- ============================================================
 ALTER TABLE portfolios           DISABLE ROW LEVEL SECURITY;
@@ -85,3 +125,6 @@ ALTER TABLE watchlist            DISABLE ROW LEVEL SECURITY;
 ALTER TABLE price_alerts         DISABLE ROW LEVEL SECURITY;
 ALTER TABLE push_subscriptions   DISABLE ROW LEVEL SECURITY;
 ALTER TABLE user_broker_configs  DISABLE ROW LEVEL SECURITY;
+ALTER TABLE mock_accounts        DISABLE ROW LEVEL SECURITY;
+ALTER TABLE mock_positions       DISABLE ROW LEVEL SECURITY;
+ALTER TABLE mock_trades          DISABLE ROW LEVEL SECURITY;

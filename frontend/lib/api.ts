@@ -138,6 +138,14 @@ export const api = {
     },
   },
 
+  mock: {
+    account: () => request("/api/mock/account"),
+    reset:   () => request("/api/mock/account/reset", { method: "POST" }),
+    trade:   (body: { ticker: string; name: string; trade_type: "BUY" | "SELL"; quantity: number }) =>
+      request("/api/mock/trade", { method: "POST", body: JSON.stringify(body) }),
+    trades:  () => request("/api/mock/trades"),
+  },
+
   macro: {
     dashboard: (fredKey?: string) => {
       const key = fredKey || (typeof window !== 'undefined'
