@@ -9,7 +9,8 @@ import { MockTradeModal } from "./MockTradeModal";
 import { toast } from "sonner";
 import {
   TrendingUp, TrendingDown, Minus, RefreshCw,
-  Plus, RotateCcw, Gamepad2,
+  Plus, RotateCcw, Gamepad2, Bot, ChevronDown, ChevronUp,
+  CheckCircle, XCircle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -44,9 +45,31 @@ type Account = {
   positions:     Position[];
 };
 
+type AutoTradeDetail = {
+  ticker:  string;
+  name:    string;
+  action:  "BUY" | "SELL" | "SKIP";
+  reason:  string;
+  qty?:    number;
+  price?:  number;
+};
+
+type AutoTradeLog = {
+  id:               number;
+  run_at:           string;
+  tickers_analyzed: number;
+  trades_buy:       number;
+  trades_sell:      number;
+  skipped:          number;
+  details:          AutoTradeDetail[] | string;
+  error?:           string;
+};
+
 export function MockTradingPage() {
   const [buyOpen,    setBuyOpen]    = useState(false);
   const [sellTarget, setSellTarget] = useState<Position | null>(null);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [expandedLog, setExpandedLog] = useState<number | null>(null);
 
   const {
     data: account,
@@ -64,6 +87,29 @@ export function MockTradingPage() {
   } = useSWR<Trade[]>("mock-trades", () => api.mock.trades() as Promise<Trade[]>, {
     revalidateOnFocus: false,
   });
+
+  const {
+    data: autoLogs,
+    mutate: mutateAutoLogs,
+  } = useSWR<AutoTradeLog[]>("mock-auto-trade-logs", () => api.mock.autoTradeLogs() as Promise<AutoTradeLog[]>, {
+    revalidateOnFocus: false,
+  });
+
+  async function handleAutoTrade() {
+    setAutoRunning(true);
+    const toastId = toast.loading("자동매매 분석 중… (Prophet × TFT)");
+    try {
+      const result = await api.mock.autoTrade() as any;
+      await Promise.all([mutateAccount(), mutateTrades(), mutateAutoLogs()]);
+      const msg = `매수 ${result.trades_buy}건 · 매도 ${result.trades_sell}건 · 스킵 ${result.skipped}건`;
+      if (result.error) toast.error(`자동매매 오류: ${result.error}`, { id: toastId });
+      else toast.success(`자동매매 완료 — ${msg}`, { id: toastId });
+    } catch (err: any) {
+      toast.error(err.message ?? "자동매매 실패", { id: toastId });
+    } finally {
+      setAutoRunning(false);
+    }
+  }
 
   async function handleReset() {
     if (!confirm("계좌를 초기화하면 모든 보유 종목과 거래 내역이 사라집니다.\n1,000만원으로 다시 시작하시겠습니까?")) return;
@@ -192,6 +238,101 @@ export function MockTradingPage() {
           {!accountLoading && positions.length === 0 && (
             <div className="py-12 text-center text-muted-foreground text-sm">
               보유 종목이 없습니다. &quot;종목 매수&quot; 버튼으로 시작하세요.
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* 자동매매 패널 */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Bot size={16} className="text-blue-400" />
+            <CardTitle>자동매매</CardTitle>
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Prophet × TFT</span>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleAutoTrade}
+            disabled={autoRunning}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            {autoRunning
+              ? <><RefreshCw size={13} className="animate-spin" /> 분석 중…</>
+              : <><Bot size={13} /> 지금 실행</>}
+          </Button>
+        </CardHeader>
+
+        {/* 전략 설명 */}
+        <div className="px-5 pb-4 space-y-3">
+          <div className="text-xs text-muted-foreground space-y-1 bg-muted/40 rounded-lg px-3 py-2.5">
+            <div><span className="text-green-400 font-medium">매수 조건:</span> Prophet Top30 매수 추천 + TFT buy/strong_buy 동시 충족</div>
+            <div><span className="text-red-400 font-medium">매도 조건:</span> 보유 종목 중 TFT sell/strong_sell 신호 발생 → 전량 청산</div>
+            <div><span className="text-blue-400 font-medium">포지션:</span> 최대 10종목, 종목당 현금의 균등 분배</div>
+          </div>
+
+          {/* 실행 이력 */}
+          {(autoLogs ?? []).length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">최근 실행 이력</div>
+              {(autoLogs ?? []).slice(0, 5).map((log) => {
+                const details: AutoTradeDetail[] = typeof log.details === "string"
+                  ? JSON.parse(log.details || "[]")
+                  : log.details ?? [];
+                const isExpanded = expandedLog === log.id;
+
+                return (
+                  <div key={log.id} className="rounded-lg border text-xs" style={{ borderColor: "var(--border)" }}>
+                    <button
+                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/3 transition-colors"
+                      onClick={() => setExpandedLog(isExpanded ? null : log.id)}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-muted-foreground whitespace-nowrap">
+                          {new Date(log.run_at).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        {log.error ? (
+                          <span className="text-red-400 flex items-center gap-1"><XCircle size={11} /> 오류</span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <span className="text-green-400">매수 {log.trades_buy}</span>
+                            <span className="text-red-400">매도 {log.trades_sell}</span>
+                            <span className="text-muted-foreground">스킵 {log.skipped}</span>
+                          </span>
+                        )}
+                      </div>
+                      {isExpanded ? <ChevronUp size={13} className="text-muted-foreground shrink-0" /> : <ChevronDown size={13} className="text-muted-foreground shrink-0" />}
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t px-3 py-2 space-y-1" style={{ borderColor: "var(--border)" }}>
+                        {log.error && <p className="text-red-400">{log.error}</p>}
+                        {details.filter(d => d.action !== "SKIP").map((d, i) => (
+                          <div key={i} className="flex items-start gap-2">
+                            {d.action === "BUY"
+                              ? <CheckCircle size={11} className="text-green-400 mt-0.5 shrink-0" />
+                              : <XCircle size={11} className="text-red-400 mt-0.5 shrink-0" />}
+                            <div className="min-w-0">
+                              <span className={`font-medium ${d.action === "BUY" ? "text-green-400" : "text-red-400"}`}>
+                                [{d.action}] {d.name}
+                              </span>
+                              {d.qty && d.price && (
+                                <span className="text-muted-foreground ml-1">{d.qty}주 @ {formatNumber(d.price)}</span>
+                              )}
+                              <div className="text-muted-foreground/70 truncate">{d.reason}</div>
+                            </div>
+                          </div>
+                        ))}
+                        {details.filter(d => d.action === "SKIP").length > 0 && (
+                          <div className="text-muted-foreground/50">
+                            스킵 {details.filter(d => d.action === "SKIP").length}종목 (조건 미충족)
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

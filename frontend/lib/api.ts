@@ -139,11 +139,13 @@ export const api = {
   },
 
   mock: {
-    account: () => request("/api/mock/account"),
-    reset:   () => request("/api/mock/account/reset", { method: "POST" }),
-    trade:   (body: { ticker: string; name: string; trade_type: "BUY" | "SELL"; quantity: number }) =>
+    account:        () => request("/api/mock/account"),
+    reset:          () => request("/api/mock/account/reset", { method: "POST" }),
+    trade:          (body: { ticker: string; name: string; trade_type: "BUY" | "SELL"; quantity: number }) =>
       request("/api/mock/trade", { method: "POST", body: JSON.stringify(body) }),
-    trades:  () => request("/api/mock/trades"),
+    trades:         () => request("/api/mock/trades"),
+    autoTrade:      () => request("/api/mock/auto-trade/run", { method: "POST" }),
+    autoTradeLogs:  () => request("/api/mock/auto-trade/logs"),
   },
 
   macro: {

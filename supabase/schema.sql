@@ -128,3 +128,18 @@ ALTER TABLE user_broker_configs  DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mock_accounts        DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mock_positions       DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mock_trades          DISABLE ROW LEVEL SECURITY;
+
+-- 자동매매 실행 이력
+CREATE TABLE IF NOT EXISTS mock_auto_trade_logs (
+  id               BIGSERIAL    PRIMARY KEY,
+  user_id          UUID         NOT NULL,
+  run_at           TIMESTAMPTZ  DEFAULT NOW(),
+  tickers_analyzed INTEGER      DEFAULT 0,
+  trades_buy       INTEGER      DEFAULT 0,
+  trades_sell      INTEGER      DEFAULT 0,
+  skipped          INTEGER      DEFAULT 0,
+  details          JSONB,        -- [{ticker, action, reason, qty, price}]
+  error            TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_auto_trade_logs_user ON mock_auto_trade_logs(user_id);
+ALTER TABLE mock_auto_trade_logs DISABLE ROW LEVEL SECURITY;
