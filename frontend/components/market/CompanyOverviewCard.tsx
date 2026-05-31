@@ -9,7 +9,7 @@ import type { FinancialsData } from "@/lib/server/yahoo-finance";
 
 interface Props {
   ticker:     string;
-  dart:       (DartCompanyInfo & { available?: boolean }) | null;
+  dart:       (DartCompanyInfo & { available?: boolean; reason?: string }) | null;
   financials: FinancialsData | null;
   loading:    boolean;
 }
@@ -192,7 +192,9 @@ export function CompanyOverviewCard({ ticker, dart, financials, loading }: Props
 
         {!hasDart && (
           <p className="text-xs text-muted-foreground/40">
-            DART 데이터 미설정 — Vercel 환경변수 DART_API_KEY 등록 시 대표이사·설립일·주소 등 상세 정보가 표시됩니다.
+            {dart?.reason && dart.reason !== "국내 6자리 종목코드만 지원"
+              ? `DART 조회 실패: ${dart.reason}`
+              : "DART 데이터 미설정 — Vercel 환경변수 DART_API_KEY 등록 시 대표이사·설립일·주소 등 상세 정보가 표시됩니다."}
           </p>
         )}
       </div>
