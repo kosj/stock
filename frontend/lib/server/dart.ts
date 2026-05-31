@@ -47,9 +47,9 @@ async function getCorpCode(stockCode: string, apiKey: string): Promise<{ code: s
   const cached = _corpCache.get(stockCode);
   if (cached && Date.now() - cached.ts < CORP_CODE_TTL) return { code: cached.code };
 
-  // 최근 5년 공시에서 corp_code 추출 (넓은 범위로 미공시 기간 대비)
+  // DART 제약: corp_code 없이 조회 시 최대 3개월 (status=100 방지)
   const end   = new Date();
-  const start = new Date(end.getTime() - 5 * 365 * 86_400_000);
+  const start = new Date(end.getTime() - 89 * 86_400_000);
   const fmt   = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
 
   const url =
