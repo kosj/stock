@@ -14,7 +14,8 @@ jobs:
     steps:
       - name: "자동매매 실행"
         run: |
-          RESPONSE=$(curl -sfL --max-time 120 \
+          # -f 제거: HTTP 오류 시 curl이 exit 22로 죽지 않도록
+          RESPONSE=$(curl -sL --max-time 120 \
             -X POST "${{ secrets.VERCEL_APP_URL }}/api/cron/auto-trade" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
@@ -24,11 +25,11 @@ jobs:
           BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
 
           echo "HTTP Status: $HTTP_STATUS"
+          echo "Response: $BODY"
 
           if [ "$HTTP_STATUS" != "200" ]; then
-            echo "Response: $BODY"
             echo "요청 실패 (HTTP $HTTP_STATUS)"
             exit 1
           fi
 
-          echo "$BODY" | python3 -m json.tool
+          echo "$BODY" | python3 -m json.tool || true
