@@ -455,7 +455,13 @@ export function PortfolioPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {s.positions?.map((pos: any) => {
+                  {[...(s.positions ?? [])].sort((a: any, b: any) => {
+                    const priceA = (rt[a.ticker]?.price ?? a.current_price);
+                    const priceB = (rt[b.ticker]?.price ?? b.current_price);
+                    const pnlA = ((priceA - a.avg_price) / a.avg_price) * 100;
+                    const pnlB = ((priceB - b.avg_price) / b.avg_price) * 100;
+                    return pnlB - pnlA;
+                  }).map((pos: any) => {
                     const live = rt[pos.ticker];
                     const currentPrice = live?.price ?? pos.current_price;
                     const costBasis = pos.avg_price * pos.quantity;
