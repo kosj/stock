@@ -120,6 +120,57 @@ CREATE TABLE IF NOT EXISTS mock_trades (
 CREATE INDEX IF NOT EXISTS idx_mock_trades_user ON mock_trades(user_id);
 
 -- ============================================================
+-- RPC 함수 — 소유권 검증 + DML을 단일 왕복으로 처리
+-- Supabase SQL Editor에서 실행 필요
+-- ============================================================
+
+-- positions 삽입 (portfolio 소유권 검증 포함, INSERT → verify 2 왕복 → 1 왕복)
+CREATE OR REPLACE FUNCTION insert_position_owned(
+  p_portfolio_id BIGINT,
+  p_user_id      UUID,
+  p_ticker       VARCHAR,
+  p_name         VARCHAR,
+  p_quantity     INTEGER,
+  p_avg_price    FLOAT,
+  p_stop_loss    FLOAT    DEFAULT NULL,
+  p_take_profit  FLOAT    DEFAULT NULL,
+  p_strategy     TEXT     DEFAULT NULL,
+  p_notes        TEXT     DEFAULT NULL
+) RETURNS SETOF positions AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM portfolios WHERE id = p_portfolio_id AND user_id = p_user_id
+  ) THEN
+    RAISE EXCEPTION 'permission_denied';
+  END IF;
+  RETURN QUERY
+  INSERT INTO positions (portfolio_id, ticker, name, quantity, avg_price, stop_loss, take_profit, strategy, notes)
+  VALUES (p_portfolio_id, p_ticker, p_name, p_quantity, p_avg_price, p_stop_loss, p_take_profit, p_strategy, p_notes)
+  RETURNING *;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- position 삭제 (portfolio 소유권 검증 포함, DELETE+JOIN 단일 쿼리)
+CREATE OR REPLACE FUNCTION delete_position_owned(
+  p_position_id BIGINT,
+  p_user_id     UUID
+) RETURNS BOOLEAN AS $$
+DECLARE cnt INTEGER;
+BEGIN
+  WITH deleted AS (
+    DELETE FROM positions
+    USING portfolios
+    WHERE positions.id           = p_position_id
+      AND positions.portfolio_id = portfolios.id
+      AND portfolios.user_id     = p_user_id
+    RETURNING positions.id
+  )
+  SELECT COUNT(*) INTO cnt FROM deleted;
+  RETURN cnt > 0;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
 -- RLS 비활성화 (개인 프로젝트 — 서버사이드 API Route만 접근)
 -- ============================================================
 ALTER TABLE portfolios           DISABLE ROW LEVEL SECURITY;

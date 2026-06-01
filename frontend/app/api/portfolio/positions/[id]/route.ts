@@ -12,26 +12,22 @@ async function getCurrentUserId(): Promise<string | null> {
   return user?.id ?? null;
 }
 
-async function verifyPositionOwner(positionId: string, userId: string): Promise<boolean> {
-  const { data } = await supabase
-    .from("positions")
-    .select("portfolio_id, portfolios!inner(user_id)")
-    .eq("id", positionId)
-    .single();
-  if (!data) return false;
-  return (data.portfolios as unknown as { user_id: string }).user_id === userId;
-}
-
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const userId = await getCurrentUserId();
+  // auth + params + body 병렬 처리
+  const [userId, { id }, body] = await Promise.all([getCurrentUserId(), params, req.json()]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { id } = await params;
-  if (!await verifyPositionOwner(id, userId)) {
+  // 소유권 확인 (positions → portfolios JOIN): 단일 쿼리
+  const { data: ownership } = await supabase
+    .from("positions")
+    .select("portfolio_id, portfolios!inner(user_id)")
+    .eq("id", id)
+    .single();
+
+  if (!ownership || (ownership.portfolios as unknown as { user_id: string }).user_id !== userId) {
     return NextResponse.json({ error: "권한 없음" }, { status: 403 });
   }
 
-  const body = await req.json();
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   const fields = ["ticker", "name", "quantity", "avg_price", "stop_loss", "take_profit", "strategy", "notes"];
   for (const f of fields) {
@@ -42,23 +38,24 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     .from("positions")
     .update(updates)
     .eq("id", id)
-    .select()
+    .select("id, ticker, name, quantity, avg_price, stop_loss, take_profit, strategy, notes, updated_at")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
 
+/** 포지션 삭제 — RPC delete_position_owned (소유권 검증 + DELETE 단일 왕복) */
 export async function DELETE(_: NextRequest, { params }: Ctx) {
-  const userId = await getCurrentUserId();
+  const [userId, { id }] = await Promise.all([getCurrentUserId(), params]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { id } = await params;
-  if (!await verifyPositionOwner(id, userId)) {
-    return NextResponse.json({ error: "권한 없음" }, { status: 403 });
-  }
+  const { data: deleted, error } = await supabase.rpc("delete_position_owned", {
+    p_position_id: Number(id),
+    p_user_id:     userId,
+  });
 
-  const { error } = await supabase.from("positions").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error)    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!deleted) return NextResponse.json({ error: "권한 없음" }, { status: 403 });
   return new NextResponse(null, { status: 204 });
 }

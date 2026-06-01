@@ -16,7 +16,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("watchlist")
-    .select("*")
+    .select("id, ticker, name, sector, added_at")   // user_id 등 불필요 컬럼 제외
     .eq("user_id", userId)
     .order("added_at", { ascending: false });
 

@@ -15,55 +15,57 @@ async function fetchQuoteWithFallback(
   ticker: string,
   broker: BrokerProvider | null,
 ): Promise<{ price: number; change: number; change_pct: number } | null> {
-  // 국내 6자리 코드 + 브로커 → KIS 우선 (Yahoo보다 정확)
   if (broker && KR_CODE.test(ticker)) {
     try {
       const q = await broker.getQuote(ticker);
-      if (q.price > 0) {
-        return { price: q.price, change: q.change, change_pct: q.change_rate };
-      }
-    } catch {
-      // KIS 실패 → Yahoo 폴백으로 진행
-    }
+      if (q.price > 0) return { price: q.price, change: q.change, change_pct: q.change_rate };
+    } catch { /* KIS 실패 → Yahoo 폴백 */ }
   }
-
-  // Yahoo Finance (해외 종목 기본 또는 KIS 실패 시 폴백)
   const yahoo = await getQuote(ticker);
   if (yahoo?.price != null && yahoo.price > 0) {
     return { price: yahoo.price, change: yahoo.change, change_pct: yahoo.change_pct };
   }
-
   return null;
 }
 
 export async function GET(req: NextRequest, { params }: Ctx) {
-  const { id } = await params;
-
-  const serverClient = await createSupabaseServerClient();
+  // auth + params 병렬 처리
+  const [serverClient, { id }] = await Promise.all([
+    createSupabaseServerClient(),
+    params,
+  ]);
   const { data: { user } } = await serverClient.auth.getUser();
   if (!user) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { data: pf } = await supabase.from("portfolios").select("*").eq("id", id).eq("user_id", user.id).single();
-  if (!pf) return NextResponse.json({ error: "포트폴리오를 찾을 수 없습니다." }, { status: 404 });
+  // portfolios + positions 병렬 조회 + 필요 컬럼만 select
+  const [{ data: pf }, { data: positions }] = await Promise.all([
+    supabase
+      .from("portfolios")
+      .select("id, name")           // description·created_at·updated_at 제외
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .single(),
+    supabase
+      .from("positions")
+      .select("id, ticker, name, quantity, avg_price, stop_loss, take_profit, strategy, notes")
+      .eq("portfolio_id", id),      // created_at·updated_at·portfolio_id 제외
+  ]);
 
-  const { data: positions } = await supabase
-    .from("positions")
-    .select("*")
-    .eq("portfolio_id", id);
+  if (!pf) return NextResponse.json({ error: "포트폴리오를 찾을 수 없습니다." }, { status: 404 });
 
   if (!positions || positions.length === 0) {
     return NextResponse.json({
-      portfolio_id: Number(id),
-      name: pf.name,
-      total_invested: 0,
-      total_value: 0,
-      total_pnl: 0,
+      portfolio_id:      Number(id),
+      name:              pf.name,
+      total_invested:    0,
+      total_value:       0,
+      total_pnl:         0,
       total_pnl_percent: 0,
-      positions: [],
+      positions:         [],
     });
   }
 
-  // 브로커 프로바이더 초기화 (헤더에서 자격증명 읽기)
+  // 브로커 초기화
   const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
   const appKey     = req.headers.get("x-app-key");
   const appSecret  = req.headers.get("x-app-secret");
@@ -72,48 +74,47 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     try { broker = createBrokerProvider(brokerType, { appKey, appSecret }); } catch {}
   }
 
-  // 모든 종목 시세 병렬 조회 (Yahoo → KIS 폴백)
+  // 모든 종목 시세 병렬 조회
   const quotes = await Promise.allSettled(
-    positions.map((p) => fetchQuoteWithFallback(p.ticker, broker))
+    positions.map((p) => fetchQuoteWithFallback(p.ticker, broker)),
   );
 
   let total_invested = 0;
-  let total_value = 0;
+  let total_value    = 0;
 
   const pnlList = positions.map((pos, i) => {
-    const q = quotes[i].status === "fulfilled" ? quotes[i].value : null;
-    const price_available = q?.price != null;
+    const q             = quotes[i].status === "fulfilled" ? quotes[i].value : null;
     const current_price = q?.price ?? pos.avg_price;
-    const cost_basis = pos.avg_price * pos.quantity;
-    const total_val = current_price * pos.quantity;
-    const pnl_amount = total_val - cost_basis;
-    const pnl_percent = cost_basis ? (pnl_amount / cost_basis) * 100 : 0;
+    const cost_basis    = pos.avg_price * pos.quantity;
+    const total_val     = current_price * pos.quantity;
+    const pnl_amount    = total_val - cost_basis;
+    const pnl_percent   = cost_basis ? (pnl_amount / cost_basis) * 100 : 0;
 
     total_invested += cost_basis;
-    total_value += total_val;
+    total_value    += total_val;
 
     return {
-      position_id:     pos.id,
-      ticker:          pos.ticker,
-      name:            pos.name,
-      quantity:        pos.quantity,
-      avg_price:       pos.avg_price,
+      position_id:    pos.id,
+      ticker:         pos.ticker,
+      name:           pos.name,
+      quantity:       pos.quantity,
+      avg_price:      pos.avg_price,
       current_price,
-      price_available,
-      stop_loss:       pos.stop_loss,
-      take_profit:     pos.take_profit,
-      strategy:        pos.strategy,
-      notes:           pos.notes,
-      pnl_amount:      Math.round(pnl_amount),
-      pnl_percent:     Math.round(pnl_percent * 100) / 100,
-      total_value:     Math.round(total_val),
-      cost_basis:      Math.round(cost_basis),
-      is_near_stop:    pos.stop_loss != null && current_price <= pos.stop_loss * 1.05,
-      is_near_target:  pos.take_profit != null && current_price >= pos.take_profit * 0.95,
+      price_available: q?.price != null,
+      stop_loss:      pos.stop_loss,
+      take_profit:    pos.take_profit,
+      strategy:       pos.strategy,
+      notes:          pos.notes,
+      pnl_amount:     Math.round(pnl_amount),
+      pnl_percent:    Math.round(pnl_percent * 100) / 100,
+      total_value:    Math.round(total_val),
+      cost_basis:     Math.round(cost_basis),
+      is_near_stop:   pos.stop_loss   != null && current_price <= pos.stop_loss   * 1.05,
+      is_near_target: pos.take_profit != null && current_price >= pos.take_profit * 0.95,
     };
   });
 
-  const total_pnl = total_value - total_invested;
+  const total_pnl        = total_value - total_invested;
   const total_pnl_percent = total_invested ? (total_pnl / total_invested) * 100 : 0;
 
   return NextResponse.json({

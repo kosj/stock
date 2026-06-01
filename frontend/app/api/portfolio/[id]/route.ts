@@ -6,17 +6,16 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-async function getCurrentUserId(): Promise<string | null> {
+async function getUserId(): Promise<string | null> {
   const client = await createSupabaseServerClient();
   const { data: { user } } = await client.auth.getUser();
   return user?.id ?? null;
 }
 
 export async function GET(_: NextRequest, { params }: Ctx) {
-  const userId = await getCurrentUserId();
+  const [userId, { id }] = await Promise.all([getUserId(), params]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { id } = await params;
   const { data, error } = await supabase
     .from("portfolios")
     .select("*")
@@ -29,11 +28,9 @@ export async function GET(_: NextRequest, { params }: Ctx) {
 }
 
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const userId = await getCurrentUserId();
+  const [userId, { id }, body] = await Promise.all([getUserId(), params, req.json()]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { id } = await params;
-  const body = await req.json();
   const { data, error } = await supabase
     .from("portfolios")
     .update({ name: body.name, description: body.description, updated_at: new Date().toISOString() })
@@ -47,10 +44,9 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(_: NextRequest, { params }: Ctx) {
-  const userId = await getCurrentUserId();
+  const [userId, { id }] = await Promise.all([getUserId(), params]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { id } = await params;
   const { error } = await supabase
     .from("portfolios")
     .delete()

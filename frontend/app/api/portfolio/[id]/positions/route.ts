@@ -12,78 +12,66 @@ async function getCurrentUserId(): Promise<string | null> {
   return user?.id ?? null;
 }
 
-async function verifyPortfolioOwner(portfolioId: string, userId: string): Promise<boolean> {
-  const { data } = await supabase
-    .from("portfolios")
-    .select("id")
-    .eq("id", portfolioId)
-    .eq("user_id", userId)
-    .single();
-  return !!data;
-}
-
 export async function GET(_: NextRequest, { params }: Ctx) {
-  const userId = await getCurrentUserId();
+  // auth + params 병렬 처리
+  const [userId, { id }] = await Promise.all([getCurrentUserId(), params]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { id } = await params;
-  if (!await verifyPortfolioOwner(id, userId)) {
-    return NextResponse.json({ error: "권한 없음" }, { status: 403 });
-  }
+  // 소유권 확인 + 데이터 조회 병렬 실행 (2페이즈: auth‖params → verify‖fetch)
+  const [{ data: pf }, { data, error }] = await Promise.all([
+    supabase.from("portfolios").select("id").eq("id", id).eq("user_id", userId).single(),
+    supabase
+      .from("positions")
+      .select("id, ticker, name, quantity, avg_price, stop_loss, take_profit, strategy, notes, created_at")
+      .eq("portfolio_id", id)
+      .order("created_at", { ascending: true }),
+  ]);
 
-  const { data, error } = await supabase
-    .from("positions")
-    .select("*")
-    .eq("portfolio_id", id)
-    .order("created_at", { ascending: true });
-
+  if (!pf) return NextResponse.json({ error: "권한 없음" }, { status: 403 });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data ?? []);
 }
 
-/** 포트폴리오의 모든 포지션 삭제 (보유종목 전체 교체 시 사용) */
+/** 포트폴리오의 모든 포지션 삭제 */
 export async function DELETE(_: NextRequest, { params }: Ctx) {
   const [userId, { id }] = await Promise.all([getCurrentUserId(), params]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  if (!await verifyPortfolioOwner(id, userId)) {
-    return NextResponse.json({ error: "권한 없음" }, { status: 403 });
-  }
+  // 소유권 확인 후 삭제 (delete는 안전을 위해 순차 실행)
+  const { data: pf } = await supabase
+    .from("portfolios").select("id").eq("id", id).eq("user_id", userId).single();
+  if (!pf) return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
   const { error } = await supabase.from("positions").delete().eq("portfolio_id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
 
+/** 포지션 추가 — RPC insert_position_owned (소유권 검증 + INSERT 단일 왕복) */
 export async function POST(req: NextRequest, { params }: Ctx) {
-  // userId·params·body 병렬로 읽어 순차 대기 제거
-  const [userId, { id }, body] = await Promise.all([
-    getCurrentUserId(),
-    params,
-    req.json(),
-  ]);
+  const [userId, { id }, body] = await Promise.all([getCurrentUserId(), params, req.json()]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  if (!await verifyPortfolioOwner(id, userId)) {
-    return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+  const { data, error } = await supabase.rpc("insert_position_owned", {
+    p_portfolio_id: Number(id),
+    p_user_id:      userId,
+    p_ticker:       body.ticker,
+    p_name:         body.name,
+    p_quantity:     body.quantity,
+    p_avg_price:    body.avg_price,
+    p_stop_loss:    body.stop_loss    ?? null,
+    p_take_profit:  body.take_profit  ?? null,
+    p_strategy:     body.strategy     ?? null,
+    p_notes:        body.notes        ?? null,
+  });
+
+  if (error) {
+    if (error.message.includes("permission_denied")) {
+      return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const { data, error } = await supabase
-    .from("positions")
-    .insert({
-      portfolio_id: Number(id),
-      ticker:       body.ticker,
-      name:         body.name,
-      quantity:     body.quantity,
-      avg_price:    body.avg_price,
-      stop_loss:    body.stop_loss ?? null,
-      take_profit:  body.take_profit ?? null,
-      strategy:     body.strategy ?? null,
-      notes:        body.notes ?? null,
-    })
-    .select()
-    .single();
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data, { status: 201 });
+  const row = Array.isArray(data) ? data[0] : data;
+  return NextResponse.json(row, { status: 201 });
 }
