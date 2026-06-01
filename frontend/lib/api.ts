@@ -1,59 +1,52 @@
 // API 기본 경로 설정
 // 브라우저: 항상 상대 경로('') → next.config.ts rewrites가 BACKEND_URL로 프록시
 // SSR:     BACKEND_URL 환경변수로 직접 백엔드 호출 (Vercel 서버 사이드)
-// 로컬 개발: BACKEND_URL 미설정 시 next.config.ts 기본값 localhost:8000 사용
-const BASE = typeof window === 'undefined'
-  ? (process.env.BACKEND_URL || '')  // SSR
-  : '';                               // 브라우저: rewrites 경유
+const BASE = typeof window === "undefined"
+  ? (process.env.BACKEND_URL ?? "")
+  : "";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    cache: 'no-store',
+    cache: "no-store",
     headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
   });
 
-  // 501은 Not Implemented - 빈 배열 반환 (대부분의 API가 배열을 반환함)
-  if (res.status === 501) {
-    return [] as any as T;
-  }
-
+  if (res.status === 501) return [] as unknown as T;
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || `HTTP ${res.status}`);
   }
-  // 204 No Content 등 본문 없는 응답은 res.json() 불가
-  if (res.status === 204 || res.status === 205) {
-    return undefined as unknown as T;
-  }
+  if (res.status === 204 || res.status === 205) return undefined as unknown as T;
   return res.json();
+}
+
+// 증권사 자격증명 → 요청 헤더 변환 헬퍼
+type BrokerCreds = { type: string; appKey: string; appSecret: string } | null | undefined;
+
+function brokerHeaders(creds?: BrokerCreds): Record<string, string> {
+  if (!creds) return {};
+  return {
+    "X-Broker-Type": creds.type,
+    "X-App-Key":     creds.appKey,
+    "X-App-Secret":  creds.appSecret,
+  };
 }
 
 // ── 포트폴리오 ───────────────────────────────────────────────────────────────
 export const api = {
   portfolio: {
-    list: () => request("/api/portfolio/"),
+    list:   () => request("/api/portfolio/"),
     create: (body: { name: string; description?: string }) =>
       request("/api/portfolio/", { method: "POST", body: JSON.stringify(body) }),
-    get: (id: number) => request(`/api/portfolio/${id}`),
+    get:    (id: number) => request(`/api/portfolio/${id}`),
     update: (id: number, body: object) =>
       request(`/api/portfolio/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: number) =>
       request(`/api/portfolio/${id}`, { method: "DELETE" }),
-    summary: (
-      id: number,
-      brokerCreds?: { type: string; appKey: string; appSecret: string } | null,
-    ) =>
-      request(`/api/portfolio/${id}/summary`, {
-        headers: brokerCreds
-          ? {
-              "X-Broker-Type": brokerCreds.type,
-              "X-App-Key":     brokerCreds.appKey,
-              "X-App-Secret":  brokerCreds.appSecret,
-            }
-          : {},
-      }),
-    positions: (id: number) => request(`/api/portfolio/${id}/positions`),
+    summary: (id: number, creds?: BrokerCreds) =>
+      request(`/api/portfolio/${id}/summary`, { headers: brokerHeaders(creds) }),
+    positions:      (id: number) => request(`/api/portfolio/${id}/positions`),
     clearPositions: (id: number) =>
       request(`/api/portfolio/${id}/positions`, { method: "DELETE" }),
     addPosition: (id: number, body: object) =>
@@ -64,109 +57,63 @@ export const api = {
       request(`/api/portfolio/positions/${posId}`, { method: "DELETE" }),
     autoFill: (id: number) =>
       request(`/api/portfolio/${id}/auto-fill`, { method: "POST" }),
-    kisPositions: () => request("/api/portfolio/kis/positions"),
-    kisBalance: () => request("/api/portfolio/kis/balance"),
     allPositionsWithTargets: () => request("/api/portfolio/positions"),
-    watchlist: () => request("/api/portfolio/watchlist/"),
-    addWatchlist: (body: object) =>
+    watchlist:      () => request("/api/portfolio/watchlist/"),
+    addWatchlist:   (body: object) =>
       request("/api/portfolio/watchlist/", { method: "POST", body: JSON.stringify(body) }),
     removeWatchlist: (id: number) =>
       request(`/api/portfolio/watchlist/${id}`, { method: "DELETE" }),
   },
 
   market: {
-    search: (
-      q: string,
-      brokerCreds?: { type: string; appKey: string; appSecret: string } | null,
-    ) =>
-      request(`/api/market/search?q=${encodeURIComponent(q)}`, {
-        headers: brokerCreds
-          ? {
-              "X-Broker-Type": brokerCreds.type,
-              "X-App-Key":     brokerCreds.appKey,
-              "X-App-Secret":  brokerCreds.appSecret,
-            }
-          : {},
-      }),
-    quote: (
-      ticker: string,
-      brokerCreds?: { type: string; appKey: string; appSecret: string } | null,
-    ) =>
-      request(`/api/market/quote/${ticker}`, {
-        headers: brokerCreds
-          ? {
-              "X-Broker-Type": brokerCreds.type,
-              "X-App-Key":     brokerCreds.appKey,
-              "X-App-Secret":  brokerCreds.appSecret,
-            }
-          : {},
-      }),
-    chart: (ticker: string, period = "1y") =>
+    search:    (q: string, creds?: BrokerCreds) =>
+      request(`/api/market/search?q=${encodeURIComponent(q)}`, { headers: brokerHeaders(creds) }),
+    quote:     (ticker: string, creds?: BrokerCreds) =>
+      request(`/api/market/quote/${ticker}`, { headers: brokerHeaders(creds) }),
+    chart:     (ticker: string, period = "1y") =>
       request(`/api/market/chart/${ticker}?period=${period}`),
     financials: (ticker: string) => request(`/api/market/financials/${ticker}`),
-    indices: (
-      brokerCreds?: { type: string; appKey: string; appSecret: string } | null,
-    ) =>
-      request("/api/market/indices", {
-        headers: brokerCreds
-          ? {
-              "X-Broker-Type": brokerCreds.type,
-              "X-App-Key":     brokerCreds.appKey,
-              "X-App-Secret":  brokerCreds.appSecret,
-            }
-          : {},
-      }),
+    indices:   (creds?: BrokerCreds) =>
+      request("/api/market/indices", { headers: brokerHeaders(creds) }),
   },
 
   analysis: {
-    get: (
-      ticker: string,
-      anthropicKey?: string,
-      avgPrice?: number,
-      quantity?: number,
-    ) => {
-      const key = anthropicKey || (typeof window !== 'undefined'
-        ? localStorage.getItem('api-key-anthropic') ?? ''
-        : '');
+    get: (ticker: string, anthropicKey?: string, avgPrice?: number, quantity?: number) => {
       const params = new URLSearchParams();
-      if (avgPrice) params.set("avg_price", String(avgPrice));
-      if (quantity) params.set("quantity", String(quantity));
-      const qs = params.toString() ? `?${params.toString()}` : "";
+      if (avgPrice)  params.set("avg_price", String(avgPrice));
+      if (quantity)  params.set("quantity",  String(quantity));
+      const qs = params.size ? `?${params}` : "";
       return request(`/api/analysis/${ticker}${qs}`, {
-        headers: key ? { 'X-Anthropic-Key': key } : {},
+        headers: anthropicKey ? { "X-Anthropic-Key": anthropicKey } : {},
       });
     },
   },
 
   mock: {
-    account:        () => request("/api/mock/account"),
-    setCash:        (cash: number) =>
+    account:       () => request("/api/mock/account"),
+    setCash:       (cash: number) =>
       request("/api/mock/account", { method: "PUT", body: JSON.stringify({ cash }) }),
-    setCapital:     (capital: number | null) =>
+    setCapital:    (capital: number | null) =>
       request("/api/mock/account", { method: "PUT", body: JSON.stringify({ auto_trade_capital: capital }) }),
-    reset:          () => request("/api/mock/account/reset", { method: "POST" }),
-    trade:          (body: { ticker: string; name: string; trade_type: "BUY" | "SELL"; quantity: number }) =>
+    reset:         () => request("/api/mock/account/reset", { method: "POST" }),
+    trade:         (body: { ticker: string; name: string; trade_type: "BUY" | "SELL"; quantity: number }) =>
       request("/api/mock/trade", { method: "POST", body: JSON.stringify(body) }),
-    trades:         () => request("/api/mock/trades"),
-    autoTrade:      () => request("/api/mock/auto-trade/run", { method: "POST" }),
-    autoTradeLogs:  () => request("/api/mock/auto-trade/logs"),
+    trades:        () => request("/api/mock/trades"),
+    autoTrade:     () => request("/api/mock/auto-trade/run", { method: "POST" }),
+    autoTradeLogs: () => request("/api/mock/auto-trade/logs"),
   },
 
   macro: {
-    dashboard: (fredKey?: string) => {
-      const key = fredKey || (typeof window !== 'undefined'
-        ? localStorage.getItem('api-key-fred') ?? ''
-        : '');
-      return request("/api/macro/", {
-        headers: key ? { 'X-Fred-Key': key } : {},
-      });
-    },
+    dashboard: (fredKey?: string) =>
+      request("/api/macro/", {
+        headers: fredKey ? { "X-Fred-Key": fredKey } : {},
+      }),
   },
 
   sectors: {
-    list: () => request("/api/sectors/"),
+    list:     () => request("/api/sectors/"),
     rotation: () => request("/api/sectors/rotation"),
-    etfs: (sector: string, sortBy = "1m") =>
+    etfs:     (sector: string, sortBy = "1m") =>
       request(`/api/sectors/etfs?sector=${encodeURIComponent(sector)}&sort_by=${sortBy}`),
   },
 
@@ -178,26 +125,24 @@ export const api = {
   },
 
   broker: {
-    quote: (ticker: string, broker: string, appKey: string, appSecret: string) =>
+    quote:   (ticker: string, broker: string, appKey: string, appSecret: string) =>
       request(`/api/broker/quote/${ticker}`, {
-        method: "POST",
-        body: JSON.stringify({ broker, appKey, appSecret })
+        method: "POST", body: JSON.stringify({ broker, appKey, appSecret }),
       }),
     indices: (broker: string, appKey: string, appSecret: string) =>
       request("/api/broker/indices", {
-        method: "POST",
-        body: JSON.stringify({ broker, appKey, appSecret })
+        method: "POST", body: JSON.stringify({ broker, appKey, appSecret }),
       }),
   },
 
   push: {
-    vapidKey: () => request<{ public_key: string }>("/api/push/vapid-public-key"),
-    subscribe: (body: object) =>
+    vapidKey:     () => request<{ public_key: string }>("/api/push/vapid-public-key"),
+    subscribe:    (body: object) =>
       request("/api/push/subscribe", { method: "POST", body: JSON.stringify(body) }),
-    alerts: () => request("/api/push/alerts"),
-    createAlert: (body: object) =>
+    alerts:       () => request("/api/push/alerts"),
+    createAlert:  (body: object) =>
       request("/api/push/alerts", { method: "POST", body: JSON.stringify(body) }),
-    deleteAlert: (id: number) =>
+    deleteAlert:  (id: number) =>
       request(`/api/push/alerts/${id}`, { method: "DELETE" }),
   },
 };

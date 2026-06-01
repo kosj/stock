@@ -17,96 +17,50 @@ export async function POST(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
   const { ticker, name, trade_type, quantity } = body ?? {};
-  if (!ticker || !name || !["BUY", "SELL"].includes(trade_type) || !quantity || quantity <= 0) {
-    return NextResponse.json({ error: "ticker, name, trade_type(BUY|SELL), quantity 필요" }, { status: 400 });
+  if (!ticker || !name || !["BUY", "SELL"].includes(trade_type) || !(quantity > 0)) {
+    return NextResponse.json(
+      { error: "ticker, name, trade_type(BUY|SELL), quantity 필요" },
+      { status: 400 },
+    );
   }
 
-  // 현재가 조회 (체결가)
+  // 현재가 조회 (체결가) — DB 조회와 독립적이므로 단독 실행
   const quote = await getQuote(ticker);
   if (!quote?.price || quote.price <= 0) {
     return NextResponse.json({ error: `${ticker} 시세를 조회할 수 없습니다.` }, { status: 502 });
   }
-  const price        = Math.round(quote.price * 100) / 100;
-  const total_amount = Math.round(price * quantity);
 
-  // 계좌 조회 — 없으면 자동 생성
-  let { data: account } = await supabase
-    .from("mock_accounts").select("*").eq("user_id", userId).single();
-  if (!account) {
-    const { data: created } = await supabase
-      .from("mock_accounts").insert({ user_id: userId, cash: 10_000_000 }).select().single();
-    account = created;
-  }
-  if (!account) return NextResponse.json({ error: "계좌 조회 실패" }, { status: 500 });
+  const price = Math.round(quote.price * 100) / 100;
 
-  if (trade_type === "BUY") {
-    if (account.cash < total_amount) {
+  // BUY / SELL 모두 RPC 1 왕복으로 처리 (기존 5~6 왕복 대비 대폭 단축)
+  const rpcName = trade_type === "BUY" ? "execute_mock_buy" : "execute_mock_sell";
+  const { data: result, error } = await supabase.rpc(rpcName, {
+    p_user_id:  userId,
+    p_ticker:   ticker,
+    p_name:     name,
+    p_quantity: quantity,
+    p_price:    price,
+  });
+
+  if (error) {
+    const msg = error.message;
+    if (msg.includes("insufficient_cash")) {
+      const [, cash, needed] = msg.split(":");
       return NextResponse.json({
-        error: `잔금 부족: 보유 현금 ${Math.round(account.cash).toLocaleString()}원, 필요 금액 ${total_amount.toLocaleString()}원`,
+        error: `잔금 부족: 보유 ${Math.round(Number(cash)).toLocaleString()}원, 필요 ${Math.round(Number(needed)).toLocaleString()}원`,
       }, { status: 400 });
     }
-
-    const new_cash = account.cash - total_amount;
-
-    // 기존 포지션 조회 → 평균단가 재계산
-    const { data: existing } = await supabase
-      .from("mock_positions").select("*").eq("user_id", userId).eq("ticker", ticker).single();
-
-    if (existing) {
-      const new_qty   = existing.quantity + quantity;
-      const new_avg   = ((existing.avg_price * existing.quantity) + total_amount) / new_qty;
-      await supabase.from("mock_positions").update({
-        quantity: new_qty,
-        avg_price: Math.round(new_avg * 100) / 100,
-        updated_at: new Date().toISOString(),
-      }).eq("user_id", userId).eq("ticker", ticker);
-    } else {
-      await supabase.from("mock_positions").insert({
-        user_id: userId, ticker, name,
-        quantity, avg_price: price, updated_at: new Date().toISOString(),
-      });
-    }
-
-    await supabase.from("mock_accounts").update({
-      cash: new_cash, updated_at: new Date().toISOString(),
-    }).eq("user_id", userId);
-
-    await supabase.from("mock_trades").insert({
-      user_id: userId, ticker, name, trade_type: "BUY", quantity, price, total_amount,
-    });
-
-    return NextResponse.json({ ok: true, price, total_amount, new_cash: Math.round(new_cash) });
-
-  } else {
-    // SELL
-    const { data: existing } = await supabase
-      .from("mock_positions").select("*").eq("user_id", userId).eq("ticker", ticker).single();
-
-    if (!existing || existing.quantity < quantity) {
+    if (msg.includes("insufficient_quantity")) {
+      const [, has, wants] = msg.split(":");
       return NextResponse.json({
-        error: `보유 수량 부족: 보유 ${existing?.quantity ?? 0}주, 매도 요청 ${quantity}주`,
+        error: `보유 수량 부족: 보유 ${has}주, 매도 요청 ${wants}주`,
       }, { status: 400 });
     }
-
-    const new_qty  = existing.quantity - quantity;
-    const new_cash = account.cash + total_amount;
-
-    if (new_qty === 0) {
-      await supabase.from("mock_positions").delete().eq("user_id", userId).eq("ticker", ticker);
-    } else {
-      await supabase.from("mock_positions").update({
-        quantity: new_qty, updated_at: new Date().toISOString(),
-      }).eq("user_id", userId).eq("ticker", ticker);
+    if (msg.includes("no_position")) {
+      return NextResponse.json({ error: "보유하지 않은 종목입니다." }, { status: 400 });
     }
-
-    await supabase.from("mock_accounts").update({
-      cash: new_cash, updated_at: new Date().toISOString(),
-    }).eq("user_id", userId);
-
-    await supabase.from("mock_trades").insert({
-      user_id: userId, ticker, name, trade_type: "SELL", quantity, price, total_amount,
-    });
-
-    return NextResponse.json({ ok: true, price, total_amount, new_cash: Math.round(new_cash) });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
+
+  return NextResponse.json(result);
 }

@@ -82,20 +82,21 @@ function calcTechnical(signals: Record<string, unknown>): { score: number; notes
   return { score: Math.min(25, Math.max(0, score)), notes };
 }
 
-function calcSector(sectors: Record<string, unknown>[], sectorName: string | null): { score: number; notes: string[] } {
+interface SectorPerf { sector: string; change_1m?: number }
+
+function calcSector(sectors: SectorPerf[], sectorName: string | null): { score: number; notes: string[] } {
   let score = 12.5;
   const notes: string[] = [];
   if (!sectorName || sectors.length === 0) return { score, notes };
 
-  const match = sectors.find((s: any) =>
-    sectorName && sectorName.toLowerCase().includes((s.sector as string)?.toLowerCase())
-  ) as any;
+  const lower = sectorName.toLowerCase();
+  const match = sectors.find(s => lower.includes(s.sector.toLowerCase()));
   if (match) {
     const m1 = match.change_1m ?? 0;
-    if (m1 > 10)      { score += 8; notes.push(`섹터(${match.sector}) 1개월 +${m1.toFixed(1)}% 강세`); }
-    else if (m1 > 3)  { score += 3; }
-    else if (m1 < -10){ score -= 6; notes.push(`섹터(${match.sector}) 1개월 ${m1.toFixed(1)}% 약세`); }
-    else if (m1 < -3) { score -= 2; }
+    if (m1 > 10)       { score += 8; notes.push(`섹터(${match.sector}) 1개월 +${m1.toFixed(1)}% 강세`); }
+    else if (m1 > 3)   { score += 3; }
+    else if (m1 < -10) { score -= 6; notes.push(`섹터(${match.sector}) 1개월 ${m1.toFixed(1)}% 약세`); }
+    else if (m1 < -3)  { score -= 2; }
   }
   return { score: Math.min(25, Math.max(0, score)), notes };
 }
@@ -201,7 +202,7 @@ export async function analyzeStock(
   ticker: string,
   financials: FinancialsData,
   signals: Record<string, unknown>,
-  sectors: Record<string, unknown>[],
+  sectors: SectorPerf[],
   anthropicApiKey = "",
   avgPrice: number | null = null,
   quantity: number | null = null,

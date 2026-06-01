@@ -214,6 +214,123 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================================
+-- 모의거래 원자적 RPC — BUY/SELL을 단일 트랜잭션으로 처리
+-- 현재: getQuote(1) + SELECT계좌(2) + SELECT포지션(3) + UPDATE포지션(4) + UPDATE계좌(5) + INSERT거래(6) = 6 왕복
+-- RPC:  getQuote(1) + rpc(2) = 2 왕복
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION execute_mock_buy(
+  p_user_id  UUID,
+  p_ticker   VARCHAR,
+  p_name     VARCHAR,
+  p_quantity INTEGER,
+  p_price    FLOAT
+) RETURNS JSONB AS $$
+DECLARE
+  v_total    FLOAT;
+  v_cash     FLOAT;
+  v_old_qty  INTEGER;
+  v_old_avg  FLOAT;
+  v_new_qty  INTEGER;
+  v_new_avg  FLOAT;
+  v_new_cash FLOAT;
+BEGIN
+  v_total := ROUND(p_price * p_quantity * 100) / 100;
+
+  -- 계좌 잠금 + 현금 확인 (없으면 자동 생성)
+  INSERT INTO mock_accounts(user_id, cash)
+  VALUES(p_user_id, 10000000)
+  ON CONFLICT(user_id) DO NOTHING;
+
+  SELECT cash INTO v_cash FROM mock_accounts WHERE user_id = p_user_id FOR UPDATE;
+
+  IF v_cash < v_total THEN
+    RAISE EXCEPTION 'insufficient_cash:%.0f:%.0f', v_cash, v_total;
+  END IF;
+
+  -- 기존 포지션 여부 확인 후 평균단가 재계산
+  SELECT quantity, avg_price INTO v_old_qty, v_old_avg
+  FROM mock_positions WHERE user_id = p_user_id AND ticker = p_ticker;
+
+  IF FOUND THEN
+    v_new_qty := v_old_qty + p_quantity;
+    v_new_avg := ROUND(((v_old_avg * v_old_qty) + v_total) / v_new_qty * 100) / 100;
+    UPDATE mock_positions
+    SET quantity = v_new_qty, avg_price = v_new_avg, updated_at = NOW()
+    WHERE user_id = p_user_id AND ticker = p_ticker;
+  ELSE
+    INSERT INTO mock_positions(user_id, ticker, name, quantity, avg_price)
+    VALUES(p_user_id, p_ticker, p_name, p_quantity, p_price);
+  END IF;
+
+  -- 현금 차감
+  v_new_cash := v_cash - v_total;
+  UPDATE mock_accounts SET cash = v_new_cash, updated_at = NOW() WHERE user_id = p_user_id;
+
+  -- 거래 기록
+  INSERT INTO mock_trades(user_id, ticker, name, trade_type, quantity, price, total_amount)
+  VALUES(p_user_id, p_ticker, p_name, 'BUY', p_quantity, p_price, v_total);
+
+  RETURN jsonb_build_object(
+    'ok', true, 'price', p_price, 'total_amount', v_total, 'new_cash', ROUND(v_new_cash)
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+CREATE OR REPLACE FUNCTION execute_mock_sell(
+  p_user_id  UUID,
+  p_ticker   VARCHAR,
+  p_name     VARCHAR,
+  p_quantity INTEGER,
+  p_price    FLOAT
+) RETURNS JSONB AS $$
+DECLARE
+  v_total    FLOAT;
+  v_held_qty INTEGER;
+  v_new_qty  INTEGER;
+  v_cash     FLOAT;
+  v_new_cash FLOAT;
+BEGIN
+  v_total := ROUND(p_price * p_quantity * 100) / 100;
+
+  -- 보유 수량 확인 (잠금)
+  SELECT quantity INTO v_held_qty
+  FROM mock_positions WHERE user_id = p_user_id AND ticker = p_ticker FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'no_position:%', p_ticker;
+  END IF;
+
+  IF v_held_qty < p_quantity THEN
+    RAISE EXCEPTION 'insufficient_quantity:%:%', v_held_qty, p_quantity;
+  END IF;
+
+  -- 포지션 업데이트/삭제
+  v_new_qty := v_held_qty - p_quantity;
+  IF v_new_qty = 0 THEN
+    DELETE FROM mock_positions WHERE user_id = p_user_id AND ticker = p_ticker;
+  ELSE
+    UPDATE mock_positions SET quantity = v_new_qty, updated_at = NOW()
+    WHERE user_id = p_user_id AND ticker = p_ticker;
+  END IF;
+
+  -- 현금 증가
+  SELECT cash INTO v_cash FROM mock_accounts WHERE user_id = p_user_id FOR UPDATE;
+  v_new_cash := COALESCE(v_cash, 0) + v_total;
+  UPDATE mock_accounts SET cash = v_new_cash, updated_at = NOW() WHERE user_id = p_user_id;
+
+  -- 거래 기록
+  INSERT INTO mock_trades(user_id, ticker, name, trade_type, quantity, price, total_amount)
+  VALUES(p_user_id, p_ticker, p_name, 'SELL', p_quantity, p_price, v_total);
+
+  RETURN jsonb_build_object(
+    'ok', true, 'price', p_price, 'total_amount', v_total, 'new_cash', ROUND(v_new_cash)
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
 -- RLS 비활성화 (개인 프로젝트 — 서버사이드 API Route만 접근)
 -- ============================================================
 ALTER TABLE portfolios           DISABLE ROW LEVEL SECURITY;

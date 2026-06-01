@@ -6,7 +6,7 @@ import { getQuote } from "@/lib/server/yahoo-finance";
 export const dynamic    = "force-dynamic";
 export const maxDuration = 20;
 
-const INITIAL_CASH = 10_000_000; // 1000만원
+const INITIAL_CASH = 10_000_000;
 
 async function getUserId(): Promise<string | null> {
   const client = await createSupabaseServerClient();
@@ -18,61 +18,57 @@ export async function GET() {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  // 계좌 조회 — 없으면 자동 생성
-  let { data: account } = await supabase
+  // 계좌 upsert — 없으면 자동 생성, 있으면 기존 값 반환
+  await supabase
     .from("mock_accounts")
-    .select("*")
-    .eq("user_id", userId)
-    .single();
+    .upsert({ user_id: userId, cash: INITIAL_CASH }, { onConflict: "user_id", ignoreDuplicates: true });
 
-  if (!account) {
-    const { data: created } = await supabase
-      .from("mock_accounts")
-      .insert({ user_id: userId, cash: INITIAL_CASH })
-      .select()
-      .single();
-    account = created;
-  }
+  // 계좌 + 포지션 병렬 조회 (필요 컬럼만 select)
+  const [{ data: account }, { data: positions }] = await Promise.all([
+    supabase.from("mock_accounts")
+      .select("cash, auto_trade_capital")
+      .eq("user_id", userId)
+      .single(),
+    supabase.from("mock_positions")
+      .select("ticker, name, quantity, avg_price")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false }),
+  ]);
 
-  if (!account) return NextResponse.json({ error: "계좌 생성 실패" }, { status: 500 });
-
-  // 보유 포지션 조회
-  const { data: positions } = await supabase
-    .from("mock_positions")
-    .select("*")
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false });
+  if (!account) return NextResponse.json({ error: "계좌 조회 실패" }, { status: 500 });
 
   const rows = positions ?? [];
 
-  // 현재가 병렬 조회
-  const quotes = await Promise.allSettled(
-    rows.map((p) => getQuote(p.ticker)),
-  );
+  // 현재가 병렬 조회 (5개씩 배치)
+  const quotes = await Promise.allSettled(rows.map(p => getQuote(p.ticker)));
 
   let stock_value = 0;
   const enriched = rows.map((pos, i) => {
-    const q = quotes[i].status === "fulfilled" ? quotes[i].value : null;
+    const q             = quotes[i].status === "fulfilled" ? quotes[i].value : null;
     const current_price = q?.price ?? pos.avg_price;
     const pnl_amount    = (current_price - pos.avg_price) * pos.quantity;
-    const pnl_pct       = ((current_price - pos.avg_price) / pos.avg_price) * 100;
-    stock_value += current_price * pos.quantity;
-    return { ...pos, current_price, pnl_amount: Math.round(pnl_amount), pnl_pct: Math.round(pnl_pct * 100) / 100 };
+    const pnl_pct       = pos.avg_price > 0 ? ((current_price - pos.avg_price) / pos.avg_price) * 100 : 0;
+    stock_value        += current_price * pos.quantity;
+    return {
+      ...pos,
+      current_price,
+      pnl_amount: Math.round(pnl_amount),
+      pnl_pct:    Math.round(pnl_pct * 100) / 100,
+    };
   });
 
-  const total_value   = account.cash + stock_value;
   const total_invested = rows.reduce((s, p) => s + p.avg_price * p.quantity, 0);
   const total_pnl      = stock_value - total_invested;
   const total_pnl_pct  = total_invested > 0 ? (total_pnl / total_invested) * 100 : 0;
 
   return NextResponse.json({
-    cash:                Math.round(account.cash),
-    stock_value:         Math.round(stock_value),
-    total_value:         Math.round(total_value),
-    total_pnl:           Math.round(total_pnl),
-    total_pnl_pct:       Math.round(total_pnl_pct * 100) / 100,
-    auto_trade_capital:  account.auto_trade_capital ?? null,
-    positions:           enriched,
+    cash:               Math.round(account.cash),
+    stock_value:        Math.round(stock_value),
+    total_value:        Math.round(account.cash + stock_value),
+    total_pnl:          Math.round(total_pnl),
+    total_pnl_pct:      Math.round(total_pnl_pct * 100) / 100,
+    auto_trade_capital: account.auto_trade_capital ?? null,
+    positions:          enriched,
   });
 }
 
@@ -85,7 +81,7 @@ export async function PUT(req: NextRequest) {
 
   if ("cash" in body) {
     const cash = Number(body.cash);
-    if (isNaN(cash) || cash < 0) {
+    if (!isFinite(cash) || cash < 0) {
       return NextResponse.json({ error: "올바른 금액을 입력해주세요." }, { status: 400 });
     }
     updates.cash = Math.round(cash);
