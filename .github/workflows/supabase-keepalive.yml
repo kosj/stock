@@ -1,7 +1,8 @@
-name: "Supabase Keep-Alive"
+name: "Supabase Keep-Alive & Cleanup"
 
 # 무료 플랜: 7일 비활성 시 자동 일시정지
 # 월~금은 auto-trade(07:00 UTC)가 DB를 건드리므로 주말만 ping
+# pg_cron 없이 GitHub Actions에서 직접 오래된 데이터 정리
 on:
   schedule:
     - cron: "0 9 * * 6,0"   # 토·일 09:00 UTC (18:00 KST)
@@ -10,7 +11,7 @@ on:
 jobs:
   keepalive:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
 
     steps:
       - name: "Supabase DB ping"
@@ -28,3 +29,33 @@ jobs:
           fi
 
           echo "Supabase 활성 상태 확인 완료"
+
+      - name: "오래된 mock_trades 삭제 (90일 초과)"
+        run: |
+          # Supabase REST API: lt 필터로 90일 이전 데이터 삭제
+          CUTOFF=$(date -u -d '90 days ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || \
+                   date -u -v-90d '+%Y-%m-%dT%H:%M:%SZ')
+          curl -s -o /dev/null -w "mock_trades cleanup: %{http_code}\n" \
+            -X DELETE \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/mock_trades?created_at=lt.${CUTOFF}" \
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+
+      - name: "오래된 auto_trade_logs 삭제 (30일 초과)"
+        run: |
+          CUTOFF=$(date -u -d '30 days ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || \
+                   date -u -v-30d '+%Y-%m-%dT%H:%M:%SZ')
+          curl -s -o /dev/null -w "auto_trade_logs cleanup: %{http_code}\n" \
+            -X DELETE \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/mock_auto_trade_logs?run_at=lt.${CUTOFF}" \
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+
+      - name: "만료된 quote_cache 삭제"
+        run: |
+          NOW=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          curl -s -o /dev/null -w "quote_cache cleanup: %{http_code}\n" \
+            -X DELETE \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/quote_cache?expires_at=lt.${NOW}" \
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"

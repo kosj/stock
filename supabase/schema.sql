@@ -204,30 +204,16 @@ CREATE INDEX IF NOT EXISTS idx_auto_trade_logs_user ON mock_auto_trade_logs(user
 ALTER TABLE mock_auto_trade_logs DISABLE ROW LEVEL SECURITY;
 
 -- ============================================================
--- 자동 데이터 정리 — pg_cron (Supabase에서 기본 활성화)
--- Supabase Dashboard → SQL Editor에서 실행
+-- 자동 데이터 정리
+-- 방법 A: pg_cron 활성화 시 아래 주석 해제 후 SQL Editor에서 실행
+--         (Supabase Dashboard → Database → Extensions → pg_cron 활성화)
+-- 방법 B: pg_cron 없으면 .github/workflows/supabase-keepalive.yml이 주말마다 정리
 -- ============================================================
 
--- mock_trades: 90일 초과 거래 내역 삭제 (Supabase 500MB 한도 관리)
-SELECT cron.schedule(
-  'cleanup-mock-trades',
-  '0 3 * * *',
-  $$DELETE FROM mock_trades WHERE created_at < NOW() - INTERVAL '90 days'$$
-);
-
--- auto_trade_logs: 30일 초과 이력 삭제
-SELECT cron.schedule(
-  'cleanup-auto-trade-logs',
-  '0 3 * * *',
-  $$DELETE FROM mock_auto_trade_logs WHERE run_at < NOW() - INTERVAL '30 days'$$
-);
-
--- quote_cache: 만료된 캐시 정리 (매시간)
-SELECT cron.schedule(
-  'cleanup-quote-cache',
-  '0 * * * *',
-  $$DELETE FROM quote_cache WHERE expires_at < NOW()$$
-);
+-- [방법 A] pg_cron 사용 시 주석 해제
+-- SELECT cron.schedule('cleanup-mock-trades',    '0 3 * * *', $$DELETE FROM mock_trades       WHERE created_at < NOW() - INTERVAL '90 days'$$);
+-- SELECT cron.schedule('cleanup-auto-trade-logs','0 3 * * *', $$DELETE FROM mock_auto_trade_logs WHERE run_at  < NOW() - INTERVAL '30 days'$$);
+-- SELECT cron.schedule('cleanup-quote-cache',    '0 * * * *', $$DELETE FROM quote_cache         WHERE expires_at < NOW()$$);
 
 -- ============================================================
 -- 외부 API 응답 캐시 (cold start 간 캐시 유지)
