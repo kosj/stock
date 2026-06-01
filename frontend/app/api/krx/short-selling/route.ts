@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { KrxService } from "@/lib/server/krx-service";
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+export const dynamic     = "force-dynamic";
+export const maxDuration = 20;
 
 export async function GET(request: NextRequest) {
   try {

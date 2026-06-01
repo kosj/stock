@@ -3,7 +3,8 @@ import { getQuote } from "@/lib/server/yahoo-finance";
 import { createBrokerProvider } from "@/lib/server/providers";
 import type { BrokerType } from "@/lib/server/providers";
 
-export const dynamic = "force-dynamic";
+export const dynamic     = "force-dynamic";
+export const maxDuration = 30;
 
 type Ctx = { params: Promise<{ ticker: string }> };
 

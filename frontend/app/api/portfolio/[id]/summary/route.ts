@@ -5,7 +5,8 @@ import { getQuote } from "@/lib/server/yahoo-finance";
 import { createBrokerProvider } from "@/lib/server/providers";
 import type { BrokerType, BrokerProvider } from "@/lib/server/providers";
 
-export const dynamic = "force-dynamic";
+export const dynamic     = "force-dynamic";
+export const maxDuration = 30;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -74,9 +75,24 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     try { broker = createBrokerProvider(brokerType, { appKey, appSecret }); } catch {}
   }
 
-  // 모든 종목 시세 병렬 조회
-  const quotes = await Promise.allSettled(
-    positions.map((p) => fetchQuoteWithFallback(p.ticker, broker)),
+  // 모든 종목 시세 조회 — 5개씩 배치 처리 (Yahoo IP 차단 방지)
+  async function batchAllSettled<T, R>(
+    items: T[],
+    fn: (item: T) => Promise<R>,
+    size = 5,
+  ): Promise<PromiseSettledResult<R>[]> {
+    const results: PromiseSettledResult<R>[] = [];
+    for (let i = 0; i < items.length; i += size) {
+      const chunk = items.slice(i, i + size);
+      results.push(...await Promise.allSettled(chunk.map(fn)));
+    }
+    return results;
+  }
+
+  const quotes = await batchAllSettled(
+    positions,
+    (p) => fetchQuoteWithFallback(p.ticker, broker),
+    5,
   );
 
   let total_invested = 0;

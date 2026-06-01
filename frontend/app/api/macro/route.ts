@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getQuote } from "@/lib/server/yahoo-finance";
 import { getMacroDashboard } from "@/lib/server/fred";
 
-export const dynamic = "force-dynamic";
+export const dynamic     = "force-dynamic"; // x-fred-key 헤더를 읽으므로 force-dynamic 유지
 export const maxDuration = 30;
 
 // 인덱스 및 환율 티커

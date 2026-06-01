@@ -6,11 +6,13 @@
 -- portfolios
 CREATE TABLE IF NOT EXISTS portfolios (
   id          BIGSERIAL PRIMARY KEY,
+  user_id     UUID         NOT NULL,            -- auth.users.id
   name        VARCHAR(100) NOT NULL,
   description TEXT,
   created_at  TIMESTAMPTZ  DEFAULT NOW(),
   updated_at  TIMESTAMPTZ  DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_portfolios_user ON portfolios(user_id);
 
 -- positions
 CREATE TABLE IF NOT EXISTS positions (
@@ -32,11 +34,14 @@ CREATE INDEX IF NOT EXISTS idx_positions_portfolio ON positions(portfolio_id);
 -- watchlist
 CREATE TABLE IF NOT EXISTS watchlist (
   id        BIGSERIAL PRIMARY KEY,
-  ticker    VARCHAR(20)  NOT NULL UNIQUE,
+  user_id   UUID         NOT NULL,              -- auth.users.id
+  ticker    VARCHAR(20)  NOT NULL,
   name      VARCHAR(100) NOT NULL,
   sector    VARCHAR(50),
-  added_at  TIMESTAMPTZ  DEFAULT NOW()
+  added_at  TIMESTAMPTZ  DEFAULT NOW(),
+  UNIQUE(user_id, ticker)                        -- 사용자별 중복 방지 (ticker 단독 UNIQUE는 멀티유저 불가)
 );
+CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id);
 
 -- price_alerts
 CREATE TABLE IF NOT EXISTS price_alerts (
@@ -197,3 +202,66 @@ CREATE TABLE IF NOT EXISTS mock_auto_trade_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_auto_trade_logs_user ON mock_auto_trade_logs(user_id);
 ALTER TABLE mock_auto_trade_logs DISABLE ROW LEVEL SECURITY;
+
+-- ============================================================
+-- 자동 데이터 정리 — pg_cron (Supabase에서 기본 활성화)
+-- Supabase Dashboard → SQL Editor에서 실행
+-- ============================================================
+
+-- mock_trades: 90일 초과 거래 내역 삭제 (Supabase 500MB 한도 관리)
+SELECT cron.schedule(
+  'cleanup-mock-trades',
+  '0 3 * * *',
+  $$DELETE FROM mock_trades WHERE created_at < NOW() - INTERVAL '90 days'$$
+);
+
+-- auto_trade_logs: 30일 초과 이력 삭제
+SELECT cron.schedule(
+  'cleanup-auto-trade-logs',
+  '0 3 * * *',
+  $$DELETE FROM mock_auto_trade_logs WHERE run_at < NOW() - INTERVAL '30 days'$$
+);
+
+-- quote_cache: 만료된 캐시 정리 (매시간)
+SELECT cron.schedule(
+  'cleanup-quote-cache',
+  '0 * * * *',
+  $$DELETE FROM quote_cache WHERE expires_at < NOW()$$
+);
+
+-- ============================================================
+-- 외부 API 응답 캐시 (cold start 간 캐시 유지)
+-- L2 캐시: 서버리스 인스턴스 재시작 후에도 캐시 유효
+-- ============================================================
+CREATE TABLE IF NOT EXISTS quote_cache (
+  key        TEXT         PRIMARY KEY,
+  data       JSONB        NOT NULL,
+  expires_at TIMESTAMPTZ  NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quote_cache_exp ON quote_cache(expires_at);
+ALTER TABLE quote_cache DISABLE ROW LEVEL SECURITY;
+
+-- Prophet 추천 결과 저장 (이미 있다면 스킵)
+CREATE TABLE IF NOT EXISTS prophet_recommendations (
+  id                   BIGSERIAL    PRIMARY KEY,
+  run_date             DATE         NOT NULL,
+  rank                 INTEGER      NOT NULL,
+  ticker               VARCHAR(20)  NOT NULL,
+  name                 VARCHAR(100),
+  market               VARCHAR(20),
+  sector               VARCHAR(50),
+  current_price        FLOAT,
+  predicted_return_7d  FLOAT,
+  predicted_return_30d FLOAT,
+  bull_return_30d      FLOAT,
+  base_return_30d      FLOAT,
+  bear_return_30d      FLOAT,
+  recommendation       VARCHAR(20),
+  r_squared            FLOAT,
+  trend_direction      VARCHAR(20),
+  accuracy_json        TEXT,
+  created_at           TIMESTAMPTZ  DEFAULT NOW(),
+  UNIQUE(run_date, rank)
+);
+CREATE INDEX IF NOT EXISTS idx_prophet_rec_date ON prophet_recommendations(run_date);
+ALTER TABLE prophet_recommendations DISABLE ROW LEVEL SECURITY;

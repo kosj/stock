@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createBrokerProvider } from "@/lib/server/providers";
 import type { BrokerType, BrokerCredentials } from "@/lib/server/providers";
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+export const dynamic     = "force-dynamic";
+export const maxDuration = 20;
 
 export async function POST(
   request: NextRequest,

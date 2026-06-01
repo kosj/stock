@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import YahooFinance from "yahoo-finance2";
+import { supabase } from "@/lib/server/supabase";
 
 // v3.x: 반드시 new YahooFinance()로 인스턴스 생성 (v2의 default export 직접 사용 불가)
 const yf = new (YahooFinance as any)({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
@@ -27,20 +28,80 @@ export function toYahooTicker(ticker: string): string {
   return ticker.toUpperCase();
 }
 
-// ── 메모리 캐시 ───────────────────────────────────────────────────────────────
+// ── L1(메모리) + L2(Supabase) 2단 캐시 ─────────────────────────────────────
+// L1: cold start 이후 같은 인스턴스 내 재사용 (서버리스 재시작 시 소멸)
+// L2: Supabase quote_cache 테이블 — 인스턴스 재시작 후에도 캐시 유지
+//
+// TTL 전략:
+//   QUOTE(1분): 빠른 갱신 필요 → L1만 사용 (DB 왕복 비용 > 캐시 효과)
+//   CHART(5분) / SEARCH(10분): L1+L2 병행
+//   FINANCIALS(1시간): L2 우선 (cold start 이후 재사용 효과 큼)
 
-const _cache = new Map<string, { data: unknown; exp: number }>();
+const _l1 = new Map<string, { data: unknown; exp: number }>();
 
-function cacheGet<T>(key: string): T | null {
-  const e = _cache.get(key);
+const TTL = { QUOTE: 60_000, CHART: 300_000, FINANCIALS: 3_600_000, SEARCH: 600_000, CALENDAR: 3_600_000 };
+
+// L2 사용 여부: QUOTE는 TTL이 짧아 DB 왕복이 오히려 느림
+const L2_KEYS = new Set(["chart:", "financials:", "search:"]);
+
+function l1Get<T>(key: string): T | null {
+  const e = _l1.get(key);
   if (!e || Date.now() > e.exp) return null;
   return e.data as T;
 }
-function cacheSet<T>(key: string, data: T, ttlMs: number) {
-  _cache.set(key, { data, exp: Date.now() + ttlMs });
+function l1Set<T>(key: string, data: T, ttlMs: number) {
+  _l1.set(key, { data, exp: Date.now() + ttlMs });
 }
 
-const TTL = { QUOTE: 60_000, CHART: 300_000, FINANCIALS: 3_600_000, SEARCH: 600_000, CALENDAR: 3_600_000 };
+async function l2Get<T>(key: string): Promise<T | null> {
+  try {
+    const { data } = await supabase
+      .from("quote_cache")
+      .select("data, expires_at")
+      .eq("key", key)
+      .single();
+    if (!data) return null;
+    if (new Date(data.expires_at) <= new Date()) return null;
+    return data.data as T;
+  } catch {
+    return null;
+  }
+}
+
+async function l2Set<T>(key: string, value: T, ttlMs: number): Promise<void> {
+  try {
+    const expires_at = new Date(Date.now() + ttlMs).toISOString();
+    await supabase.from("quote_cache").upsert({ key, data: value, expires_at });
+  } catch { /* 캐시 쓰기 실패는 무시 — 기능에는 영향 없음 */ }
+}
+
+function usesL2(key: string): boolean {
+  return [...L2_KEYS].some((prefix) => key.startsWith(prefix));
+}
+
+async function cacheGet<T>(key: string): Promise<T | null> {
+  // L1 hit
+  const l1 = l1Get<T>(key);
+  if (l1 !== null) return l1;
+
+  // L2 hit (QUOTE는 L2 스킵)
+  if (usesL2(key)) {
+    const l2 = await l2Get<T>(key);
+    if (l2 !== null) {
+      // L2 → L1 워밍업
+      l1Set(key, l2, TTL.CHART);
+      return l2;
+    }
+  }
+  return null;
+}
+
+async function cacheSet<T>(key: string, data: T, ttlMs: number): Promise<void> {
+  l1Set(key, data, ttlMs);
+  if (usesL2(key)) {
+    await l2Set(key, data, ttlMs);
+  }
+}
 
 // ── 네이버 파이낸스 국내 지수 조회 ───────────────────────────────────────────
 
@@ -243,7 +304,7 @@ export interface QuoteData {
 export async function getQuote(ticker: string): Promise<QuoteData | null> {
   const yt = toYahooTicker(ticker);
   const key = `quote:${yt}`;
-  const hit = cacheGet<QuoteData>(key);
+  const hit = await cacheGet<QuoteData>(key);
   if (hit) return hit;
 
   async function tryQuote(symbol: string): Promise<any> {
@@ -273,7 +334,7 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
       timestamp:   new Date().toISOString(),
       market_cap:  q.marketCap ?? null,
     };
-    cacheSet(key, data, TTL.QUOTE);
+    await cacheSet(key, data, TTL.QUOTE);
     return data;
   }
 
@@ -281,7 +342,7 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
   const direct = await getQuoteDirect(yt);
   if (direct) {
     direct.ticker = ticker;
-    cacheSet(key, direct, TTL.QUOTE);
+    await cacheSet(key, direct, TTL.QUOTE);
     return direct;
   }
 
@@ -289,12 +350,12 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
   if (KR_CODE.test(ticker)) {
     const naverPolling = await getQuoteFromNaverPolling(ticker);
     if (naverPolling) {
-      cacheSet(key, naverPolling, TTL.QUOTE);
+      await cacheSet(key, naverPolling, TTL.QUOTE);
       return naverPolling;
     }
     const naver = await getQuoteFromNaver(ticker);
     if (naver) {
-      cacheSet(key, naver, TTL.QUOTE);
+      await cacheSet(key, naver, TTL.QUOTE);
       return naver;
     }
   }
@@ -321,7 +382,7 @@ const PERIOD_DAYS: Record<string, number> = {
 export async function getChart(ticker: string, period = "1y"): Promise<CandleData[]> {
   const yt = toYahooTicker(ticker);
   const key = `chart:${yt}:${period}`;
-  const hit = cacheGet<CandleData[]>(key);
+  const hit = await cacheGet<CandleData[]>(key);
   if (hit) return hit;
 
   const days = PERIOD_DAYS[period] ?? 365;
@@ -348,7 +409,7 @@ export async function getChart(ticker: string, period = "1y"): Promise<CandleDat
     close:  r.close,
     volume: r.volume ?? 0,
   }));
-  cacheSet(key, data, TTL.CHART);
+  await cacheSet(key, data, TTL.CHART);
   return data;
 }
 
@@ -388,7 +449,7 @@ export interface FinancialsData {
 export async function getFinancials(ticker: string): Promise<FinancialsData> {
   const yt = toYahooTicker(ticker);
   const key = `financials:${yt}`;
-  const hit = cacheGet<FinancialsData>(key);
+  const hit = await cacheGet<FinancialsData>(key);
   if (hit) return hit;
 
   const empty: FinancialsData = {
@@ -459,7 +520,7 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
       ex_dividend_date:   toDateStr(ce.exDividendDate),
       dividend_date:      toDateStr(ce.dividendDate),
     };
-    cacheSet(key, data, TTL.FINANCIALS);
+    await cacheSet(key, data, TTL.FINANCIALS);
     return data;
   } catch (e) {
     console.error(`[Yahoo] financials error [${yt}]:`, e);
@@ -522,7 +583,7 @@ function parseYahooQuotes(quotes: any[]): SearchResult[] {
 export async function searchStocks(query: string): Promise<SearchResult[]> {
   const q = query.trim();
   const key = `search:${q}`;
-  const hit = cacheGet<SearchResult[]>(key);
+  const hit = await cacheGet<SearchResult[]>(key);
   if (hit) return hit;
 
   // 6자리 한국 종목 코드 → 직접 시세 조회로 폴백
@@ -530,7 +591,7 @@ export async function searchStocks(query: string): Promise<SearchResult[]> {
     const quote = await getQuote(q);
     if (quote) {
       const results: SearchResult[] = [{ ticker: q, name: quote.name ?? q, market: "KSE", sector: "" }];
-      cacheSet(key, results, TTL.SEARCH);
+      await cacheSet(key, results, TTL.SEARCH);
       return results;
     }
     return [];
@@ -552,7 +613,7 @@ export async function searchStocks(query: string): Promise<SearchResult[]> {
         const data = await res.json();
         const results = parseYahooQuotes(data.quotes ?? []);
         if (results.length > 0) {
-          cacheSet(key, results, TTL.SEARCH);
+          await cacheSet(key, results, TTL.SEARCH);
           return results;
         }
       }
