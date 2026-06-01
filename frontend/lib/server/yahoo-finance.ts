@@ -446,6 +446,28 @@ export interface FinancialsData {
   dividend_date: string | null;
 }
 
+// ── 한국어 사업내용 — Yahoo Finance v11 ko-KR 로케일 ────────────────────────
+// Yahoo Finance는 6자리 한국 종목에 대해 ko-KR 로케일로 요청하면 한국어 사업설명을 반환
+async function getKoreanBusinessSummary(yahooSymbol: string): Promise<string | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v11/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}` +
+                `?modules=assetProfile&lang=ko-KR&region=KR`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; stock-dashboard/1.0)" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const text: unknown = json?.quoteSummary?.result?.[0]?.assetProfile?.longBusinessSummary;
+    if (typeof text !== "string" || text.length < 10) return null;
+    // 반환된 텍스트가 영문이면 무시 (ko-KR 로케일에서도 영문이 오는 경우 존재)
+    const hasKorean = /[가-힣]/.test(text);
+    return hasKorean ? text.slice(0, 800) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getFinancials(ticker: string): Promise<FinancialsData> {
   const yt = toYahooTicker(ticker);
   const key = `financials:${yt}`;
@@ -491,7 +513,7 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
     };
     const pct = (v: unknown) => { const x = n(v); return x != null ? x * 100 : null; };
 
-    const data: FinancialsData = {
+    let data: FinancialsData = {
       ticker,
       name:             ap.name ?? null,
       sector:           ap.sector ?? null,
@@ -515,11 +537,17 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
       week_52_high:     n(sd.fiftyTwoWeekHigh),
       week_52_low:      n(sd.fiftyTwoWeekLow),
       employees:        ap.fullTimeEmployees ?? null,
-      summary:          (ap.longBusinessSummary as string | undefined)?.slice(0, 600) ?? null,
+      summary:          (ap.longBusinessSummary as string | undefined)?.slice(0, 800) ?? null,
       next_earnings_date: toDateStr(ce.earnings?.earningsDate),
       ex_dividend_date:   toDateStr(ce.exDividendDate),
       dividend_date:      toDateStr(ce.dividendDate),
     };
+    // 한국 종목은 ko-KR 로케일로 한국어 사업내용 재시도
+    if (KR_CODE.test(ticker) && (!data.summary || !/[가-힣]/.test(data.summary))) {
+      const korSummary = await getKoreanBusinessSummary(yt);
+      if (korSummary) data = { ...data, summary: korSummary };
+    }
+
     await cacheSet(key, data, TTL.FINANCIALS);
     return data;
   } catch (e) {

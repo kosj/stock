@@ -1,6 +1,28 @@
 "use client";
 
-import { ExternalLink, Phone, MapPin, Calendar, Users, Building2, TrendingUp } from "lucide-react";
+import { useState } from "react";
+import { ExternalLink, Phone, MapPin, Calendar, Users, Building2, TrendingUp, ChevronDown, ChevronUp } from "lucide-react";
+
+function SummarySection({ summary }: { summary: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = summary.length > 200;
+  return (
+    <div className="border-t pt-3" style={{ borderColor: "var(--border)" }}>
+      <div className="text-xs text-muted-foreground mb-1.5 font-medium">사업 내용</div>
+      <p className={`text-sm text-muted-foreground leading-relaxed ${!expanded && isLong ? "line-clamp-4" : ""}`}>
+        {summary}
+      </p>
+      {isLong && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1.5 flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+        >
+          {expanded ? <><ChevronUp size={12} /> 접기</> : <><ChevronDown size={12} /> 더 보기</>}
+        </button>
+      )}
+    </div>
+  );
+}
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatNumber } from "@/lib/utils";
 import type { DartCompanyInfo } from "@/lib/server/dart";
@@ -178,12 +200,7 @@ export function CompanyOverviewCard({ ticker, dart, financials, loading }: Props
 
         {/* 사업 내용 */}
         {summary && (
-          <div className="border-t pt-3" style={{ borderColor: "var(--border)" }}>
-            <div className="text-xs text-muted-foreground mb-1.5 font-medium">사업 내용</div>
-            <p className="text-sm text-muted-foreground leading-relaxed line-clamp-5">
-              {summary}
-            </p>
-          </div>
+          <SummarySection summary={summary} />
         )}
 
         {!hasDart && !financials && (
