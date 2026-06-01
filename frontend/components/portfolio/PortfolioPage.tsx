@@ -23,6 +23,16 @@ import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 import type { StopLossResult } from "@/lib/server/stop-loss-signal";
 import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
 
+// summary 캐시에서 positions 변경 후 합계 재계산 (Yahoo 재조회 없이 로컬 계산)
+function recalcTotals(cur: any): any {
+  const positions: any[] = cur.positions ?? [];
+  const total_invested = positions.reduce((s: number, p: any) => s + (p.cost_basis  ?? p.avg_price    * p.quantity), 0);
+  const total_value    = positions.reduce((s: number, p: any) => s + (p.total_value ?? p.current_price * p.quantity), 0);
+  const total_pnl         = total_value - total_invested;
+  const total_pnl_percent = total_invested > 0 ? (total_pnl / total_invested) * 100 : 0;
+  return { ...cur, total_invested, total_value, total_pnl, total_pnl_percent };
+}
+
 export function PortfolioPage() {
   const { data: portfolios, mutate: mutatePortfolios } = useSWR("portfolios", () => api.portfolio.list());
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -336,22 +346,14 @@ export function PortfolioPage() {
     if (!confirm("종목을 삭제하시겠습니까?")) return;
     try {
       await api.portfolio.deletePosition(posId);
-      // optimistic update: 목록에서 즉시 제거 후 서버 재검증
-      await mutateSummary(
-        (cur: any) =>
-          cur
-            ? {
-                ...cur,
-                positions: (cur.positions ?? []).filter(
-                  (p: any) => p.position_id !== posId,
-                ),
-              }
-            : cur,
+      // 삭제된 종목 제거 + 합계 로컬 재계산 — Yahoo 재조회 없음
+      mutateSummary(
+        (cur: any) => cur ? recalcTotals({ ...cur, positions: (cur.positions ?? []).filter((p: any) => p.position_id !== posId) }) : cur,
         { revalidate: false },
       );
       toast.success("종목 삭제 완료");
     } catch (err: any) {
-      await mutateSummary(); // 실패 시 서버 상태로 복원
+      await mutateSummary();
       toast.error(err.message ?? "삭제 실패");
     }
   }
@@ -720,44 +722,74 @@ export function PortfolioPage() {
           initial={editPosition}
           onClose={() => { setShowAddPos(false); setEditPosition(null); }}
           onSaved={(data) => {
-            // 1. 모달 즉시 닫기
             setShowAddPos(false);
             setEditPosition(null);
 
-            // 2. 낙관적 업데이트: 서버 응답 없이 즉시 캐시 반영
-            const snapshot = mutateSummary as any; // 롤백용
+            const tempId = -Date.now(); // 추가 시 임시 ID (클로저 캡처)
+
+            // 낙관적 업데이트: 즉시 캐시 반영
             mutateSummary((cur: any) => {
               if (!cur) return cur;
               if (data.position_id) {
-                return {
-                  ...cur,
-                  positions: (cur.positions ?? []).map((p: any) =>
-                    p.position_id === data.position_id ? { ...p, ...data } : p,
-                  ),
-                };
+                // 수정: 해당 포지션만 갱신 + 합계 재계산
+                const positions = (cur.positions ?? []).map((p: any) =>
+                  p.position_id === data.position_id ? { ...p, ...data } : p,
+                );
+                return recalcTotals({ ...cur, positions });
               }
+              // 추가: 임시 포지션 삽입 + 합계 재계산
               const optimistic = {
-                position_id: -Date.now(),
+                position_id: tempId,
                 current_price: data.avg_price,
+                cost_basis: data.avg_price * data.quantity,
+                total_value: data.avg_price * data.quantity,
+                pnl_amount: 0,
+                pnl_percent: 0,
                 is_near_stop: false,
                 is_near_target: false,
                 price_available: false,
                 ...data,
               };
-              return { ...cur, positions: [...(cur.positions ?? []), optimistic] };
+              return recalcTotals({ ...cur, positions: [...(cur.positions ?? []), optimistic] });
             }, { revalidate: false });
 
-            // 3. 백그라운드 API 호출 (모달 닫힌 후 처리)
             (async () => {
               try {
                 if (data.position_id) {
+                  // 수정: 서버 저장만, Yahoo 재조회 없음
                   await api.portfolio.updatePosition(data.position_id, data);
                   toast.success("종목 수정 완료");
                 } else {
-                  await api.portfolio.addPosition(portfolioId, data);
+                  // 추가: 서버 저장 + 신규 종목 시세만 조회 (기존 종목 재조회 없음)
+                  const [savedPos, quote] = await Promise.all([
+                    api.portfolio.addPosition(portfolioId, data) as Promise<any>,
+                    api.market.quote(data.ticker).catch(() => null) as Promise<any>,
+                  ]);
                   toast.success("종목 추가 완료");
+
+                  const realId   = savedPos?.id ?? tempId;
+                  const price    = quote?.price ?? data.avg_price;
+                  const hasPrice = !!quote?.price;
+
+                  // 임시 ID → 실제 ID + 실제 시세 반영 + 합계 재계산
+                  mutateSummary((cur: any) => {
+                    if (!cur) return cur;
+                    const positions = (cur.positions ?? []).map((p: any) =>
+                      p.position_id === tempId
+                        ? {
+                            ...p,
+                            position_id:     realId,
+                            current_price:   price,
+                            price_available: hasPrice,
+                            total_value:     price * p.quantity,
+                            pnl_amount:      Math.round((price - p.avg_price) * p.quantity),
+                            pnl_percent:     p.avg_price ? Math.round(((price - p.avg_price) / p.avg_price) * 10000) / 100 : 0,
+                          }
+                        : p,
+                    );
+                    return recalcTotals({ ...cur, positions });
+                  }, { revalidate: false });
                 }
-                mutateSummary(); // 실제 시세로 백그라운드 갱신
               } catch (err: any) {
                 toast.error(err.message ?? "저장 실패 — 다시 시도해주세요");
                 mutateSummary(); // 실패 시 서버 상태로 복원

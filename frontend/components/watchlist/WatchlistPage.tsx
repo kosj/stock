@@ -114,31 +114,25 @@ export function WatchlistPage() {
     setSearchQuery("");
     setSearchResults([]);
 
-    // 낙관적 업데이트: API 응답 전에 즉시 목록에 추가
+    // 낙관적 업데이트: 즉시 목록에 추가 (quote는 로딩 중 표시)
     const tempId = -Date.now();
-    const optimistic: WatchlistItem & { quote: QuoteData | null } = {
-      id: tempId,
-      ticker: result.ticker,
-      name: result.name,
-      sector: result.sector || "",
-      added_at: new Date().toISOString(),
-      quote: null,
-    };
-    mutate((cur) => [...(cur ?? []), optimistic], { revalidate: false });
+    mutate(
+      (cur) => [...(cur ?? []), { id: tempId, ticker: result.ticker, name: result.name, sector: result.sector || "", added_at: new Date().toISOString(), quote: null }],
+      { revalidate: false },
+    );
 
     try {
-      const added = await api.portfolio.addWatchlist({
-        ticker: result.ticker,
-        name: result.name,
-        sector: result.sector || "",
-      }) as WatchlistItem;
-      // 실제 서버 ID로만 교체 — 전체 시세 재조회 없이 캐시 유지
+      // 서버 저장 + 신규 종목 시세 조회 병렬 실행 — 기존 종목 시세 재조회 없음
+      const [added, quote] = await Promise.all([
+        api.portfolio.addWatchlist({ ticker: result.ticker, name: result.name, sector: result.sector || "" }) as Promise<WatchlistItem>,
+        api.market.quote(result.ticker).catch(() => null) as Promise<QuoteData | null>,
+      ]);
+      // 실제 ID + 시세를 한 번에 반영
       mutate(
-        (cur) => (cur ?? []).map((i) => i.id === tempId ? { ...i, id: added.id } : i),
+        (cur) => (cur ?? []).map((i) => i.id === tempId ? { ...i, id: added.id, quote } : i),
         { revalidate: false },
       );
     } catch (e) {
-      // 실패 시 낙관적 항목 제거
       mutate((cur) => (cur ?? []).filter((i) => i.id !== tempId), { revalidate: false });
       alert(`추가 실패: ${e instanceof Error ? e.message : "오류 발생"}`);
     } finally {
@@ -156,7 +150,7 @@ export function WatchlistPage() {
 
     try {
       await api.portfolio.removeWatchlist(id);
-      mutate(); // 백그라운드 재검증
+      // 낙관적 삭제가 이미 올바른 상태 — 전체 재조회 불필요
     } catch (e) {
       // 실패 시 원래 목록 복원
       mutate(snapshot, { revalidate: false });

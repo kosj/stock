@@ -175,6 +175,44 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- position 수정 (portfolio 소유권 검증 + UPDATE 단일 왕복)
+-- 현재 PUT: SELECT(소유권) → UPDATE = 2 왕복 → 1 왕복으로 단축
+CREATE OR REPLACE FUNCTION update_position_owned(
+  p_position_id BIGINT,
+  p_user_id     UUID,
+  p_ticker      VARCHAR,
+  p_name        VARCHAR,
+  p_quantity    INTEGER,
+  p_avg_price   FLOAT,
+  p_stop_loss   FLOAT    DEFAULT NULL,
+  p_take_profit FLOAT    DEFAULT NULL,
+  p_strategy    TEXT     DEFAULT NULL,
+  p_notes       TEXT     DEFAULT NULL
+) RETURNS SETOF positions AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM positions p
+    JOIN portfolios pf ON p.portfolio_id = pf.id
+    WHERE p.id = p_position_id AND pf.user_id = p_user_id
+  ) THEN
+    RAISE EXCEPTION 'permission_denied';
+  END IF;
+  RETURN QUERY
+  UPDATE positions SET
+    ticker      = p_ticker,
+    name        = p_name,
+    quantity    = p_quantity,
+    avg_price   = p_avg_price,
+    stop_loss   = p_stop_loss,
+    take_profit = p_take_profit,
+    strategy    = p_strategy,
+    notes       = p_notes,
+    updated_at  = NOW()
+  WHERE id = p_position_id
+  RETURNING *;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- ============================================================
 -- RLS 비활성화 (개인 프로젝트 — 서버사이드 API Route만 접근)
 -- ============================================================
