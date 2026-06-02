@@ -245,7 +245,9 @@ export function ProphetRecommendations() {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2 flex-wrap">
-          <CardTitle>Prophet 주간 추천 TOP 10</CardTitle>
+          <CardTitle>
+            Prophet 추천 종목{hasData ? ` TOP ${rows.length}` : ""}
+          </CardTitle>
           {runDate && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Calendar size={11} />
@@ -270,7 +272,7 @@ export function ProphetRecommendations() {
       {!isLoading && !hasData && (
         <div className="px-4 pb-10 text-center text-sm text-muted-foreground">
           아직 분석 결과가 없습니다.<br />
-          <span className="text-xs opacity-60">매주 금요일 15:30 KST 자동 업데이트</span>
+          <span className="text-xs opacity-60">매일 오후 4:00 KST 자동 업데이트</span>
         </div>
       )}
 
@@ -389,7 +391,7 @@ export function ProphetRecommendations() {
       )}
 
       <div className="px-4 py-2 text-xs text-muted-foreground/40 border-t" style={{ borderColor: "var(--border)" }}>
-        시총 5000억 이상 · Prophet 통계 예측 기반 — 투자 손익 보장 불가 · 매주 금요일 15:30 KST 자동 갱신
+        시총 5000억 이상 · Prophet 통계 예측 기반 — 투자 손익 보장 불가 · 매일 오후 4:00 KST 자동 갱신
       </div>
     </Card>
   );

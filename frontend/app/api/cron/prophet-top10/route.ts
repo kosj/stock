@@ -1,7 +1,7 @@
 /**
  * POST /api/cron/prophet-top10
  *
- * 매주 금요일 GitHub Actions에서 호출.
+ * 매일 오후 4:00 KST (07:00 UTC) GitHub Actions에서 호출.
  * 1. 시총 5000억 미만 종목 사전 제거 (getQuote.market_cap 기준)
  * 2. 통과 종목에 Prophet 예측 실행
  * 3. base_return_30d 상위 30종목을 Supabase에 저장
