@@ -55,13 +55,16 @@ export function PortfolioPage() {
   const [autoSyncing, setAutoSyncing] = useState(false);
   const autoSyncedRef = useRef(false); // 자동 동기화는 세션당 1회만
 
-  // DB 기반 브로커 설정 확인 (localStorage 대신 서버 API)
-  const { data: brokerSettingsData } = useSWR<{ configured: string[] }>(
+  // DB 기반 브로커 설정 확인
+  // ※ BrokerSettingsPage와 동일한 fetcher + 동일한 반환 형식(string[])으로 SWR 캐시 공유
+  const { data: configuredBrokers } = useSWR<string[]>(
     "broker-settings-configured",
-    () => fetch("/api/settings/broker").then((r) => r.json()),
+    () => fetch("/api/settings/broker")
+      .then((r) => r.ok ? r.json() : { configured: [] })
+      .then((d: { configured?: string[] }) => d.configured ?? []),
     { revalidateOnFocus: false },
   );
-  const hasBrokerConfig = (brokerSettingsData?.configured?.length ?? 0) > 0;
+  const hasBrokerConfig = (configuredBrokers?.length ?? 0) > 0;
 
   // 실시간 시세용 크레덴셜은 localStorage에서 유지 (기존 호환)
   useEffect(() => {
