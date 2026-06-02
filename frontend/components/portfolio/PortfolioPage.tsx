@@ -199,10 +199,11 @@ export function PortfolioPage() {
   );
 
   // 포트폴리오 변경 시 요약 데이터 재갱신
+  // ※ autoSyncedRef는 여기서 초기화하지 않음 — 포트폴리오를 바꿀 때마다 자동동기화가
+  //   재실행되면 새 포트폴리오에 기존 KIS 보유종목 전체가 복사되는 버그 발생
   useEffect(() => {
     if (portfolioId) {
       mutateSummary();
-      autoSyncedRef.current = false; // 포트폴리오 전환 시 자동동기화 재허용
     }
   }, [portfolioId, mutateSummary]);
 
@@ -289,6 +290,7 @@ export function PortfolioPage() {
   // ── 포트폴리오 탭 선택 ──────────────────────────────────────────────────
   function handleSelectPortfolio(id: number) {
     if (editingPortfolioId) return; // 이름 편집 중엔 탭 전환 무시
+    if (showAddPos || editPosition) return; // 종목 추가/수정 모달 중엔 탭 전환 차단
     setSelectedId(id);
   }
 
