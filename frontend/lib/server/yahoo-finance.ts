@@ -42,7 +42,17 @@ const _l1 = new Map<string, { data: unknown; exp: number }>();
 const TTL = { QUOTE: 60_000, CHART: 300_000, FINANCIALS: 3_600_000, SEARCH: 600_000, CALENDAR: 3_600_000 };
 
 // L2 사용 여부: QUOTE는 TTL이 짧아 DB 왕복이 오히려 느림
-const L2_KEYS = new Set(["chart:", "financials:", "search:"]);
+const L2_KEYS = new Set(["chart:", "financials:", "financials-v2:", "search:"]);
+
+// L2→L1 워밍업 시 키 접두사에 맞는 TTL 반환
+const L2_TTL_MAP: Record<string, number> = {
+  "chart:":      TTL.CHART,
+  "financials:": TTL.FINANCIALS,
+  "search:":     TTL.SEARCH,
+};
+function l2Ttl(key: string): number {
+  return Object.entries(L2_TTL_MAP).find(([p]) => key.startsWith(p))?.[1] ?? TTL.CHART;
+}
 
 function l1Get<T>(key: string): T | null {
   const e = _l1.get(key);
@@ -88,8 +98,8 @@ async function cacheGet<T>(key: string): Promise<T | null> {
   if (usesL2(key)) {
     const l2 = await l2Get<T>(key);
     if (l2 !== null) {
-      // L2 → L1 워밍업
-      l1Set(key, l2, TTL.CHART);
+      // L2 → L1 워밍업 (키 타입에 맞는 TTL 적용)
+      l1Set(key, l2, l2Ttl(key));
       return l2;
     }
   }
@@ -99,7 +109,7 @@ async function cacheGet<T>(key: string): Promise<T | null> {
 async function cacheSet<T>(key: string, data: T, ttlMs: number): Promise<void> {
   l1Set(key, data, ttlMs);
   if (usesL2(key)) {
-    await l2Set(key, data, ttlMs);
+    void l2Set(key, data, ttlMs); // 응답 차단 없이 백그라운드 기록
   }
 }
 
@@ -446,31 +456,81 @@ export interface FinancialsData {
   dividend_date: string | null;
 }
 
-// ── 한국어 사업내용 — Yahoo Finance v11 ko-KR 로케일 ────────────────────────
-// Yahoo Finance는 6자리 한국 종목에 대해 ko-KR 로케일로 요청하면 한국어 사업설명을 반환
-async function getKoreanBusinessSummary(yahooSymbol: string): Promise<string | null> {
+// ── 한국어 사업내용 — 다단계 폴백 ────────────────────────────────────────────
+// 1단계: Yahoo Finance v10/v11 ko-KR 로케일 (.KS / .KQ 각각 시도)
+// 2단계: Naver Finance 회사 개요 API
+// Vercel IP 차단 대비 다중 소스 시도
+
+const KR_BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+async function fetchYahooKoreanSummary(sym: string): Promise<string | null> {
+  for (const ver of ["v10", "v11"] as const) {
+    try {
+      const url =
+        `https://query1.finance.yahoo.com/${ver}/finance/quoteSummary/${encodeURIComponent(sym)}` +
+        `?modules=assetProfile&lang=ko-KR&region=KR`;
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent":      KR_BROWSER_UA,
+          "Accept":          "application/json",
+          "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+          "Referer":         "https://finance.yahoo.com/",
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) continue;
+      const json = await res.json();
+      const text: unknown = json?.quoteSummary?.result?.[0]?.assetProfile?.longBusinessSummary;
+      if (typeof text === "string" && text.length >= 10 && /[가-힣]/.test(text)) {
+        return text.slice(0, 800);
+      }
+    } catch { /* 다음 시도 */ }
+  }
+  return null;
+}
+
+async function fetchNaverKoreanSummary(ticker6: string): Promise<string | null> {
   try {
-    const url = `https://query1.finance.yahoo.com/v11/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}` +
-                `?modules=assetProfile&lang=ko-KR&region=KR`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; stock-dashboard/1.0)" },
-      signal: AbortSignal.timeout(5000),
-    });
+    const res = await fetch(
+      `https://m.stock.naver.com/api/stock/${ticker6}/summary`,
+      {
+        headers: {
+          "User-Agent": KR_BROWSER_UA,
+          "Referer":    "https://m.stock.naver.com/",
+        },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
     if (!res.ok) return null;
     const json = await res.json();
-    const text: unknown = json?.quoteSummary?.result?.[0]?.assetProfile?.longBusinessSummary;
-    if (typeof text !== "string" || text.length < 10) return null;
-    // 반환된 텍스트가 영문이면 무시 (ko-KR 로케일에서도 영문이 오는 경우 존재)
-    const hasKorean = /[가-힣]/.test(text);
-    return hasKorean ? text.slice(0, 800) : null;
-  } catch {
-    return null;
+    // 응답 필드 이름은 버전마다 다를 수 있어 여러 필드 확인
+    const text =
+      (json?.summary         as string | undefined) ??
+      (json?.companySummary  as string | undefined) ??
+      (json?.description     as string | undefined) ??
+      null;
+    if (typeof text === "string" && text.length >= 10 && /[가-힣]/.test(text)) {
+      return text.slice(0, 800);
+    }
+  } catch { /* 무시 */ }
+  return null;
+}
+
+// 6자리 한국 종목코드를 받아 한국어 사업내용 반환
+// .KS / .KQ 모두 시도 → Yahoo 실패 시 Naver 폴백
+async function getKoreanBusinessSummary(ticker6: string): Promise<string | null> {
+  for (const suffix of [".KS", ".KQ"]) {
+    const r = await fetchYahooKoreanSummary(`${ticker6}${suffix}`);
+    if (r) return r;
   }
+  return fetchNaverKoreanSummary(ticker6);
 }
 
 export async function getFinancials(ticker: string): Promise<FinancialsData> {
-  const yt = toYahooTicker(ticker);
-  const key = `financials:${yt}`;
+  const yt  = toYahooTicker(ticker);
+  // v2: 캐시 키 버전 올림 → 기존 영문 캐시 자동 무효화
+  const key = `financials-v2:${yt}`;
   const hit = await cacheGet<FinancialsData>(key);
   if (hit) return hit;
 
@@ -486,9 +546,15 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
   };
 
   try {
-    const s = await yf.quoteSummary(yt, {
+    // KOSDAQ 종목은 .KS 실패 시 .KQ로 재시도
+    let s = await yf.quoteSummary(yt, {
       modules: ["summaryDetail", "defaultKeyStatistics", "financialData", "assetProfile", "calendarEvents"],
-    });
+    }).catch(() => null);
+    if (!s && KR_CODE.test(ticker)) {
+      s = await yf.quoteSummary(`${ticker}.KQ`, {
+        modules: ["summaryDetail", "defaultKeyStatistics", "financialData", "assetProfile", "calendarEvents"],
+      }).catch(() => null);
+    }
     if (!s) return empty;
 
     const sd = s.summaryDetail ?? {};
@@ -542,9 +608,9 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
       ex_dividend_date:   toDateStr(ce.exDividendDate),
       dividend_date:      toDateStr(ce.dividendDate),
     };
-    // 한국 종목은 ko-KR 로케일로 한국어 사업내용 재시도
+    // 한국 종목 — 사업내용이 없거나 영문이면 한국어로 대체 시도
     if (KR_CODE.test(ticker) && (!data.summary || !/[가-힣]/.test(data.summary))) {
-      const korSummary = await getKoreanBusinessSummary(yt);
+      const korSummary = await getKoreanBusinessSummary(ticker); // 6자리 코드 전달
       if (korSummary) data = { ...data, summary: korSummary };
     }
 
