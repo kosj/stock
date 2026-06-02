@@ -75,11 +75,11 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     try { broker = createBrokerProvider(brokerType, { appKey, appSecret }); } catch {}
   }
 
-  // 모든 종목 시세 조회 — 5개씩 배치 처리 (Yahoo IP 차단 방지)
+  // 모든 종목 시세 병렬 조회 — 10개씩 배치 (개인 대시보드 기준 충분, Naver 폴백으로 Yahoo 차단 대응)
   async function batchAllSettled<T, R>(
     items: T[],
     fn: (item: T) => Promise<R>,
-    size = 5,
+    size = 10,
   ): Promise<PromiseSettledResult<R>[]> {
     const results: PromiseSettledResult<R>[] = [];
     for (let i = 0; i < items.length; i += size) {
@@ -92,7 +92,6 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const quotes = await batchAllSettled(
     positions,
     (p) => fetchQuoteWithFallback(p.ticker, broker),
-    5,
   );
 
   let total_invested = 0;

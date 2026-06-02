@@ -1,6 +1,6 @@
-"""
-섹터 분석 및 로테이션 서비스.
-KODEX ETF 가격 데이터 기반으로 섹터 성과 추적.
+﻿"""
+・ｹ奓ｰ ・・・ ・・・懦・・ｴ・・・罹ｹ・侃.
+KODEX ETF ・・ｩ ・ｰ・ｴ奓ｰ ・ｰ・們愍・・・ｹ奓ｰ ・ｱ・ｼ ・肥・
 """
 from __future__ import annotations
 
@@ -11,72 +11,72 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# KODEX/TIGER ETF 기반 섹터 매핑 (섹터 대표 ETF)
+# KODEX/TIGER ETF ・ｰ・・・ｹ奓ｰ ・､﨑・(・ｹ奓ｰ ・岺・ETF)
 SECTOR_ETFS = [
-    {"sector": "반도체",      "ticker": "091160", "name": "KODEX 반도체"},
-    {"sector": "2차전지",     "ticker": "305720", "name": "KODEX 2차전지산업"},
-    {"sector": "바이오",      "ticker": "244580", "name": "KODEX 바이오"},
-    {"sector": "인터넷/IT",   "ticker": "139260", "name": "KODEX 인터넷"},
-    {"sector": "자동차",      "ticker": "091180", "name": "KODEX 자동차"},
-    {"sector": "금융",        "ticker": "139270", "name": "KODEX 은행"},
-    {"sector": "에너지",      "ticker": "117460", "name": "KODEX 에너지화학"},
-    {"sector": "건설",        "ticker": "139220", "name": "KODEX 건설"},
-    {"sector": "철강/소재",   "ticker": "139230", "name": "KODEX 철강"},
-    {"sector": "AI/로봇",     "ticker": "364980", "name": "KODEX K-로봇액티브"},
+    {"sector": "・俯巡・ｴ",      "ticker": "091160", "name": "KODEX ・俯巡・ｴ"},
+    {"sector": "2・ｨ・・ｧ",     "ticker": "305720", "name": "KODEX 2・ｨ・・ｧ・ｰ・・},
+    {"sector": "・肥擽・､",      "ticker": "244580", "name": "KODEX ・肥擽・､"},
+    {"sector": "・ｸ奓ｰ・ｷ/IT",   "ticker": "139260", "name": "KODEX ・ｸ奓ｰ・ｷ"},
+    {"sector": "・尖徐・ｨ",      "ticker": "091180", "name": "KODEX ・尖徐・ｨ"},
+    {"sector": "・溢愀",        "ticker": "139270", "name": "KODEX ・嵂・},
+    {"sector": "・尖ц・",      "ticker": "117460", "name": "KODEX ・尖ц・嶹被蕗"},
+    {"sector": "・ｴ・､",        "ticker": "139220", "name": "KODEX ・ｴ・､"},
+    {"sector": "・・・・護椪",   "ticker": "139230", "name": "KODEX ・・・},
+    {"sector": "AI/・罹ｴ・,     "ticker": "364980", "name": "KODEX K-・罹ｴ・複寀ｰ・・},
 ]
 
 
-# 섹터별 관련 ETF 목록 (ETF 랭킹 기능용)
+# ・ｹ奓ｰ・・・・ｨ ETF ・ｩ・・(ETF ・ｭ墲ｹ ・ｰ・･・ｩ)
 SECTOR_ETF_MAP: dict[str, list[dict]] = {
-    "반도체": [
-        {"ticker": "091160", "name": "KODEX 반도체"},
-        {"ticker": "091230", "name": "TIGER 반도체"},
-        {"ticker": "091170", "name": "KBSTAR 반도체"},
-        {"ticker": "396510", "name": "SOL 반도체소부장"},
+    "・俯巡・ｴ": [
+        {"ticker": "091160", "name": "KODEX ・俯巡・ｴ"},
+        {"ticker": "091230", "name": "TIGER ・俯巡・ｴ"},
+        {"ticker": "091170", "name": "KBSTAR ・俯巡・ｴ"},
+        {"ticker": "396510", "name": "SOL ・俯巡・ｴ・誤ｶ・･"},
     ],
-    "2차전지": [
-        {"ticker": "305720", "name": "KODEX 2차전지산업"},
-        {"ticker": "305540", "name": "TIGER 2차전지테마"},
-        {"ticker": "381180", "name": "KBSTAR 2차전지&미래차"},
+    "2・ｨ・・ｧ": [
+        {"ticker": "305720", "name": "KODEX 2・ｨ・・ｧ・ｰ・・},
+        {"ticker": "305540", "name": "TIGER 2・ｨ・・ｧ奛誤ｧ・},
+        {"ticker": "381180", "name": "KBSTAR 2・ｨ・・ｧ&・ｸ・們ｰｨ"},
     ],
-    "바이오": [
-        {"ticker": "244580", "name": "KODEX 바이오"},
-        {"ticker": "143850", "name": "TIGER 헬스케어"},
-        {"ticker": "227550", "name": "KBSTAR 헬스케어"},
-        {"ticker": "266410", "name": "KODEX 바이오플러스헬스케어"},
+    "・肥擽・､": [
+        {"ticker": "244580", "name": "KODEX ・肥擽・､"},
+        {"ticker": "143850", "name": "TIGER 嵭ｬ・､・・ｴ"},
+        {"ticker": "227550", "name": "KBSTAR 嵭ｬ・､・・ｴ"},
+        {"ticker": "266410", "name": "KODEX ・肥擽・､嵓誤洳・､嵭ｬ・､・・ｴ"},
     ],
-    "인터넷/IT": [
-        {"ticker": "139260", "name": "KODEX 인터넷"},
-        {"ticker": "157490", "name": "TIGER 소프트웨어"},
-        {"ticker": "381175", "name": "KBSTAR IT플러스"},
+    "・ｸ奓ｰ・ｷ/IT": [
+        {"ticker": "139260", "name": "KODEX ・ｸ奓ｰ・ｷ"},
+        {"ticker": "157490", "name": "TIGER ・醐売孖ｸ・ｨ・ｴ"},
+        {"ticker": "381175", "name": "KBSTAR IT嵓誤洳・､"},
         {"ticker": "371460", "name": "TIGER KRX IT"},
     ],
-    "자동차": [
-        {"ticker": "091180", "name": "KODEX 자동차"},
-        {"ticker": "140710", "name": "TIGER 자동차"},
+    "・尖徐・ｨ": [
+        {"ticker": "091180", "name": "KODEX ・尖徐・ｨ"},
+        {"ticker": "140710", "name": "TIGER ・尖徐・ｨ"},
     ],
-    "금융": [
-        {"ticker": "139270", "name": "KODEX 은행"},
-        {"ticker": "091220", "name": "TIGER 은행"},
-        {"ticker": "139290", "name": "KODEX 증권"},
+    "・溢愀": [
+        {"ticker": "139270", "name": "KODEX ・嵂・},
+        {"ticker": "091220", "name": "TIGER ・嵂・},
+        {"ticker": "139290", "name": "KODEX ・晝ｶ・},
     ],
-    "에너지": [
-        {"ticker": "117460", "name": "KODEX 에너지화학"},
-        {"ticker": "140700", "name": "TIGER 에너지화학"},
+    "・尖ц・": [
+        {"ticker": "117460", "name": "KODEX ・尖ц・嶹被蕗"},
+        {"ticker": "140700", "name": "TIGER ・尖ц・嶹被蕗"},
     ],
-    "건설": [
-        {"ticker": "139220", "name": "KODEX 건설"},
-        {"ticker": "140720", "name": "TIGER 건설기계"},
+    "・ｴ・､": [
+        {"ticker": "139220", "name": "KODEX ・ｴ・､"},
+        {"ticker": "140720", "name": "TIGER ・ｴ・､・ｰ・・},
     ],
-    "철강/소재": [
-        {"ticker": "139230", "name": "KODEX 철강"},
-        {"ticker": "140690", "name": "TIGER 화학"},
+    "・・・・護椪": [
+        {"ticker": "139230", "name": "KODEX ・・・},
+        {"ticker": "140690", "name": "TIGER 嶹被蕗"},
     ],
-    "AI/로봇": [
-        {"ticker": "364980", "name": "KODEX K-로봇액티브"},
-        {"ticker": "462870", "name": "KODEX AI반도체핵심장비"},
-        {"ticker": "445090", "name": "TIGER AI코리아그로스액티브"},
-        {"ticker": "411600", "name": "TIGER 글로벌AI&로봇"},
+    "AI/・罹ｴ・: [
+        {"ticker": "364980", "name": "KODEX K-・罹ｴ・複寀ｰ・・},
+        {"ticker": "462870", "name": "KODEX AI・俯巡・ｴ﨑ｵ・ｬ・･・・},
+        {"ticker": "445090", "name": "TIGER AI・罷ｦｬ・・ｷｸ・懍侃・｡寀ｰ・・},
+        {"ticker": "411600", "name": "TIGER ・・罹ｲ窟I&・罹ｴ・},
     ],
 }
 
@@ -88,10 +88,9 @@ _SORT_FIELDS = {
     "ytd": "change_ytd",
 }
 
-# sector → (timestamp, data)
+# sector 竊・(timestamp, data)
 _etf_cache: dict[str, tuple[float, list[dict]]] = {}
-_ETF_CACHE_TTL = 300  # 5분
-
+_ETF_CACHE_TTL = 300  # 5・・
 
 def _calc_return(prices: list[float], window: int) -> float | None:
     if len(prices) < window + 1:
@@ -106,7 +105,7 @@ def _fetch_sector_performance_sync() -> list[dict]:
     from datetime import datetime, timedelta
 
     end = datetime.now()
-    start = end - timedelta(days=400)  # ytd 계산용
+    start = end - timedelta(days=400)  # ytd ・・げ・ｩ
     results = []
 
     year_start = datetime(end.year, 1, 1).strftime("%Y-%m-%d")
@@ -120,7 +119,7 @@ def _fetch_sector_performance_sync() -> list[dict]:
             dates  = [d.strftime("%Y-%m-%d") for d in df.index]
             current_price = prices[-1]
 
-            # YTD 계산
+            # YTD ・・げ
             df_ytd = df[df.index >= year_start]
             ytd_start = float(df_ytd["Close"].iloc[0]) if not df_ytd.empty else prices[0]
             ytd_return = (current_price - ytd_start) / ytd_start * 100 if ytd_start else 0
@@ -182,10 +181,10 @@ def _fetch_sector_etfs_sync(sector: str, sort_by: str = "1m") -> list[dict]:
                 "change_ytd": round(ytd_return, 2),
             })
         except Exception as e:
-            logger.info(f"ETF [{etf['ticker']} {etf['name']}] 스킵 (데이터 없음 또는 미상장): {e}")
+            logger.info(f"ETF [{etf['ticker']} {etf['name']}] ・､墲ｵ (・ｰ・ｴ奓ｰ ・・搆 ・尖株 ・ｸ・・棗): {e}")
 
     if not results:
-        logger.warning(f"섹터 [{sector}] ETF 전체 로딩 실패 — 티커 목록: {[e['ticker'] for e in etf_list]}")
+        logger.warning(f"・ｹ奓ｰ [{sector}] ETF ・・ｲｴ ・罹畠 ・､甯ｨ 窶・寀ｰ・､ ・ｩ・・ {[e['ticker'] for e in etf_list]}")
 
     _etf_cache[sector] = (now_ts, results)
     field = _SORT_FIELDS.get(sort_by, "change_1m")
@@ -194,24 +193,24 @@ def _fetch_sector_etfs_sync(sector: str, sort_by: str = "1m") -> list[dict]:
 
 def _get_rotation_analysis(sectors: list[dict]) -> dict:
     if not sectors:
-        return {"leading": [], "lagging": [], "theme": "데이터 없음"}
+        return {"leading": [], "lagging": [], "theme": "・ｰ・ｴ奓ｰ ・・搆"}
 
     sorted_1m = sorted(sectors, key=lambda x: x["change_1m"], reverse=True)
     leading   = [s["sector"] for s in sorted_1m[:3]]
     lagging   = [s["sector"] for s in sorted_1m[-3:]]
 
-    # 테마 분석
+    # 奛誤ｧ・・・・
     top_sectors = set(leading)
-    if "반도체" in top_sectors or "AI/로봇" in top_sectors:
-        theme = "기술 성장주 주도장 - AI/반도체 사이클 상승 국면"
-    elif "바이오" in top_sectors:
-        theme = "헬스케어/바이오 주도장 - 방어주 선호 구간"
-    elif "금융" in top_sectors or "건설" in top_sectors:
-        theme = "경기민감/가치주 주도장 - 금리 환경 개선 기대"
-    elif "2차전지" in top_sectors or "에너지" in top_sectors:
-        theme = "친환경/에너지 전환 주도장"
+    if "・俯巡・ｴ" in top_sectors or "AI/・罹ｴ・ in top_sectors:
+        theme = "・ｰ・ ・ｱ・･・ｼ ・ｼ・・棗 - AI/・俯巡・ｴ ・ｬ・ｴ增ｴ ・・柑 ・ｭ・ｴ"
+    elif "・肥擽・､" in top_sectors:
+        theme = "嵭ｬ・､・・ｴ/・肥擽・､ ・ｼ・・棗 - ・ｩ・ｴ・ｼ ・嶸ｸ ・ｬ・・
+    elif "・溢愀" in top_sectors or "・ｴ・､" in top_sectors:
+        theme = "・ｽ・ｰ・ｼ・・・・們｣ｼ ・ｼ・・棗 - ・壱ｦｬ 嶹俾ｲｽ ・懍│ ・ｰ・"
+    elif "2・ｨ・・ｧ" in top_sectors or "・尖ц・" in top_sectors:
+        theme = "・懦劍・ｽ/・尖ц・ ・・劍 ・ｼ・・棗"
     else:
-        theme = f"{', '.join(leading[:2])} 주도 순환매 진행 중"
+        theme = f"{', '.join(leading[:2])} ・ｼ・・・懦劍・､ ・・哩 ・・
 
     return {"leading": leading, "lagging": lagging, "theme": theme}
 
@@ -223,7 +222,7 @@ class SectorService:
         hit, cached = sector_cache.get("performance")
         if hit:
             return cached
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(get_executor(), _fetch_sector_performance_sync)
         if data:
             sector_cache.set("performance", data, TTL_SECTOR)
@@ -232,7 +231,7 @@ class SectorService:
     @staticmethod
     async def get_sector_etfs(sector: str, sort_by: str = "1m") -> list[dict]:
         from app.executor import get_executor
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(get_executor(), _fetch_sector_etfs_sync, sector, sort_by)
 
     @staticmethod

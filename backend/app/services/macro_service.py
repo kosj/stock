@@ -77,47 +77,50 @@ def _fetch_fdr_index(ticker: str, name: str, unit: str = "pt", days: int = 30) -
         return None
 
 
-def _fetch_macro_dashboard_sync(fred_api_key: str = "") -> dict:
-    """
-    공유 스레드 풀의 단일 스레드에서 순차 실행.
-    전체 소요 시간은 늘어날 수 있지만, 동시 스레드 폭발을 방지합니다.
-    캐시가 있으면 이 함수가 호출되지 않으므로 실제 호출 빈도가 낮습니다.
-    """
-    tasks = {
-        "us_fed_rate":  lambda: _fetch_fred_series("FEDFUNDS",         "미국 기준금리", "%",     fred_api_key=fred_api_key),
-        "us_10y_yield": lambda: _fetch_fred_series("DGS10",            "미국 10년 국채", "%",    fred_api_key=fred_api_key),
-        "kr_base_rate": lambda: _fetch_fred_series("INTDSRKRM193N",    "한국 기준금리", "%",     fred_api_key=fred_api_key),
-        "us_cpi":       lambda: _fetch_fred_series("CPIAUCSL",         "미국 CPI",    "index",  fred_api_key=fred_api_key),
-        "kr_cpi":       lambda: _fetch_fred_series("KORCPIALLMINMEI",  "한국 CPI",    "index",  fred_api_key=fred_api_key),
-        "usd_krw":      lambda: _fetch_fdr_index("USD/KRW", "달러/원", "₩"),
-        "eur_usd":      lambda: _fetch_fdr_index("EUR/USD", "유로/달러", "$"),
-        "kospi":        lambda: _fetch_fdr_index("KS11",    "KOSPI",    "pt"),
-        "kosdaq":       lambda: _fetch_fdr_index("KQ11",    "KOSDAQ",   "pt"),
-        "sp500":        lambda: _fetch_fdr_index("S&P500",  "S&P 500",  "pt"),
-        "nasdaq":       lambda: _fetch_fdr_index("IXIC",    "NASDAQ",   "pt"),
-    }
-
-    result: dict = {}
-    for key, fn in tasks.items():
-        try:
-            result[key] = fn()
-        except Exception as e:
-            logger.warning(f"macro [{key}] error: {e}")
-            result[key] = None
-    return result
-
-
 class MacroService:
     @staticmethod
     async def get_dashboard(fred_api_key: str = "") -> dict:
-        # API 키가 동일한 요청끼리만 캐시 공유 (키가 다르면 별도 캐시 엔트리)
         cache_key = f"macro:{fred_api_key[:8] if fred_api_key else 'default'}"
         hit, cached = macro_cache.get(cache_key)
         if hit:
             return cached
 
-        loop = asyncio.get_event_loop()
-        data = await loop.run_in_executor(get_executor(), _fetch_macro_dashboard_sync, fred_api_key)
+        loop = asyncio.get_running_loop()
+        ex = get_executor()
+
+        async def fred(series_id: str, name: str, unit: str) -> "dict | None":
+            return await loop.run_in_executor(
+                ex, _fetch_fred_series, series_id, name, unit, 60, fred_api_key
+            )
+
+        async def fdr(ticker: str, name: str, unit: str = "pt", days: int = 30) -> "dict | None":
+            return await loop.run_in_executor(ex, _fetch_fdr_index, ticker, name, unit, days)
+
+        keys = [
+            "us_fed_rate", "us_10y_yield", "kr_base_rate",
+            "us_cpi", "kr_cpi",
+            "usd_krw", "eur_usd",
+            "kospi", "kosdaq", "sp500", "nasdaq",
+        ]
+        values = await asyncio.gather(
+            fred("FEDFUNDS",         "미국 기준금리", "%"),
+            fred("DGS10",            "미국 10년 국채", "%"),
+            fred("INTDSRKRM193N",    "한국 기준금리", "%"),
+            fred("CPIAUCSL",         "미국 CPI",    "index"),
+            fred("KORCPIALLMINMEI",  "한국 CPI",    "index"),
+            fdr("USD/KRW", "달러/원",   "₩"),
+            fdr("EUR/USD", "유로/달러", "$"),
+            fdr("KS11",    "KOSPI",     "pt"),
+            fdr("KQ11",    "KOSDAQ",    "pt"),
+            fdr("S&P500",  "S&P 500",   "pt"),
+            fdr("IXIC",    "NASDAQ",    "pt"),
+            return_exceptions=True,
+        )
+
+        data = {
+            key: None if isinstance(val, Exception) else val
+            for key, val in zip(keys, values)
+        }
         macro_cache.set(cache_key, data, TTL_MACRO)
         return data
 

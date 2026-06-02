@@ -1,4 +1,4 @@
-"""웹 푸시 알림 발송 서비스."""
+﻿"""・ｹ 岺ｸ・・・誤ｦｼ ・懍・ ・罹ｹ・侃."""
 from __future__ import annotations
 
 import json
@@ -26,7 +26,7 @@ async def send_push_notification(
         from pywebpush import webpush, WebPushException
 
         payload = json.dumps({"title": title, "body": body, "url": url})
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _send():
             webpush(

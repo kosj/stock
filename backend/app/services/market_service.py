@@ -259,7 +259,7 @@ class MarketService:
         if hit:
             return cached
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         executor = get_executor()
         if _use_fdr(ticker):
             data = await loop.run_in_executor(executor, _fetch_quote_sync, ticker)
@@ -278,7 +278,7 @@ class MarketService:
         if hit:
             return cached
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         executor = get_executor()
         if _use_fdr(ticker):
             data = await loop.run_in_executor(executor, _fetch_chart_sync, ticker, period)
@@ -296,7 +296,7 @@ class MarketService:
         if hit:
             return cached
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         executor = get_executor()
         data = await loop.run_in_executor(executor, _fetch_financials_sync, ticker)
         if data:
@@ -310,7 +310,7 @@ class MarketService:
         if hit:
             return cached
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         executor = get_executor()
         data = await loop.run_in_executor(executor, _search_stocks_sync, query)
         market_cache.set(cache_key, data, TTL_SEARCH)

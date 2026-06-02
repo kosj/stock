@@ -1,11 +1,11 @@
-"""
-국내증시 통계 서비스.
-- 투자자별 매매동향: 네이버 금융 investorDealTrendTime.naver (시간별 순매수 스크래핑)
-- 업종별 수익률:    sector_service.SectorService.get_performance() 재사용
-- 공매도 현황:      네이버 금융 quoteSummary.naver 파생 데이터
-- 자금흐름 요약:    투자자 데이터 가공
+﻿"""
+・ｭ・ｴ・晧亨 奝ｵ・・・罹ｹ・侃.
+- 妤ｬ・川梵・・・､・､・呰箕: ・､・ｴ・・・溢愀 investorDealTrendTime.naver (・懋ｰ・ｳ・・罹ｧ､・・・､增ｬ・倆舞)
+- ・・｢・ｳ・・們攘・:    sector_service.SectorService.get_performance() ・ｬ・ｬ・ｩ
+- ・ｵ・､・・嶸・勦:      ・､・ｴ・・・溢愀 quoteSummary.naver 甯護・ ・ｰ・ｴ奓ｰ
+- ・専ｸ逸攝・・・肥平:    妤ｬ・川梵 ・ｰ・ｴ奓ｰ ・・ｵ
 
-데이터 단위: Naver 원본 = 억원, 서비스 반환 = 원 (× 1억 변환)
+・ｰ・ｴ奓ｰ ・ｨ・・ Naver ・尖ｳｸ = ・ｵ・・ ・罹ｹ・侃 ・倆劍 = ・・(ﾃ・1・ｵ ・嶹・
 """
 from __future__ import annotations
 
@@ -18,8 +18,7 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 _CACHE: dict[str, tuple[float, object]] = {}
-_CACHE_TTL = 1800  # 30분
-_EXECUTOR = ThreadPoolExecutor(max_workers=4)
+_CACHE_TTL = 1800  # 30・・_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 
 NAVER_HEADERS = {
     "User-Agent": (
@@ -30,33 +29,31 @@ NAVER_HEADERS = {
     "Accept-Language": "ko-KR,ko;q=0.9",
 }
 
-# 억원 → 원 변환 배수
-_EOK = 100_000_000
+# ・ｵ・・竊・・・・嶹・・ｰ・・_EOK = 100_000_000
 
 _INVESTOR_ORDER = [
-    "금융투자", "보험", "투신", "은행", "기타금융", "연기금등",
-    "기관계", "외국인", "개인", "기타법인",
+    "・溢愀妤ｬ・・, "・ｴ嵭・, "妤ｬ・", "・嵂・, "・ｰ夋・溢愀", "・ｰ・ｰ・壱導",
+    "・ｰ・・・, "・ｸ・ｭ・ｸ", "・懍攤", "・ｰ夋・菩攤",
 ]
 
-# Naver 컬럼명 → 표시 이름 매핑
-_COL_MAP = {
-    "개인": "개인",
-    "외국인": "외국인",
-    "기관계": "기관계",
-    "금융투자": "금융투자",
-    "보험": "보험",
-    "투신(사모)": "투신",
-    "투신 (사모)": "투신",
-    "은행": "은행",
-    "기타금융기관": "기타금융",
-    "기타금융": "기타금융",
-    "연기금등": "연기금등",
-    "기타법인": "기타법인",
+# Naver ・ｬ・ｼ・・竊・岺懍亨 ・ｴ・・・､﨑・_COL_MAP = {
+    "・懍攤": "・懍攤",
+    "・ｸ・ｭ・ｸ": "・ｸ・ｭ・ｸ",
+    "・ｰ・・・: "・ｰ・・・,
+    "・溢愀妤ｬ・・: "・溢愀妤ｬ・・,
+    "・ｴ嵭・: "・ｴ嵭・,
+    "妤ｬ・(・ｬ・ｨ)": "妤ｬ・",
+    "妤ｬ・ (・ｬ・ｨ)": "妤ｬ・",
+    "・嵂・: "・嵂・,
+    "・ｰ夋・溢愀・ｰ・": "・ｰ夋・溢愀",
+    "・ｰ夋・溢愀": "・ｰ夋・溢愀",
+    "・ｰ・ｰ・壱導": "・ｰ・ｰ・壱導",
+    "・ｰ夋・菩攤": "・ｰ夋・菩攤",
 }
 
 
 def _last_trading_day() -> str:
-    """오후 4시 이전이면 전날, 주말은 금요일 기준."""
+    """・､弡・4・・・ｴ・・擽・ｴ ・・あ, ・ｼ・川捩 ・溢囈・ｼ ・ｰ・."""
     d = datetime.now()
     if d.hour < 16:
         d -= timedelta(days=1)
@@ -65,14 +62,13 @@ def _last_trading_day() -> str:
     return d.strftime("%Y%m%d")
 
 
-# ── 투자자별 매매동향 ────────────────────────────────────────────────────────
+# 笏笏 妤ｬ・川梵・・・､・､・呰箕 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 def _fetch_investor_sync(bizdate: str, sosok: str) -> list[dict]:
     """
-    네이버 금융 투자자별 시간별 순매수 스크래핑.
-    sosok: "" 또는 "01" = KOSPI, "02" = KOSDAQ
-    반환: [{name, buy, sell, net}] net 단위 = 원
-    """
+    ・､・ｴ・・・溢愀 妤ｬ・川梵・・・懋ｰ・ｳ・・罹ｧ､・・・､增ｬ・倆舞.
+    sosok: "" ・尖株 "01" = KOSPI, "02" = KOSDAQ
+    ・倆劍: [{name, buy, sell, net}] net ・ｨ・・= ・・    """
     import requests
     import pandas as pd
 
@@ -91,15 +87,15 @@ def _fetch_investor_sync(bizdate: str, sosok: str) -> list[dict]:
 
         df = tables[0]
 
-        # MultiIndex 컬럼 처리 — 마지막 레벨 이름 사용
+        # MultiIndex ・ｬ・ｼ ・俯ｦｬ 窶・・溢ｧ・・・壱ｲｨ ・ｴ・・・ｬ・ｩ
         if isinstance(df.columns, pd.MultiIndex):
             flat_cols = [str(col[-1]).strip() for col in df.columns]
         else:
             flat_cols = [str(c).strip() for c in df.columns]
 
-        # 첫 번째 NaN 행 제거, 유효 데이터 첫 번째 행 사용 (최신 시간)
+        # ・ｫ ・溢ｧｸ NaN 嵂・・懋ｱｰ, ・巐ｨ ・ｰ・ｴ奓ｰ ・ｫ ・溢ｧｸ 嵂・・ｬ・ｩ (・懍侠 ・懋ｰ・
         df.columns = flat_cols
-        df = df.dropna(subset=["시간"]) if "시간" in flat_cols else df.dropna()
+        df = df.dropna(subset=["・懋ｰ・]) if "・懋ｰ・ in flat_cols else df.dropna()
         if df.empty:
             return []
 
@@ -124,10 +120,10 @@ def _fetch_investor_sync(bizdate: str, sosok: str) -> list[dict]:
                     })
                     break
 
-        # 정해진 순서로 정렬
+        # ・倣紛・・・懍・・・・簿ｬ
         order_map = {n: i for i, n in enumerate(_INVESTOR_ORDER)}
         result.sort(key=lambda x: order_map.get(x["name"], 99))
-        # 중복 제거
+        # ・瀧ｳｵ ・懋ｱｰ
         seen: set[str] = set()
         unique = []
         for r in result:
@@ -137,12 +133,12 @@ def _fetch_investor_sync(bizdate: str, sosok: str) -> list[dict]:
         return unique
 
     except Exception as e:
-        logger.error("네이버 투자자 스크래핑 실패 sosok=%s: %s", sosok, e)
+        logger.error("・､・ｴ・・妤ｬ・川梵 ・､增ｬ・倆舞 ・､甯ｨ sosok=%s: %s", sosok, e)
         return []
 
 
 async def get_investor_trends() -> dict:
-    """KOSPI / KOSDAQ 투자자별 매매동향 (시간별 순매수 최신 값)."""
+    """KOSPI / KOSDAQ 妤ｬ・川梵・・・､・､・呰箕 (・懋ｰ・ｳ・・罹ｧ､・・・懍侠 ・・."""
     import asyncio
 
     trd_dd = _last_trading_day()
@@ -152,7 +148,7 @@ async def get_investor_trends() -> dict:
         if time.monotonic() - ts < _CACHE_TTL:
             return val  # type: ignore
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     kospi_rows, kosdaq_rows = await asyncio.gather(
         loop.run_in_executor(_EXECUTOR, _fetch_investor_sync, trd_dd, "01"),
         loop.run_in_executor(_EXECUTOR, _fetch_investor_sync, trd_dd, "02"),
@@ -167,10 +163,10 @@ async def get_investor_trends() -> dict:
     return data
 
 
-# ── 업종별 수익률 (KODEX ETF 기반) ─────────────────────────────────────────
+# 笏笏 ・・｢・ｳ・・們攘・ (KODEX ETF ・ｰ・・ 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 async def get_sector_index() -> dict:
-    """KODEX ETF 기반 업종별 수익률. sector_service 재사용."""
+    """KODEX ETF ・ｰ・・・・｢・ｳ・・們攘・. sector_service ・ｬ・ｬ・ｩ."""
     from app.services.sector_service import SectorService
 
     trd_dd = _last_trading_day()
@@ -182,8 +178,7 @@ async def get_sector_index() -> dict:
 
     sectors = await SectorService.get_performance()
 
-    # KRX 섹터 지수 포맷에 맞게 변환
-    kospi_data = []
+    # KRX ・ｹ奓ｰ ・・・尞ｬ・ｷ・・・樓ｲ・・嶹・    kospi_data = []
     for s in sectors:
         price = s.get("price", 0) or 0
         c1d   = s.get("change_1d", 0) or 0
@@ -211,12 +206,12 @@ async def get_sector_index() -> dict:
     return data
 
 
-# ── 공매도 현황 ──────────────────────────────────────────────────────────────
+# 笏笏 ・ｵ・､・・嶸・勦 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 def _fetch_short_selling_sync(bizdate: str) -> dict:
     """
-    네이버 금융 quoteSummary.naver에서 실시간 시장 데이터 파싱.
-    공매도 상세 API는 비공개이므로 sise_deal_rank.naver에서 대체.
+    ・､・ｴ・・・溢愀 quoteSummary.naver・川・ ・､・懋ｰ・・懍棗 ・ｰ・ｴ奓ｰ 甯護恭.
+    ・ｵ・､・・・・┷ API・・・・ｳｵ・懍擽・・・sise_deal_rank.naver・川・ ・・ｴ.
     """
     import requests
     import pandas as pd
@@ -228,7 +223,7 @@ def _fetch_short_selling_sync(bizdate: str) -> dict:
     }
 
     try:
-        # 공매도 상위 종목 (KOSPI)
+        # ・ｵ・､・・・・怱 ・・ｪｩ (KOSPI)
         r = requests.get(
             "https://finance.naver.com/sise/sise_deal_rank.naver?investor_gubun=2000",
             headers=NAVER_HEADERS, timeout=12,
@@ -241,7 +236,7 @@ def _fetch_short_selling_sync(bizdate: str) -> dict:
             for _, row in df.iterrows():
                 vals = [str(v).strip() for v in row.values]
                 name = vals[0] if vals else ""
-                if not name or name in ("nan", "종목명"):
+                if not name or name in ("nan", "・・ｪｩ・・):
                     continue
                 try:
                     price = int(vals[1].replace(",", "")) if len(vals) > 1 and vals[1] != "nan" else 0
@@ -256,10 +251,10 @@ def _fetch_short_selling_sync(bizdate: str) -> dict:
                 })
             result["top_kospi"] = stocks[:15]
     except Exception as e:
-        logger.warning("공매도 KOSPI 로딩 실패: %s", e)
+        logger.warning("・ｵ・､・・KOSPI ・罹畠 ・､甯ｨ: %s", e)
 
     try:
-        # 공매도 상위 종목 (KOSDAQ)
+        # ・ｵ・､・・・・怱 ・・ｪｩ (KOSDAQ)
         r2 = requests.get(
             "https://finance.naver.com/sise/sise_deal_rank.naver?investor_gubun=2000&sosok=02",
             headers=NAVER_HEADERS, timeout=12,
@@ -272,7 +267,7 @@ def _fetch_short_selling_sync(bizdate: str) -> dict:
             for _, row in df2.iterrows():
                 vals = [str(v).strip() for v in row.values]
                 name = vals[0] if vals else ""
-                if not name or name in ("nan", "종목명"):
+                if not name or name in ("nan", "・・ｪｩ・・):
                     continue
                 try:
                     price = int(vals[1].replace(",", "")) if len(vals) > 1 and vals[1] != "nan" else 0
@@ -287,13 +282,13 @@ def _fetch_short_selling_sync(bizdate: str) -> dict:
                 })
             result["top_kosdaq"] = stocks2[:15]
     except Exception as e:
-        logger.warning("공매도 KOSDAQ 로딩 실패: %s", e)
+        logger.warning("・ｵ・､・・KOSDAQ ・罹畠 ・､甯ｨ: %s", e)
 
     return result
 
 
 async def get_short_selling() -> dict:
-    """공매도 현황 (네이버 금융 대안 데이터)."""
+    """・ｵ・､・・嶸・勦 (・､・ｴ・・・溢愀 ・・・・ｰ・ｴ奓ｰ)."""
     import asyncio
 
     trd_dd = _last_trading_day()
@@ -303,7 +298,7 @@ async def get_short_selling() -> dict:
         if time.monotonic() - ts < _CACHE_TTL:
             return val  # type: ignore
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     short_data = await loop.run_in_executor(_EXECUTOR, _fetch_short_selling_sync, trd_dd)
 
     data: dict = {
@@ -316,7 +311,7 @@ async def get_short_selling() -> dict:
     return data
 
 
-# ── 자금 흐름 요약 ────────────────────────────────────────────────────────────
+# 笏笏 ・専ｸ・彧尖ｦ・・肥平 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 def _money_flow_summary(investor_data: dict) -> dict:
     def extract(rows: list[dict], names: list[str]) -> int:
@@ -329,10 +324,10 @@ def _money_flow_summary(investor_data: dict) -> dict:
     kosdaq = investor_data.get("kosdaq", [])
 
     categories = [
-        ("외국인",   ["외국인"]),
-        ("기관",     ["기관계"]),
-        ("개인",     ["개인"]),
-        ("기타법인", ["기타법인"]),
+        ("・ｸ・ｭ・ｸ",   ["・ｸ・ｭ・ｸ"]),
+        ("・ｰ・",     ["・ｰ・・・]),
+        ("・懍攤",     ["・懍攤"]),
+        ("・ｰ夋・菩攤", ["・ｰ夋・菩攤"]),
     ]
 
     flows = []
@@ -348,10 +343,10 @@ def _money_flow_summary(investor_data: dict) -> dict:
     return {"flows": flows}
 
 
-# ── 대시보드 ──────────────────────────────────────────────────────────────────
+# 笏笏 ・・罹ｳｴ・・笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 async def get_dashboard() -> dict:
-    """전체 대시보드 데이터 병렬 조회."""
+    """・・ｲｴ ・・罹ｳｴ・・・ｰ・ｴ奓ｰ ・瀧ｬ ・ｰ巐・"""
     import asyncio
 
     investor, sector, short = await asyncio.gather(
@@ -380,13 +375,13 @@ async def get_dashboard() -> dict:
     }
 
 
-# ── 디버그 ────────────────────────────────────────────────────────────────────
+# 笏笏 ・罷ｲ・ｷｸ 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 async def get_raw(bld: str, extra: dict | None = None) -> dict:
-    """디버그용: 네이버 투자자 데이터 원시 반환."""
+    """・罷ｲ・ｷｸ・ｩ: ・､・ｴ・・妤ｬ・川梵 ・ｰ・ｴ奓ｰ ・川亨 ・倆劍."""
     import asyncio
 
     trd_dd = extra.get("trdDd", _last_trading_day()) if extra else _last_trading_day()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     rows = await loop.run_in_executor(_EXECUTOR, _fetch_investor_sync, trd_dd, "01")
     return {"date": trd_dd, "source": "naver_investorDealTrendTime", "rows": rows}

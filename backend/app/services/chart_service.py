@@ -1,6 +1,6 @@
-"""
-기술적 분석 지표 계산 서비스.
-pandas_ta로 이동평균, 볼린저밴드, RSI, MACD 계산.
+﻿"""
+・ｰ・・・・・・ ・岺・・・げ ・罹ｹ・侃.
+pandas_ta・・・ｴ・呰初・, ・ｼ・ｰ・・ｴ・・ RSI, MACD ・・げ.
 """
 from __future__ import annotations
 
@@ -34,19 +34,19 @@ def _calc_indicators_sync(candles: list[dict]) -> dict[str, list[dict]]:
                     })
             return out
 
-        # 이동평균선
+        # ・ｴ・呰初・・
         ma5   = close.rolling(5).mean()
         ma20  = close.rolling(20).mean()
         ma60  = close.rolling(60).mean()
         ma120 = close.rolling(120).mean()
 
-        # 볼린저 밴드 (20일, 2σ)
+        # ・ｼ・ｰ・ ・ｴ・・(20・ｼ, 2ﾏ・
         bb_mid   = close.rolling(20).mean()
         bb_std   = close.rolling(20).std()
         bb_upper = bb_mid + 2 * bb_std
         bb_lower = bb_mid - 2 * bb_std
 
-        # RSI (14일)
+        # RSI (14・ｼ)
         delta = close.diff()
         gain = delta.clip(lower=0).rolling(14).mean()
         loss = (-delta.clip(upper=0)).rolling(14).mean()
@@ -60,7 +60,7 @@ def _calc_indicators_sync(candles: list[dict]) -> dict[str, list[dict]]:
         macd_signal = macd_line.ewm(span=9, adjust=False).mean()
         macd_hist = macd_line - macd_signal
 
-        # 거래량 MA
+        # ・ｰ・俯汢 MA
         vol_ma5 = volume.rolling(5).mean()
 
         return {
@@ -83,7 +83,7 @@ def _calc_indicators_sync(candles: list[dict]) -> dict[str, list[dict]]:
 
 
 def _get_latest_signals(candles: list[dict]) -> dict:
-    """최신 기술적 신호 요약 (AI 분석용)."""
+    """・懍侠 ・ｰ・・・・嶸ｸ ・肥平 (AI ・・・・ｩ)."""
     if len(candles) < 30:
         return {}
     try:
@@ -105,19 +105,17 @@ def _get_latest_signals(candles: list[dict]) -> dict:
         macd_line = ema12 - ema26
         macd_signal = macd_line.ewm(span=9, adjust=False).mean()
 
-        # 이평선
+        # ・ｴ尞餓│
         ma20  = close.rolling(20).mean().iloc[-1]
         ma60  = close.rolling(60).mean().iloc[-1]
         ma120 = close.rolling(120).mean().iloc[-1]
         current = close.iloc[-1]
 
-        # 볼린저밴드 위치
-        bb_mid = close.rolling(20).mean().iloc[-1]
+        # ・ｼ・ｰ・・ｴ・・・・ｹ・        bb_mid = close.rolling(20).mean().iloc[-1]
         bb_std = close.rolling(20).std().iloc[-1]
         bb_pos = (current - (bb_mid - 2 * bb_std)) / (4 * bb_std) * 100 if bb_std else 50
 
-        # 52주 고저 위치
-        high_52w = close.tail(252).max()
+        # 52・ｼ ・・ ・・ｹ・        high_52w = close.tail(252).max()
         low_52w  = close.tail(252).min()
         pos_52w  = (current - low_52w) / (high_52w - low_52w) * 100 if (high_52w - low_52w) else 50
 
@@ -145,12 +143,12 @@ def _get_latest_signals(candles: list[dict]) -> dict:
 class ChartService:
     @staticmethod
     async def get_indicators(candles: list[dict]) -> dict[str, list[dict]]:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _calc_indicators_sync, candles)
 
     @staticmethod
     async def get_signals(candles: list[dict]) -> dict:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _get_latest_signals, candles)
 
 

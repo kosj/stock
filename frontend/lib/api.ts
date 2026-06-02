@@ -1,12 +1,8 @@
-// API 기본 경로 설정
-// 브라우저: 항상 상대 경로('') → next.config.ts rewrites가 BACKEND_URL로 프록시
-// SSR:     BACKEND_URL 환경변수로 직접 백엔드 호출 (Vercel 서버 사이드)
-const BASE = typeof window === "undefined"
-  ? (process.env.BACKEND_URL ?? "")
-  : "";
+// 모든 API 호출은 Next.js API 라우트(/api/...)를 통해 처리됨
+// 포트폴리오 CRUD → Supabase 직접, 시세/분석 → Yahoo/Claude 직접, 거시경제 → FRED 직접
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(path, {
     cache: "no-store",
     headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
