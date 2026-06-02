@@ -49,7 +49,13 @@ function BrokerCard({
   const [form, setForm] = useState({ appKey: "", appSecret: "", accountNumber: "" });
 
   async function handleSave() {
-    if (!form.appKey || !form.appSecret) {
+    // 모바일 키보드 자동완성·공백 제거
+    const trimmed = {
+      appKey:        form.appKey.trim(),
+      appSecret:     form.appSecret.trim(),
+      accountNumber: form.accountNumber.trim(),
+    };
+    if (!trimmed.appKey || !trimmed.appSecret) {
       toast.error("App Key와 App Secret을 모두 입력해주세요.");
       return;
     }
@@ -58,7 +64,7 @@ function BrokerCard({
       const res = await fetch("/api/settings/broker", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ type, ...form }),
+        body:    JSON.stringify({ type, ...trimmed }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "저장 실패");
@@ -108,8 +114,12 @@ function BrokerCard({
                   value={form.appKey}
                   onChange={(e) => setForm((f) => ({ ...f, appKey: e.target.value }))}
                   placeholder="App Key 입력"
-                  className="w-full px-3 py-2 rounded border border-border bg-muted text-sm"
+                  className="w-full px-3 py-2 rounded border border-border bg-muted text-sm font-mono"
                   disabled={saving}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                 />
               </div>
               <div>
@@ -120,8 +130,12 @@ function BrokerCard({
                     value={form.appSecret}
                     onChange={(e) => setForm((f) => ({ ...f, appSecret: e.target.value }))}
                     placeholder="App Secret 입력"
-                    className="flex-1 px-3 py-2 rounded border border-border bg-muted text-sm"
+                    className="flex-1 px-3 py-2 rounded border border-border bg-muted text-sm font-mono"
                     disabled={saving}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
                   />
                   <button
                     onClick={() => setShowSecret((v) => !v)}

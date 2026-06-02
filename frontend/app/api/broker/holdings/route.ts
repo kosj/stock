@@ -25,7 +25,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { appKey, appSecret, accountNumber } = config;
+    // DB에서 불러온 자격증명도 한 번 더 trim (이전에 공백이 섞인 채 저장됐을 경우 대비)
+    const appKey        = config.appKey.trim();
+    const appSecret     = config.appSecret.trim();
+    const accountNumber = config.accountNumber?.replace(/[\s]/g, "");
 
     if (!accountNumber) {
       return NextResponse.json(
@@ -42,30 +45,49 @@ export async function POST(request: NextRequest) {
     } catch { /* body 없어도 진행 */ }
 
     // 4. KIS 액세스 토큰 발급
-    const tokenRes = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "client_credentials",
-        appkey:     appKey,
-        appsecret:  appSecret,
-      }),
-    });
+    let tokenRes: Response;
+    try {
+      tokenRes = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "client_credentials",
+          appkey:     appKey,
+          appsecret:  appSecret,
+        }),
+        signal: AbortSignal.timeout(10_000), // 10초 타임아웃
+      });
+    } catch (fetchErr) {
+      const isTimeout = fetchErr instanceof Error && fetchErr.name === "TimeoutError";
+      return NextResponse.json(
+        {
+          error: isTimeout
+            ? "KIS 서버 연결 시간 초과 (10초)"
+            : `KIS 서버 연결 실패: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
+          hint: "KIS 개발자 포털 → 앱 관리 → IP 설정에서 0.0.0.0(전체 허용)으로 설정되어 있는지 확인하세요.",
+        },
+        { status: 502 },
+      );
+    }
 
     const tokenData = await tokenRes.json();
     if (!tokenRes.ok || !tokenData.access_token) {
-      const msg = tokenData.msg1 ?? tokenData.error_description ?? `HTTP ${tokenRes.status}`;
+      const kisCode = tokenData.msg_cd ?? tokenData.error ?? "";
+      const kisMsg  = tokenData.msg1  ?? tokenData.error_description ?? `HTTP ${tokenRes.status}`;
+      const detail  = kisCode ? `[${kisCode}] ${kisMsg}` : kisMsg;
       return NextResponse.json(
         {
-          error: `KIS 인증 실패: ${msg}`,
-          hint:  "AppKey·AppSecret을 다시 확인하고, KIS 개발자 포털에서 앱이 활성화 상태인지 확인하세요.",
+          error: `KIS 인증 실패: ${detail}`,
+          hint:  tokenRes.status === 401 || tokenRes.status === 403
+            ? "KIS 개발자 포털 → 앱 관리 → IP 설정에서 0.0.0.0(전체 허용)으로 설정하거나, 설정 페이지에서 AppKey·AppSecret을 다시 저장해주세요."
+            : "설정 페이지에서 AppKey·AppSecret을 다시 저장하거나, KIS 개발자 포털에서 앱 활성화 상태를 확인하세요.",
         },
         { status: 502 },
       );
     }
     if (tokenData.rt_cd && tokenData.rt_cd !== "0") {
       return NextResponse.json(
-        { error: `KIS 인증 거부: ${tokenData.msg1 ?? tokenData.rt_cd}` },
+        { error: `KIS 인증 거부 [rt_cd=${tokenData.rt_cd}]: ${tokenData.msg1 ?? tokenData.rt_cd}` },
         { status: 502 },
       );
     }
@@ -113,6 +135,7 @@ export async function POST(request: NextRequest) {
           tr_id:          trId,
           custtype:       "P",
         },
+        signal: AbortSignal.timeout(15_000),
       },
     );
 

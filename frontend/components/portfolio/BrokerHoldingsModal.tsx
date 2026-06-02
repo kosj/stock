@@ -1,9 +1,10 @@
 "use client";
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { formatNumber, formatPercent, colorByChange } from "@/lib/utils";
-import { X, Download, Loader2, AlertCircle, Building2 } from "lucide-react";
+import { X, Download, Loader2, AlertCircle, Building2, Settings } from "lucide-react";
 import { toast } from "sonner";
 import type { BrokerHolding } from "@/lib/server/providers";
 
@@ -148,11 +149,19 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
           )}
 
           {status === "error" && (
-            <div className="py-12 flex flex-col items-center gap-3 text-center">
+            <div className="py-10 flex flex-col items-center gap-3 text-center">
               <AlertCircle size={28} className="text-red-400" />
               <p className="text-sm text-muted-foreground">보유종목 조회에 실패했습니다.</p>
               <p className="text-xs text-red-400 max-w-sm whitespace-pre-wrap">{errorMsg}</p>
-              <Button variant="ghost" size="sm" onClick={onClose}>닫기</Button>
+              <div className="flex gap-2 mt-1">
+                <Link href="/settings" onClick={onClose}>
+                  <Button variant="ghost" size="sm" className="text-blue-400 hover:text-blue-300 gap-1.5">
+                    <Settings size={13} />
+                    API 설정으로 이동
+                  </Button>
+                </Link>
+                <Button variant="ghost" size="sm" onClick={onClose}>닫기</Button>
+              </div>
             </div>
           )}
 
