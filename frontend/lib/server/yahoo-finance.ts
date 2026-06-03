@@ -518,12 +518,14 @@ async function fetchNaverKoreanSummary(ticker6: string): Promise<string | null> 
 }
 
 // 6자리 한국 종목코드를 받아 한국어 사업내용 반환
-// .KS / .KQ 모두 시도 → Yahoo 실패 시 Naver 폴백
+// .KS / .KQ 병렬 시도 → 둘 다 실패 시 Naver 폴백 (순차 대비 최대 5s 절감)
 async function getKoreanBusinessSummary(ticker6: string): Promise<string | null> {
-  for (const suffix of [".KS", ".KQ"]) {
-    const r = await fetchYahooKoreanSummary(`${ticker6}${suffix}`);
-    if (r) return r;
-  }
+  const [ks, kq] = await Promise.allSettled([
+    fetchYahooKoreanSummary(`${ticker6}.KS`),
+    fetchYahooKoreanSummary(`${ticker6}.KQ`),
+  ]);
+  const hit = (ks.status === "fulfilled" && ks.value) || (kq.status === "fulfilled" && kq.value);
+  if (hit) return hit;
   return fetchNaverKoreanSummary(ticker6);
 }
 

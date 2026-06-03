@@ -31,8 +31,17 @@ export async function POST(request: NextRequest) {
 
   const results: { user_id: string; result: object }[] = [];
 
-  for (const { user_id } of accounts) {
-    const result = await runAutoTrade(user_id);
+  // 사용자별 자동매매는 독립 계좌이므로 병렬 실행 가능
+  const settled = await Promise.allSettled(
+    accounts.map(({ user_id }) => runAutoTrade(user_id))
+  );
+
+  for (let i = 0; i < accounts.length; i++) {
+    const { user_id } = accounts[i];
+    const s = settled[i];
+    const result = s.status === "fulfilled"
+      ? s.value
+      : { tickers_analyzed: 0, trades_buy: 0, trades_sell: 0, skipped: 0, details: [], error: String(s.reason) };
     results.push({ user_id, result });
     console.log(`[cron/auto-trade] user=${user_id} buy=${result.trades_buy} sell=${result.trades_sell} skip=${result.skipped}`);
   }

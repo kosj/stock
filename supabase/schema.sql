@@ -122,7 +122,8 @@ CREATE TABLE IF NOT EXISTS mock_trades (
   total_amount FLOAT        NOT NULL,
   created_at   TIMESTAMPTZ  DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_mock_trades_user ON mock_trades(user_id);
+CREATE INDEX IF NOT EXISTS idx_mock_trades_user    ON mock_trades(user_id);
+CREATE INDEX IF NOT EXISTS idx_mock_trades_created ON mock_trades(created_at);
 
 -- ============================================================
 -- RPC 함수 — 소유권 검증 + DML을 단일 왕복으로 처리
@@ -355,7 +356,8 @@ CREATE TABLE IF NOT EXISTS mock_auto_trade_logs (
   details          JSONB,        -- [{ticker, action, reason, qty, price}]
   error            TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_auto_trade_logs_user ON mock_auto_trade_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_auto_trade_logs_user    ON mock_auto_trade_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_auto_trade_logs_created ON mock_auto_trade_logs(run_at);
 ALTER TABLE mock_auto_trade_logs DISABLE ROW LEVEL SECURITY;
 
 -- ============================================================

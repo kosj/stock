@@ -67,23 +67,23 @@ async function getLatestProphetRecs(): Promise<{ ticker: string; name: string; r
 // ── 사용자 계좌 조회 (없으면 생성) ───────────────────────────────────────────
 
 async function getOrCreateAccount(userId: string): Promise<{ cash: number; auto_trade_capital: number | null } | null> {
-  const { data: account } = await supabase
-    .from("mock_accounts")
-    .upsert({ user_id: userId, cash: INITIAL_CASH }, { onConflict: "user_id", ignoreDuplicates: true })
-    .select("cash, auto_trade_capital")
-    .eq("user_id", userId)
-    .single();
-
-  // upsert 후 재조회 (ignoreDuplicates가 기존 row를 반환하지 않는 경우 대비)
-  if (account) return account;
-
+  // SELECT-first: 기존 계좌 조회 (99%의 경우 1 왕복으로 종료)
   const { data: existing } = await supabase
     .from("mock_accounts")
     .select("cash, auto_trade_capital")
     .eq("user_id", userId)
+    .maybeSingle();
+
+  if (existing) return existing;
+
+  // 최초 접근 시에만 INSERT
+  const { data } = await supabase
+    .from("mock_accounts")
+    .insert({ user_id: userId, cash: INITIAL_CASH })
+    .select("cash, auto_trade_capital")
     .single();
 
-  return existing;
+  return data;
 }
 
 // ── 거래 실행 (RPC 사용 — 원자적 단일 왕복) ─────────────────────────────────
