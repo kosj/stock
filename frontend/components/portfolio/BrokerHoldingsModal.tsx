@@ -14,12 +14,22 @@ interface Props {
   onImported: () => void;
 }
 
+const BROKER_NAMES: Record<string, string> = {
+  kis:        "한국투자증권",
+  lss:        "LS증권",
+  miraeasset: "미래에셋증권",
+  kb:         "KB증권",
+  shinhan:    "신한증권",
+  meritz:     "메리츠증권",
+};
+
 export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props) {
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "no-config">("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [holdings, setHoldings] = useState<BrokerHolding[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
+  const [brokerName, setBrokerName] = useState("증권사");
 
   useEffect(() => {
     async function load() {
@@ -40,6 +50,9 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
           return;
         }
 
+        if (data.brokerType) {
+          setBrokerName(BROKER_NAMES[data.brokerType] ?? data.brokerType);
+        }
         setHoldings(data.holdings ?? []);
         setSelected(new Set((data.holdings ?? []).map((h: BrokerHolding) => h.ticker)));
         setStatus("ready");
@@ -86,7 +99,7 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
             stop_loss:   null,
             take_profit: null,
             strategy:    null,
-            notes:       `한국투자증권 연동 (${today})`,
+            notes:       `${brokerName} 연동 (${today})`,
           }),
         ),
       );
