@@ -9,7 +9,7 @@ import { toast } from "sonner";
 
 // ── 브로커 메타 ────────────────────────────────────────────────────────────────
 
-type BrokerType = "kis" | "lss" | "miraeasset" | "kb" | "shinhan" | "meritz";
+type BrokerType = "kis" | "miraeasset" | "kb" | "shinhan" | "meritz";
 
 interface BrokerMeta {
   name:              string;
@@ -27,19 +27,12 @@ const BROKER_INFO: Record<BrokerType, BrokerMeta> = {
     accountPlaceholder: "예: 12345678-01",
     accountHelp:        "앞 8자리 + 뒤 2자리 (종합/위탁계좌: 01)",
   },
-  lss: {
-    name:               "LS증권",
-    description:        "App Key · App Secret · 계좌번호로 보유종목 조회",
-    available:          true,
-    accountPlaceholder: "예: 12345678901",
-    accountHelp:        "계좌번호 (하이픈 포함/제외 모두 가능)",
-  },
   miraeasset: { name: "미래에셋증권", description: "준비 중",       available: false },
   kb:         { name: "KB증권",       description: "준비 중",       available: false },
   shinhan:    { name: "신한증권",     description: "준비 중",       available: false },
   meritz:     { name: "메리츠증권",   description: "준비 중",       available: false },
 };
-const BROKER_TYPES: BrokerType[] = ["kis", "lss", "miraeasset", "kb", "shinhan", "meritz"];
+const BROKER_TYPES: BrokerType[] = ["kis", "miraeasset", "kb", "shinhan", "meritz"];
 
 // ── API 헬퍼 ──────────────────────────────────────────────────────────────────
 
@@ -345,26 +338,6 @@ export function BrokerSettingsPage() {
                 <a href="https://apiportal.koreainvestment.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
                   KIS 개발자 포털
                 </a>에서 앱 등록 후 App Key · App Secret 발급
-              </li>
-              <li>포털 → 앱 관리 → IP 설정에서 <strong>0.0.0.0 (전체 허용)</strong> 추가 (Vercel 고정 IP 없음)</li>
-              <li>위 카드에서 설정 버튼 클릭 → App Key / App Secret / 계좌번호 입력 후 저장</li>
-              <li>포트폴리오 페이지 → 보유종목 가져오기 버튼 사용</li>
-            </ol>
-          </div>
-        </div>
-      </Card>
-
-      {/* LS증권 설정 안내 */}
-      <Card className="border-green-500/20 bg-green-500/5 p-4">
-        <div className="flex gap-3">
-          <AlertCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
-          <div className="text-sm space-y-1">
-            <div className="font-semibold">LS증권 API 설정 방법</div>
-            <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-              <li>
-                <a href="https://openapi.ls-sec.co.kr" target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">
-                  LS증권 Open API 포털
-                </a>에서 신청 후 App Key · App Secret 발급
               </li>
               <li>포털 → 앱 관리 → IP 설정에서 <strong>0.0.0.0 (전체 허용)</strong> 추가 (Vercel 고정 IP 없음)</li>
               <li>위 카드에서 설정 버튼 클릭 → App Key / App Secret / 계좌번호 입력 후 저장</li>
