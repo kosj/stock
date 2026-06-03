@@ -16,7 +16,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("portfolios")
-    .select("*")
+    .select("id, name, description, created_at, updated_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from("portfolios")
     .insert({ name: body.name, description: body.description ?? null, user_id: userId })
-    .select()
+    .select("id, name, description, created_at, updated_at")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

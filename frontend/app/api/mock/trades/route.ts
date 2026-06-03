@@ -16,7 +16,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("mock_trades")
-    .select("*")
+    .select("id, ticker, name, trade_type, quantity, price, total_amount, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(100);

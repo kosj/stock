@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       sector:  sector ?? null,
       user_id: userId,
     })
-    .select()
+    .select("id, ticker, name, sector, added_at")
     .single();
 
   if (!insertError) {
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   if (insertError.code === "23505") {
     const { data: existing } = await supabase
       .from("watchlist")
-      .select("*")
+      .select("id, ticker, name, sector, added_at")
       .eq("ticker", normalizedTicker)
       .eq("user_id", userId)
       .single();

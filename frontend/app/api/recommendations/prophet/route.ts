@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("prophet_recommendations")
-    .select("*")
+    .select("rank, ticker, name, market, sector, current_price, predicted_return_7d, predicted_return_30d, bull_return_30d, base_return_30d, bear_return_30d, recommendation, r_squared, trend_direction, accuracy_json")
     .eq("run_date", runDate)
     .order("rank", { ascending: true });
 

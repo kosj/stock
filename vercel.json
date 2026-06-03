@@ -2,8 +2,5 @@
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/.next",
   "framework": "nextjs",
-  "rootDirectory": "frontend",
-  "env": {
-    "NEXT_PUBLIC_BACKEND_URL": "@backend_url"
-  }
+  "rootDirectory": "frontend"
 }

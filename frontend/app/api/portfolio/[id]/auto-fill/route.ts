@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const { data: pf } = await supabase.from("portfolios").select("id").eq("id", id).single();
   if (!pf) return NextResponse.json({ error: "포트폴리오를 찾을 수 없습니다." }, { status: 404 });
 
-  const { data: positions } = await supabase.from("positions").select("*").eq("portfolio_id", id);
+  const { data: positions } = await supabase.from("positions").select("id, ticker").eq("portfolio_id", id);
   if (!positions || positions.length === 0) return NextResponse.json({ updated: 0 });
 
   const results = await Promise.allSettled(

@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { data, error } = await supabase
     .from("price_alerts")
-    .select("*")
+    .select("id, ticker, position_id, alert_type, direction, threshold, message, is_active, last_triggered, created_at")
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
       message:     message ?? null,
       is_active:   true,
     })
-    .select()
+    .select("id, ticker, position_id, alert_type, direction, threshold, message, is_active, last_triggered, created_at")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

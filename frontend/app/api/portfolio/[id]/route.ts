@@ -18,7 +18,7 @@ export async function GET(_: NextRequest, { params }: Ctx) {
 
   const { data, error } = await supabase
     .from("portfolios")
-    .select("*")
+    .select("id, name, description, created_at, updated_at")
     .eq("id", id)
     .eq("user_id", userId)
     .single();
@@ -36,7 +36,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     .update({ name: body.name, description: body.description, updated_at: new Date().toISOString() })
     .eq("id", id)
     .eq("user_id", userId)
-    .select()
+    .select("id, name, description, created_at, updated_at")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
