@@ -16,8 +16,11 @@ jobs:
     steps:
       - name: "Supabase DB ping"
         run: |
+          # portfolios 테이블은 RLS 활성화 → anon key 접근 시 401
+          # prophet_recommendations, sector_etfs 는 DISABLE ROW LEVEL SECURITY
+          # → anon key로도 200 응답 보장
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/portfolios?select=id&limit=1" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/prophet_recommendations?select=id&limit=1" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
 
