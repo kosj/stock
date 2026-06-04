@@ -329,11 +329,13 @@ export interface QuoteData {
   market_cap: number | null;
 }
 
-export async function getQuote(ticker: string): Promise<QuoteData | null> {
+export async function getQuote(ticker: string, nocache = false): Promise<QuoteData | null> {
   const yt  = toYahooTicker(ticker);
   const key = `quote:${yt}`;
-  const hit = await cacheGet<QuoteData>(key);
-  if (hit) return hit;
+  if (!nocache) {
+    const hit = await cacheGet<QuoteData>(key);
+    if (hit) return hit;
+  }
 
   // Yahoo Finance v3 라이브러리 래퍼 — 타임아웃 2s (4s→2s: 어차피 Naver와 경쟁이므로 짧게)
   async function tryYahooLib(symbol: string): Promise<any> {

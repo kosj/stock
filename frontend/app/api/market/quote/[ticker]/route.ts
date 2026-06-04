@@ -42,8 +42,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     }
   }
 
-  // Yahoo Finance
-  const data = await getQuote(t);
+  // Yahoo Finance (nocache=1 쿼리 파라미터 시 캐시 우회 — 수동 새로고침용)
+  const nocache = req.nextUrl.searchParams.get("nocache") === "1";
+  const data = await getQuote(t, nocache);
   if (!data) return NextResponse.json({ error: "시세 조회 실패" }, { status: 404 });
   return NextResponse.json({ ...data, source: "yahoo" });
 }

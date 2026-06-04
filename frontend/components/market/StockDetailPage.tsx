@@ -71,11 +71,18 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   };
 
   // broker 로드 완료 후 시세 조회 (broker 있으면 KIS, 없으면 Yahoo)
+  // refreshInterval: 30s 자동 갱신 (서버 캐시 TTL 60s → 최대 90s 내 반영)
   const { data: quote, mutate: refreshQuote } = useSWR(
     brokerCredsLoaded ? `quote-${ticker}-${brokerCreds?.type ?? "yahoo"}` : null,
     () => api.market.quote(ticker, brokerCreds ?? undefined),
-    swrConfig,
+    { ...swrConfig, refreshInterval: 30_000 },
   );
+
+  // 수동 새로고침: 서버 캐시 우회하여 즉시 최신 시세 반영
+  async function handleForceRefresh() {
+    const fresh = await api.market.quote(ticker, brokerCreds ?? undefined, true);
+    await refreshQuote(fresh as any, { revalidate: false });
+  }
 
   const { data: chart, isLoading: chartLoading } = useSWR(
     `chart-${ticker}-${period}`,
@@ -235,7 +242,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
             </div>
           )}
         </div>
-        <Button size="sm" variant="ghost" className="shrink-0" onClick={() => refreshQuote()}>
+        <Button size="sm" variant="ghost" className="shrink-0" onClick={handleForceRefresh}>
           <RefreshCw size={13} />
         </Button>
       </div>
