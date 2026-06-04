@@ -153,9 +153,10 @@ export async function getIndexFromNaver(yahooSymbol: string): Promise<QuoteData 
     const j = await res.json();
     const toNum = (v: unknown) =>
       parseFloat(String(v ?? "0").replace(/[,+%\s]/g, "")) || 0;
-    const price      = toNum(j.closePrice ?? j.currentPrice);
-    const change     = toNum(j.compareToPreviousClosePrice);
-    const change_pct = toNum(j.fluctuationsRatio);
+    const price    = toNum(j.closePrice ?? j.currentPrice);
+    const change   = toNum(j.compareToPreviousClosePrice);
+    const rawRatio = toNum(j.fluctuationsRatio);
+    const change_pct = (change < 0 && rawRatio > 0) ? -rawRatio : rawRatio;
     if (price <= 0) return null;
     return {
       ticker:     yahooSymbol,
@@ -215,12 +216,16 @@ async function getQuoteFromNaverPolling(ticker: string): Promise<QuoteData | nul
     const price = Number(d.nv);
     if (!price || price <= 0) return null;
 
+    // cv(변동가)·cr(등락률)은 항상 양수(절댓값) — rf(등락구분)로 부호 결정
+    // rf: "2" = 상승, "5" = 하락, "3" = 보합
+    const sign = String(d.rf) === "5" ? -1 : 1;
+
     return {
       ticker,
       name:       d.nm ? String(d.nm) : ticker,
       price,
-      change:     Number(d.cv) || 0,
-      change_pct: Number(d.cr) || 0,
+      change:     sign * (Number(d.cv) || 0),
+      change_pct: sign * (Number(d.cr) || 0),
       volume:     Number(d.aq) || 0,
       high:       Number(d.hv) || price,
       low:        Number(d.lv) || price,
@@ -253,8 +258,10 @@ async function getQuoteFromNaver(ticker: string): Promise<QuoteData | null> {
       parseFloat(String(v ?? "0").replace(/[,+%\s]/g, "")) || 0;
     const price = toNum(d.closePrice ?? d.currentPrice);
     if (price <= 0) return null;
-    const change     = toNum(d.compareToPreviousClosePrice);
-    const change_pct = toNum(d.fluctuationsRatio);
+    const change   = toNum(d.compareToPreviousClosePrice);
+    const rawRatio = toNum(d.fluctuationsRatio);
+    // fluctuationsRatio가 부호 없는 절댓값으로 올 수 있음 — change 부호로 보정
+    const change_pct = (change < 0 && rawRatio > 0) ? -rawRatio : rawRatio;
     return {
       ticker,
       name:       String(d.stockName || d.reutersCode || ticker),
