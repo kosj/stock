@@ -55,7 +55,7 @@ export function ProphetBadge({ result }: Props) {
 
       {open && (
         <div
-          className="absolute z-50 left-0 top-full mt-1 w-64 rounded-xl border p-3 space-y-2.5 shadow-xl"
+          className="absolute z-50 left-0 top-full mt-1 w-64 rounded-xl border p-3 space-y-2.5 shadow-xl whitespace-normal"
           style={{ background: "var(--card)", borderColor: "var(--border)" }}
         >
           <div className="flex items-center justify-between">
