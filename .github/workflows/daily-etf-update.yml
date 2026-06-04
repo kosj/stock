@@ -1,0 +1,35 @@
+name: "ETF Daily Price Update"
+
+# 매일 오후 4:00 KST (= 07:00 UTC) — 한국장 마감(15:30) 후 30분
+# prophet-top10 과 동일한 시각에 실행하여 두 배치가 같은 날짜 데이터를 사용하도록 보장
+on:
+  schedule:
+    - cron: "0 7 * * 1-5"   # 평일(월~금)만 실행
+  workflow_dispatch:          # GitHub Actions UI에서 수동 실행 (테스트용)
+
+jobs:
+  update-etf-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5        # ETF 수집은 prophet보다 빠르므로 짧게 설정
+
+    steps:
+      - name: "ETF 일별 종가 수집 및 Supabase Upsert"
+        run: |
+          RESPONSE=$(curl -sL --max-time 60 \
+            -X POST "${{ secrets.VERCEL_APP_URL }}/api/cron/update-etf" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -w "\nHTTP_STATUS:%{http_code}")
+
+          HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
+
+          echo "HTTP Status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Response: $BODY"
+            echo "ETF 가격 수집 실패 (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+
+          echo "$BODY" | python3 -m json.tool

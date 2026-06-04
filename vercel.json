@@ -3,16 +3,6 @@
   "outputDirectory": "frontend/.next",
   "framework": "nextjs",
   "rootDirectory": "frontend",
-  "crons": [
-    {
-      "path": "/api/cron/prophet-top10",
-      "schedule": "0 7 * * 1-5"
-    },
-    {
-      "path": "/api/cron/update-etf",
-      "schedule": "0 7 * * 1-5"
-    }
-  ],
   "env": {
     "NEXT_PUBLIC_BACKEND_URL": "@backend_url"
   }
