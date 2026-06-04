@@ -70,13 +70,24 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     dedupingInterval: 0,
   };
 
+  // 이름·섹터 표시용 즉시 시세 (Yahoo, broker 로드 대기 없음)
+  // broker 없는 경우 key가 아래 quoteBroker와 동일해 SWR이 단일 요청으로 합산
+  const { data: quoteYahoo } = useSWR(
+    `quote-${ticker}-yahoo`,
+    () => api.market.quote(ticker),
+    { revalidateOnFocus: false, revalidateIfStale: false, dedupingInterval: 60_000 },
+  );
+
   // broker 로드 완료 후 시세 조회 (broker 있으면 KIS, 없으면 Yahoo)
   // refreshInterval: 30s 자동 갱신 (서버 캐시 TTL 60s → 최대 90s 내 반영)
-  const { data: quote, mutate: refreshQuote } = useSWR(
+  const { data: quoteBroker, mutate: refreshQuote } = useSWR(
     brokerCredsLoaded ? `quote-${ticker}-${brokerCreds?.type ?? "yahoo"}` : null,
     () => api.market.quote(ticker, brokerCreds ?? undefined),
     { ...swrConfig, refreshInterval: 30_000 },
   );
+
+  // broker 인증 시세 우선, 로드 전엔 Yahoo 즉시 시세 사용
+  const quote = quoteBroker ?? quoteYahoo;
 
   // 수동 새로고침: 서버 캐시 우회하여 즉시 최신 시세 반영
   async function handleForceRefresh() {
