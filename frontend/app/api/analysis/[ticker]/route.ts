@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFinancials, getChart } from "@/lib/server/yahoo-finance";
 import { calcSignals } from "@/lib/server/indicators";
 import { analyzeStock } from "@/lib/server/ai-analysis";
+import { SectorService } from "@/lib/server/sector-service";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -17,15 +18,19 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const avgPrice = parseFloat(url.searchParams.get("avg_price") ?? "") || null;
   const quantity = parseInt(url.searchParams.get("quantity") ?? "", 10) || null;
 
-  const [financials, candles] = await Promise.allSettled([
+  const [financials, candles, sectorPerf] = await Promise.allSettled([
     getFinancials(t),
     getChart(t, "1y"),
+    SectorService.getPerformance(),
   ]);
 
-  const fin  = financials.status === "fulfilled" ? financials.value  : { ticker: t } as any;
-  const cdls = candles.status   === "fulfilled" ? candles.value    : [];
+  const fin     = financials.status === "fulfilled" ? financials.value : { ticker: t } as any;
+  const cdls    = candles.status    === "fulfilled" ? candles.value    : [];
+  const sectors = sectorPerf.status === "fulfilled"
+    ? sectorPerf.value.map(s => ({ sector: s.sector ?? "", change_1m: s.change_1m }))
+    : [];
   const signals = cdls.length > 0 ? calcSignals(cdls) : {};
 
-  const result = await analyzeStock(t, fin, signals, [], anthropicKey, avgPrice, quantity);
+  const result = await analyzeStock(t, fin, signals, sectors, anthropicKey, avgPrice, quantity);
   return NextResponse.json(result);
 }
