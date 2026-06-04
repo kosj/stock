@@ -1,8 +1,8 @@
 /**
  * 자동매매 엔진 — 모의 투자용
  *
- * 전략: Prophet Top30(매수 추천) × TFT 기술 신호 복합
- *   매수: Prophet buy/strong_buy AND TFT buy/strong_buy
+ * 전략: 앙상블 Top30(매수 추천) × TFT 기술 신호 복합
+ *   매수: 앙상블 buy/strong_buy AND TFT buy/strong_buy
  *   매도: 보유 종목 중 TFT sell/strong_sell → 전량 청산
  *   포지션: 총 현금의 (1/가능슬롯)씩, 최대 10 종목
  */
@@ -44,7 +44,7 @@ interface MockPosition {
   avg_price: number;
 }
 
-// ── Prophet 최신 추천 종목 조회 ──────────────────────────────────────────────
+// ── 앙상블 최신 추천 종목 조회 ───────────────────────────────────────────────
 
 async function getLatestProphetRecs(): Promise<{ ticker: string; name: string; recommendation: string }[]> {
   const since = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
@@ -117,7 +117,7 @@ export async function runAutoTrade(userId: string): Promise<AutoTradeResult> {
   let trades_buy = 0, trades_sell = 0, skipped = 0;
 
   try {
-    // 1. 계좌 + 포지션 + Prophet 추천 동시 조회 (3 병렬)
+    // 1. 계좌 + 포지션 + 앙상블 추천 동시 조회 (3 병렬)
     const [account, { data: positionsRaw }, prophetRecs] = await Promise.all([
       getOrCreateAccount(userId),
       supabase.from("mock_positions")
@@ -233,7 +233,7 @@ export async function runAutoTrade(userId: string): Promise<AutoTradeResult> {
         boughtCount++;
         details.push({
           ticker: candidate.ticker, name: candidate.name, action: "BUY",
-          reason: `Prophet ${candidate.recommendation} + TFT ${tft.signal} (점수: ${tft.composite_score})`,
+          reason: `앙상블 ${candidate.recommendation} + TFT ${tft.signal} (점수: ${tft.composite_score})`,
           qty, price,
         });
       }

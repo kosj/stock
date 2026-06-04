@@ -15,16 +15,16 @@ interface AlgoSignal {
 // ── 각 알고리즘 → Signal 변환 ────────────────────────────────────────────────
 
 function fromProphet(r: ProphetForecastResult | null | undefined): AlgoSignal {
-  if (!r || r.insufficient_data) return { name: "Prophet", signal: "no_data", detail: "데이터 부족" };
+  if (!r || r.insufficient_data) return { name: "앙상블", signal: "no_data", detail: "데이터 부족" };
   const map: Record<string, Signal> = {
     strong_buy: "strong_buy", buy: "buy", hold: "hold", sell: "sell", strong_sell: "strong_sell",
   };
   const ret = r.predicted_return_30d;
   return {
-    name:        "Prophet",
+    name:        "앙상블",
     signal:      map[r.recommendation] ?? "hold",
     detail:      `30일 예측 ${ret >= 0 ? "+" : ""}${ret.toFixed(1)}%`,
-    description: "시계열 분해(추세·계절성·잔차) 기반 30일 가격 예측. Base 시나리오 수익률과 R² 적합도로 판단.",
+    description: "하이브리드 스태킹 앙상블(선형추세·Holt·EMA → Ridge 메타) 기반 30일 가격 예측. Base 시나리오 수익률과 R² 적합도로 판단.",
   };
 }
 
@@ -86,7 +86,7 @@ interface Props {
 
 export function AlgorithmSignalCard({ prophet, tft, loadingMap }: Props) {
   const algo: AlgoSignal[] = [
-    loadingMap.prophet ? { name: "Prophet", signal: "loading", detail: "" } : fromProphet(prophet),
+    loadingMap.prophet ? { name: "앙상블", signal: "loading", detail: "" } : fromProphet(prophet),
     loadingMap.tft     ? { name: "TFT",     signal: "loading", detail: "" } : fromTft(tft),
   ];
 

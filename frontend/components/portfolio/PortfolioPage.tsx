@@ -517,7 +517,7 @@ export function PortfolioPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "Prophet예측", "TFT신호", "손절/목표", ""].map((h) => (
+                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "앙상블예측", "TFT신호", "손절/목표", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>

@@ -3,7 +3,7 @@
  *
  * 매일 오후 4:00 KST (07:00 UTC) GitHub Actions에서 호출.
  * 1. 시총 5000억 미만 종목 사전 제거 (getQuote.market_cap 기준)
- * 2. 통과 종목에 Prophet 예측 실행
+ * 2. 통과 종목에 하이브리드 스태킹 앙상블 예측 실행
  * 3. base_return_30d 상위 30종목을 Supabase에 저장
  *
  * 인증: Authorization: Bearer <CRON_SECRET>
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
 
   console.log(`[cron] 시총 필터: ${STOCK_UNIVERSE.length} → ${candidates.length}종목`);
 
-  // ── Step 2: Prophet 병렬 분석 ─────────────────────────────────────────────
+  // ── Step 2: 하이브리드 스태킹 앙상블 병렬 분석 ───────────────────────────
   const settled = await Promise.allSettled(
     candidates.map(({ ticker, name }) =>
       Promise.race([

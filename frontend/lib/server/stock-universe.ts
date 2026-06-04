@@ -1,4 +1,4 @@
-/** Prophet 일간 추천 분석 대상 종목 풀 — 시총 5000억 이상 기준 */
+/** 앙상블 일간 추천 분석 대상 종목 풀 — 시총 5000억 이상 기준 */
 
 export interface StockInfo {
   ticker: string;

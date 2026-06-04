@@ -59,7 +59,7 @@ export function ProphetBadge({ result }: Props) {
           style={{ background: "var(--card)", borderColor: "var(--border)" }}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold">Prophet 30일 예측</span>
+            <span className="text-xs font-semibold">앙상블 30일 예측</span>
             <div className="flex items-center gap-1">
               <TrendIcon size={11} className={result.trend_direction === "up" ? "text-green-400" : result.trend_direction === "down" ? "text-red-400" : "text-muted-foreground"} />
               <span className={`text-xs font-medium ${meta.color}`}>{meta.label}</span>
