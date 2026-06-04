@@ -121,7 +121,7 @@ export function MockTradingPage() {
 
   async function handleAutoTrade() {
     setAutoRunning(true);
-    const toastId = toast.loading("자동매매 분석 중… (Prophet × TFT)");
+    const toastId = toast.loading("자동매매 분석 중… (앙상블 × TFT)");
     try {
       const result = await api.mock.autoTrade() as any;
       await Promise.all([mutateAccount(), mutateTrades(), mutateAutoLogs()]);
@@ -319,7 +319,7 @@ export function MockTradingPage() {
           <div className="flex items-center gap-2">
             <Bot size={16} className="text-blue-400" />
             <CardTitle>자동매매</CardTitle>
-            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Prophet × TFT</span>
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">앙상블 × TFT</span>
           </div>
           <Button
             size="sm"
@@ -336,7 +336,7 @@ export function MockTradingPage() {
         {/* 전략 설명 */}
         <div className="px-5 pb-4 space-y-3">
           <div className="text-xs text-muted-foreground space-y-1 bg-muted/40 rounded-lg px-3 py-2.5">
-            <div><span className="text-green-400 font-medium">매수 조건:</span> Prophet Top30 매수 추천 + TFT buy/strong_buy 동시 충족</div>
+            <div><span className="text-green-400 font-medium">매수 조건:</span> Hybrid Stacking Ensemble 매수 추천 + TFT buy/strong_buy 동시 충족</div>
             <div><span className="text-red-400 font-medium">매도 조건:</span> 보유 종목 중 TFT sell/strong_sell 신호 발생 → 전량 청산</div>
             <div><span className="text-blue-400 font-medium">포지션:</span> 최대 10종목, 자본금을 균등 분배</div>
           </div>

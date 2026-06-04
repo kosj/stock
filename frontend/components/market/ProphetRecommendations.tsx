@@ -246,7 +246,7 @@ export function ProphetRecommendations() {
       <CardHeader>
         <div className="flex items-center gap-2 flex-wrap">
           <CardTitle>
-            Prophet 추천 종목{hasData ? ` TOP ${rows.length}` : ""}
+            Hybrid Stacking Ensemble 추천 종목{hasData ? ` TOP ${rows.length}` : ""}
           </CardTitle>
           {runDate && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -391,7 +391,7 @@ export function ProphetRecommendations() {
       )}
 
       <div className="px-4 py-2 text-xs text-muted-foreground/40 border-t" style={{ borderColor: "var(--border)" }}>
-        시총 5000억 이상 · Prophet 통계 예측 기반 — 투자 손익 보장 불가 · 매일 오후 4:00 KST 자동 갱신
+        시총 5000억 이상 · Hybrid Stacking Ensemble 예측 기반 — 투자 손익 보장 불가 · 매일 오후 4:00 KST 자동 갱신
       </div>
     </Card>
   );
