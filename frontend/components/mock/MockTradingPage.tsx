@@ -412,7 +412,7 @@ export function MockTradingPage() {
       <Card>
         <CardHeader><CardTitle>거래 내역</CardTitle></CardHeader>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b" style={{ borderColor: "var(--border)" }}>
                 {["일시", "종목", "구분", "수량", "단가", "금액"].map((h) => (
@@ -427,7 +427,7 @@ export function MockTradingPage() {
                     {new Date(t.created_at).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
                   </td>
                   <td className="py-2.5 px-3">
-                    <div className="font-medium truncate max-w-[120px]">{t.name}</div>
+                    <div className="font-medium">{t.name}</div>
                     <div className="text-xs text-muted-foreground">{t.ticker}</div>
                   </td>
                   <td className="py-2.5 px-3">
