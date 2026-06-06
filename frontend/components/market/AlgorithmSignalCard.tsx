@@ -95,8 +95,9 @@ export function AlgorithmSignalCard({ prophet, loading }: Props) {
 
         {/* 설명 */}
         <p className="text-xs text-muted-foreground/60 leading-relaxed">
-          LinearTrend · Holt DES · MultiEMA 3종 베이스 모델을 OOF 워크-포워드로 Ridge 메타 학습.
-          MinMaxScaler 정규화 후 리스크 조정 스코어(수익률÷ATR%)로 최종 신호 산출.
+          LinearTrend · Holt DES · MultiEMA · TFT 4종 베이스 모델을 OOF 워크-포워드로 Ridge 메타 학습.
+          TFT(4헤드 어텐션·섹터 컨텍스트)가 중기 패턴 포착, Linear가 단기 모멘텀 담당.
+          StandardScaler 정규화 + 모델 다양성 스코어(상관관계 패널티)로 최종 신호 산출.
         </p>
       </div>
     </div>

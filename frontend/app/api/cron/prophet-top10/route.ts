@@ -7,8 +7,8 @@
  * │ Step 1. 시총 5000억 미만 제거                                               │
  * │ Step 2. Hybrid Stacking Ensemble 병렬 실행 (종목당 12s 타임아웃)           │
  * │ Step 3. 리스크 조정 복합 스코어 계산 후 상위 30 선정                        │
- * │   ① 복합 수익률  = 0.6 × return30d + 0.4 × return5d                       │
- * │   ② 리스크 조정  = 복합 수익률 / atr_pct  (샤프 비율 아날로그)             │
+ * │   ① 복합 수익률  = 0.6 × tft_return_30d + 0.4 × linear_return_5d          │
+ * │   ② 리스크 조정  = 복합 수익률 / atr_pct × diversity_score                │
  * │   ③ 섹터 캡      = 동일 섹터 최대 5개 (쏠림 방지)                          │
  * │ Step 4. Supabase upsert                                                     │
  * └─────────────────────────────────────────────────────────────────────────────┘
@@ -21,6 +21,7 @@ import { prophetForecast } from "@/lib/server/prophet-forecast";
 import { getQuote } from "@/lib/server/yahoo-finance";
 import { supabase } from "@/lib/server/supabase";
 import { STOCK_UNIVERSE, MIN_MARKET_CAP_KRW } from "@/lib/server/stock-universe";
+import type { StaticCovariates } from "@/lib/server/prophet-forecast";
 
 export const dynamic    = "force-dynamic";
 export const maxDuration = 60;
@@ -36,9 +37,11 @@ const SECTOR_MAX_COUNT = 5;
 
 /**
  * 복합 수익률 가중치
- *   - 30일(중기) 예측: 0.6 — 추세 방향성 중심
- *   - 5일(단기) 예측:  0.4 — 모멘텀 민감도 보완
- * 5일 예측이 30일보다 일반적으로 더 정확하므로 보조 신호로 활용.
+ *   - TFT 30일 예측:        0.6 — 어텐션 기반 중기 패턴 방향성
+ *   - LinearTrend 5일 예측: 0.4 — 단기 선형 모멘텀 (LightGBM 프록시)
+ *
+ * TFT가 중기 패턴 매칭, Linear가 단기 모멘텀 포착으로 역할 분리.
+ * diversity_score로 모델 간 상관관계 패널티 추가.
  */
 const WEIGHT_30D = 0.6;
 const WEIGHT_5D  = 0.4;
@@ -68,16 +71,17 @@ export async function POST(request: NextRequest) {
 
   console.log(`[cron] 시총 필터: ${STOCK_UNIVERSE.length} → ${candidates.length}종목`);
 
-  // ── Step 2: 하이브리드 스태킹 앙상블 병렬 분석 ───────────────────────────
+  // ── Step 2: 하이브리드 스태킹 앙상블 병렬 분석 (섹터 static covariate 전달) ──
   const settled = await Promise.allSettled(
-    candidates.map(({ ticker, name }) =>
-      Promise.race([
-        prophetForecast(ticker).then(r => ({ ...r, stock_name: name })),
+    candidates.map(({ ticker, name, sector }) => {
+      const cov: StaticCovariates = { sector };
+      return Promise.race([
+        prophetForecast(ticker, cov).then(r => ({ ...r, stock_name: name })),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error(`timeout:${ticker}`)), PER_TICKER_TIMEOUT_MS),
         ),
-      ]),
-    ),
+      ]);
+    }),
   );
 
   type ForecastRow = Awaited<ReturnType<typeof prophetForecast>> & {
@@ -91,18 +95,16 @@ export async function POST(request: NextRequest) {
   //
   // ┌ 공식 ───────────────────────────────────────────────────────────────────┐
   // │                                                                         │
-  // │  composite_return = 0.6 × base_return_30d + 0.4 × predicted_return_5d  │
+  // │  composite_return = 0.6 × tft_return_30d + 0.4 × linear_return_5d      │
+  // │    → TFT: 어텐션 기반 중기 패턴 (Layer 1 Model D)                       │
+  // │    → Linear: 단기 선형 모멘텀  (Layer 1 Model A)                        │
   // │                                                                         │
-  // │  risk_adjusted_score = composite_return / atr_pct                       │
+  // │  risk_adjusted_score = (composite / atr_pct) × diversity_score          │
+  // │    → atr_pct:       변동성 조정 (Sharpe 아날로그)                       │
+  // │    → diversity_score: 4개 모델 상관관계 패널티 [0.88, 1.0]              │
+  // │      모델이 독립적 신호를 제공할수록 score 가산 → 다양성 장려            │
   // │                                                                         │
-  // │  직관: 같은 기대 수익률이라면 변동성(ATR%)이 낮은 종목이 더 유리.       │
-  // │        예) 수익률 +9%, ATR% 3% → score=3.0                             │
-  // │            수익률 +12%, ATR% 9% → score=1.33  ← 더 낮음                │
-  // │        → 고변동성 대비 실질 수익이 높은 종목 선별 (Sharpe 아날로그)     │
-  // │                                                                         │
-  // │  atr_pct 최솟값: ATR_PCT_FLOOR=0.5% (prophetForecast 내부에서 클램핑)  │
-  // │  → 0으로 나누기 방지 보장 (atr_pct는 항상 0.5 이상)                    │
-  // │                                                                         │
+  // │  atr_pct 최솟값: ATR_PCT_FLOOR=0.5% (prophetForecast 내부 클램핑)       │
   // └─────────────────────────────────────────────────────────────────────────┘
   const scored: ForecastRow[] = [];
 
@@ -110,14 +112,15 @@ export async function POST(request: NextRequest) {
     if (r.status !== "fulfilled") return;
 
     const f = r.value;
-    if (f.insufficient_data || f.current_price <= 0 || !isFinite(f.scenarios.base_return_30d)) return;
+    if (f.insufficient_data || f.current_price <= 0 || !isFinite(f.tft_return_30d)) return;
 
+    // TFT 30d(중기 패턴) + LinearTrend 5d(단기 모멘텀) ATR 가중 복합 수익률
     const composite_return =
-      WEIGHT_30D * f.scenarios.base_return_30d +
-      WEIGHT_5D  * f.predicted_return_5d;
+      WEIGHT_30D * f.tft_return_30d +
+      WEIGHT_5D  * f.linear_return_5d;
 
-    // atr_pct는 prophetForecast 내부에서 [0.5, 12.0] 클램핑 보장 → 0 나누기 없음
-    const risk_adjusted_score = composite_return / f.atr_pct;
+    // 리스크 조정 + 다양성 팩터 (상관관계 높으면 패널티)
+    const risk_adjusted_score = (composite_return / f.atr_pct) * f.diversity_score;
 
     scored.push({
       ...f,
@@ -215,10 +218,11 @@ export async function POST(request: NextRequest) {
     ticker:               r.ticker,
     name:                 r.stock_name,
     sector:               r.sector,
-    base_return_30d:      +r.scenarios.base_return_30d.toFixed(2),
-    predicted_return_5d:  +r.predicted_return_5d.toFixed(2),
+    tft_return_30d:       +r.tft_return_30d.toFixed(2),
+    linear_return_5d:     +r.linear_return_5d.toFixed(2),
     composite_return:     +r.composite_return.toFixed(2),
     atr_pct:              +r.atr_pct.toFixed(2),
+    diversity_score:      +r.diversity_score.toFixed(3),
     risk_adjusted_score:  +r.risk_adjusted_score.toFixed(3),
     recommendation:       r.recommendation,
   }));
