@@ -427,19 +427,38 @@ def _apply_sector_cap(df: pd.DataFrame, cap: int) -> pd.DataFrame:
 # Supabase 저장
 # ─────────────────────────────────────────────────────────────────────────────
 
-def upsert_supabase(rows: list) -> None:
-    # on_conflict: (run_date, rank) unique constraint 기준 충돌 해소.
-    # PostgREST는 on_conflict 파라미터 없이는 PK만 충돌 대상으로 삼아 409 발생.
-    url = f"{SUPABASE_URL}/rest/v1/prophet_recommendations?on_conflict=run_date,rank"
+def upsert_supabase(rows: list, run_date: str) -> None:
+    """
+    on_conflict/upsert 대신 delete → insert 패턴 사용.
+    이유:
+      - PostgREST on_conflict는 DB 레벨 UNIQUE 제약 필요 (없으면 400)
+      - 매일 1회 실행이므로 당일 데이터 삭제 후 재삽입이 더 단순하고 안전
+      - 재실행 시에도 멱등(idempotent) 보장
+    """
+    base_url = f"{SUPABASE_URL}/rest/v1/prophet_recommendations"
     headers = {
         "apikey":        SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type":  "application/json",
-        "Prefer":        "resolution=merge-duplicates,return=minimal",
+        "Prefer":        "return=minimal",
     }
-    resp = requests.post(url, headers=headers, json=rows, timeout=30)
-    resp.raise_for_status()
-    print(f"[supabase] {len(rows)}행 upsert 완료")
+
+    # Step 1: 당일 기존 행 삭제
+    del_resp = requests.delete(
+        f"{base_url}?run_date=eq.{run_date}",
+        headers=headers,
+        timeout=15,
+    )
+    if not del_resp.ok:
+        print(f"  [warn] 기존 행 삭제 실패 (무시하고 계속): "
+              f"{del_resp.status_code} {del_resp.text[:120]}")
+
+    # Step 2: 새 행 삽입
+    ins_resp = requests.post(base_url, headers=headers, json=rows, timeout=30)
+    if not ins_resp.ok:
+        print(f"  [error] 삽입 실패 응답 본문: {ins_resp.text[:400]}")
+    ins_resp.raise_for_status()
+    print(f"[supabase] {len(rows)}행 저장 완료")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -621,12 +640,10 @@ def main() -> None:
             "recommendation":       _rec_label(score),
             "r_squared":            round(oof_r2, 4),
             "trend_direction":      _trend_dir(row["ret_20d"]),
-            "composite_return":     round(a5  * 100, 2),    # 앙상블 복합 수익률
-            "risk_adjusted_score":  round(score, 4),
             "accuracy_json":        None,
         })
 
-    upsert_supabase(rows)
+    upsert_supabase(rows, run_date)
     print(f"\n완료: {run_date}  Top {len(rows)} 종목 저장\n")
 
 
