@@ -400,18 +400,16 @@ def _apply_sector_cap(df: pd.DataFrame, cap: int) -> pd.DataFrame:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def upsert_supabase(rows: list) -> None:
+    # on_conflict: (run_date, rank) unique constraint 기준 충돌 해소.
+    # PostgREST는 on_conflict 파라미터 없이는 PK만 충돌 대상으로 삼아 409 발생.
+    url = f"{SUPABASE_URL}/rest/v1/prophet_recommendations?on_conflict=run_date,rank"
     headers = {
         "apikey":        SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type":  "application/json",
-        "Prefer":        "resolution=merge-duplicates",
+        "Prefer":        "resolution=merge-duplicates,return=minimal",
     }
-    resp = requests.post(
-        f"{SUPABASE_URL}/rest/v1/prophet_recommendations",
-        headers=headers,
-        json=rows,
-        timeout=30,
-    )
+    resp = requests.post(url, headers=headers, json=rows, timeout=30)
     resp.raise_for_status()
     print(f"[supabase] {len(rows)}행 upsert 완료")
 
