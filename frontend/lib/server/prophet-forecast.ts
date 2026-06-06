@@ -156,10 +156,11 @@ function solve(A: Mat, b: Vec): Vec {
   return M.map((r, i) => (Math.abs(r[i]) < 1e-14 ? 0 : r[n] / r[i]));
 }
 
-function fitRidge(X: Mat, y: Vec): Vec {
+function fitRidge(X: Mat, y: Vec, hasIntercept = false): Vec {
   const Xt  = tr(X);
   const XtX = mm(Xt, X);
-  for (let i = 0; i < XtX.length; i++) XtX[i][i] += RIDGE_LAMBDA;
+  // intercept 컬럼(i=0)은 L2 페널티 제외: 절편 수축 시 주가 레벨 예측값 붕괴
+  for (let i = hasIntercept ? 1 : 0; i < XtX.length; i++) XtX[i][i] += RIDGE_LAMBDA;
   return solve(XtX, mv(Xt, y));
 }
 
@@ -422,28 +423,30 @@ function computeTftFittedValues(prices: Vec, cov: StaticCovariates): Vec {
   const winSize = Math.min(TFT_WIN, n);
   const { bias, grnScale } = computeStaticContext(cov);
 
-  // 1-step 키/밸류 전체 빌드 (한 번만)
-  const allKeys: Vec[]    = [];
-  const allVals: number[] = [];
-  const allFutRets: number[] = [];
-
-  for (let endI = winSize - 1; endI + 1 < n; endI++) {
-    allKeys.push(embedPriceWindow(prices, endI, winSize));
-    allVals.push(prices[endI + 1]);
-    allFutRets.push((prices[endI + 1] - prices[endI]) / (prices[endI] || 1));
-  }
-
   const fitted: Vec = [...prices];
 
   for (let t = winSize; t < n; t++) {
     const query   = embedPriceWindow(prices, t - 1, winSize);
-    const scores  = allKeys.map((k, i) => {
-      return multiHeadDot(query, k) + bias * 0.15 * Math.sign(allFutRets[i]);
-    });
-    const weights  = softmaxT(scores, TFT_TEMP);
-    const rawPred  = weights.reduce((sum, w, i) => sum + w * allVals[i], 0);
-    const rawRet   = (rawPred - prices[t - 1]) / (prices[t - 1] || 1);
-    fitted[t]      = Math.max(0, prices[t - 1] * (1 + rawRet * grnScale));
+    const scores: number[] = [];
+    const vals:   number[] = [];
+
+    // endI+1 ≤ t-1 → endI ≤ t-2: 시점 t 이전 데이터만 키/밸류로 한정 (인과성 보장)
+    // 기존: allKeys 전체 빌드 → 미래 키 포함 → R² 과대 추정 + sigma 과소 추정
+    for (let endI = winSize - 1; endI <= t - 2; endI++) {
+      const futRet = (prices[endI + 1] - prices[endI]) / (prices[endI] || 1);
+      scores.push(
+        multiHeadDot(query, embedPriceWindow(prices, endI, winSize)) +
+        bias * 0.15 * Math.sign(futRet),
+      );
+      vals.push(prices[endI + 1]);
+    }
+
+    if (scores.length === 0) { fitted[t] = prices[t - 1]; continue; }
+
+    const weights = softmaxT(scores, TFT_TEMP);
+    const rawPred = weights.reduce((sum, w, i) => sum + w * vals[i], 0);
+    const rawRet  = (rawPred - prices[t - 1]) / (prices[t - 1] || 1);
+    fitted[t]     = Math.max(0, prices[t - 1] * (1 + rawRet * grnScale));
   }
 
   return fitted;
@@ -707,9 +710,8 @@ export async function prophetForecast(
   const prices = candles.map(c => c.close);
   const n      = prices.length;
 
-  const tMin  = dates[0].getTime();
-  const tSpan = dates[n - 1].getTime() - tMin;
-  const ts    = dates.map(d => (d.getTime() - tMin) / tSpan);
+  // 정수 인덱스: 전체 tSpan을 사전에 알아야 하는 미래 참조 차단
+  const ts = dates.map((_, i) => i);
 
   // ── Layer 1: 베이스 모델 4종 전체 인샘플 적합 ───────────────────────────────
   const coefA  = fitLinear(ts, prices);
@@ -724,32 +726,37 @@ export async function prophetForecast(
   const { oofMat, oofTargets, oofA, oofB, oofC, oofD } =
     buildOofPredictions(prices, ts, covariates);
 
-  // 인터셉트 컬럼 추가: 절편 없는 Ridge는 X̄=0일 때 ŷ≈0 → 실제 주가 레벨 예측 불가
-  // 4개 모델이 모두 동일 단위(원화 주가)로 예측 → StandardScaler 불필요
-  const oofWithBias = oofMat.map(row => [1, ...row]);
-  const metaBeta    = fitRidge(oofWithBias, oofTargets);
+  // OOF → StandardScaler(모델별 예측 분산 정규화) → 인터셉트 추가 → Ridge(절편 미페널티)
+  // StandardScaler: LinearTrend·TFT 등 모델별 예측 분산 차이 → 공정한 가중치 배분
+  // hasIntercept=true: 절편(i=0)을 L2 페널티에서 제외 (주가 기본 레벨 수축 방지)
+  const xScaler     = new StandardScaler();
+  const scaledOof   = xScaler.fitTransform(oofMat);
+  const oofWithBias = scaledOof.map(row => [1, ...row]);
+  const metaBeta    = fitRidge(oofWithBias, oofTargets, true);
 
   // 다양성 스코어 (6쌍 상관관계 패널티)
   const diversity_score = computeDiversityScore(oofA, oofB, oofC, oofD);
 
   // ── 인샘플 메타 예측 (R², σ 계산용) ─────────────────────────────────────────
-  const inSampleMat = fittedA.map((a, i) => [a, fittedB[i], fittedC[i], fittedD[i]]);
-  const y_fit       = mv(inSampleMat.map(row => [1, ...row]), metaBeta);
+  const inSampleMat    = fittedA.map((a, i) => [a, fittedB[i], fittedC[i], fittedD[i]]);
+  const scaledInSample = xScaler.transform(inSampleMat);
+  const y_fit          = mv(scaledInSample.map(row => [1, ...row]), metaBeta);
   const resids         = prices.map((p, i) => p - y_fit[i]);
   const sigma          = stddev(resids);
   const R2             = r2(prices, y_fit);
 
   // ── 미래 30 거래일 예측 ─────────────────────────────────────────────────────
   const futureDates = nextTradingDates(dates[n - 1], FORECAST_DAYS);
-  const futureTs    = futureDates.map(d => (d.getTime() - tMin) / tSpan);
+  const futureTs    = Array.from({ length: FORECAST_DAYS }, (_, i) => n + i);
 
   const futureA = predictLinear(coefA, futureTs);
   const futureB = holtForecast(stateB, FORECAST_DAYS);
   const futureC = multiEmaForecast(prices, FORECAST_DAYS);
   const futureD = tftForecastMultiStep(prices, FORECAST_DAYS, covariates);
 
-  const futureMat = futureA.map((a, i) => [a, futureB[i], futureC[i], futureD[i]]);
-  const y_future  = mv(futureMat.map(row => [1, ...row]), metaBeta);
+  const futureMat    = futureA.map((a, i) => [a, futureB[i], futureC[i], futureD[i]]);
+  const scaledFuture = xScaler.transform(futureMat);
+  const y_future     = mv(scaledFuture.map(row => [1, ...row]), metaBeta);
 
   // ── 개별 모델 수익률 (크론 복합 스코어용) ────────────────────────────────────
   const currentPrice   = prices[n - 1];
@@ -797,8 +804,8 @@ export async function prophetForecast(
   const regimeShifts = detectRegimeShifts(prices, dates);
 
   // ── 추세 + 추천 신호 ─────────────────────────────────────────────────────────
-  const tNow      = ts[n - 1];
-  const tNext1y   = tNow + (252 / n);
+  const tNow      = ts[n - 1];  // = n - 1 (정수 인덱스)
+  const tNext1y   = tNow + 252; // 252 거래일(≈ 1년) 선행
   const slopeAnnPct =
     Math.abs(currentPrice) > 1
       ? ((coefA[0] + coefA[1] * tNext1y - currentPrice) / currentPrice) * 100
