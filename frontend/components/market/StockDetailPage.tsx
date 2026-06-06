@@ -13,14 +13,15 @@ import { PullbackCard } from "./PullbackCard";
 import { ProfitTakingCard } from "./ProfitTakingCard";
 import { StopLossCard } from "./StopLossCard";
 import { ProphetForecastCard } from "./ProphetForecastCard";
-import { TftAnalysisCard } from "./TftAnalysisCard";
 import { AlgorithmSignalCard } from "./AlgorithmSignalCard";
+import { PositionDetailCard } from "./PositionDetailCard";
 import { CompanyOverviewCard } from "./CompanyOverviewCard";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 import type { StopLossResult } from "@/lib/server/stop-loss-signal";
 import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
 import type { DartCompanyInfo } from "@/lib/server/dart";
+import type { PositionAnalysisResult } from "@/lib/server/position-manager-service";
 
 const PERIODS = ["1m", "3m", "6m", "1y", "2y", "5y"] as const;
 type Period = typeof PERIODS[number];
@@ -31,9 +32,11 @@ const PERIOD_LABELS: Record<Period, string> = {
 };
 
 interface Props {
-  ticker: string;
-  avgPrice?: number | null;
-  quantity?: number | null;
+  ticker:      string;
+  avgPrice?:   number | null;
+  quantity?:   number | null;
+  portfolioId?: number | null;
+  positionId?:  number | null;
 }
 
 type BrokerCreds = { type: string; appKey: string; appSecret: string } | null;
@@ -45,7 +48,7 @@ function formatDate(dateStr: string | null | undefined): string {
   return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
 }
 
-export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
+export function StockDetailPage({ ticker, avgPrice, quantity, portfolioId, positionId }: Props) {
   const [period, setPeriod] = useState<Period>("1y");
   const [brokerCreds, setBrokerCreds] = useState<BrokerCreds>(null);
   const [brokerCredsLoaded, setBrokerCredsLoaded] = useState(false);
@@ -167,16 +170,16 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   );
   const prophetResult = prophetRaw?.[0] ?? null;
 
-  // TFT 멀티팩터 분석
-  const { data: tftResult, isLoading: isTftLoading } = useSWR<import("@/app/api/analysis/tft/route").TftResult>(
-    `tft-${ticker}`,
-    async () => {
-      const res = await fetch(`/api/analysis/tft?ticker=${encodeURIComponent(ticker)}`);
-      if (!res.ok) return null;
-      return res.json();
-    },
-    { revalidateOnFocus: false, dedupingInterval: 300_000 },
-  );
+  // 포지션 관리 분석 — portfolioId, positionId 있을 때만 (포트폴리오에서 진입 시)
+  const { data: positionAnalysisData, isLoading: isPositionAnalysisLoading } =
+    useSWR<{ results: PositionAnalysisResult[] }>(
+      hasPosition && portfolioId ? `position-analysis-${portfolioId}` : null,
+      () => api.portfolio.positionAnalysis(portfolioId!) as Promise<{ results: PositionAnalysisResult[] }>,
+      { revalidateOnFocus: false, dedupingInterval: 300_000 },
+    );
+  const positionAnalysis = positionAnalysisData?.results?.find(
+    (r) => r.position_id === positionId,
+  ) ?? null;
 
   // 눌림목 패턴 분석 (3개월 데이터 기준)
   const { data: pullbackRaw, isLoading: isPullbackLoading } = useSWR<PullbackResult[]>(
@@ -498,21 +501,19 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
         </Card>
       </div>
 
-      {/* 알고리즘 종합 신호 */}
-      <AlgorithmSignalCard
-        prophet={prophetResult}
-        tft={tftResult ?? null}
-        loadingMap={{
-          prophet: isProphetLoading,
-          tft:     isTftLoading,
-        }}
-      />
+      {/* 앙상블 알고리즘 신호 */}
+      <AlgorithmSignalCard prophet={prophetResult} loading={isProphetLoading} />
 
       {/* Prophet 가격 예측 */}
       <ProphetForecastCard result={prophetResult} loading={isProphetLoading} />
 
-      {/* TFT 멀티팩터 분석 */}
-      <TftAnalysisCard result={tftResult ?? null} loading={isTftLoading} />
+      {/* 포지션 관리 — 포트폴리오에서 진입 시에만 표시 */}
+      {hasPosition && portfolioId && (positionAnalysis || isPositionAnalysisLoading) && (
+        <PositionDetailCard
+          result={positionAnalysis!}
+          loading={isPositionAnalysisLoading || !positionAnalysis}
+        />
+      )}
 
       {/* 손절 시그널 — 보유 포지션 있을 때는 손실(-) 구간에서만 표시 */}
       {(!hasPosition || positionPnlPct === null || positionPnlPct < 0) && (

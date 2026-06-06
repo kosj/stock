@@ -1,55 +1,8 @@
 "use client";
 
 import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
-import type { TftResult } from "@/app/api/analysis/tft/route";
 
 type Signal = "strong_buy" | "buy" | "hold" | "sell" | "strong_sell" | "loading" | "no_data";
-
-interface AlgoSignal {
-  name: string;
-  signal: Signal;
-  detail: string;
-  description?: string;
-}
-
-// ── 각 알고리즘 → Signal 변환 ────────────────────────────────────────────────
-
-function fromProphet(r: ProphetForecastResult | null | undefined): AlgoSignal {
-  if (!r || r.insufficient_data) return { name: "앙상블", signal: "no_data", detail: "데이터 부족" };
-  const map: Record<string, Signal> = {
-    strong_buy: "strong_buy", buy: "buy", hold: "hold", sell: "sell", strong_sell: "strong_sell",
-  };
-  const ret = r.predicted_return_30d;
-  return {
-    name:        "앙상블",
-    signal:      map[r.recommendation] ?? "hold",
-    detail:      `30일 예측 ${ret >= 0 ? "+" : ""}${ret.toFixed(1)}%`,
-    description: "추세·기술지표·모멘텀 다중 모델을 스태킹 앙상블로 결합한 30일 가격 예측. Base 시나리오 수익률과 R² 적합도로 판단.",
-  };
-}
-
-function fromTft(r: TftResult | null | undefined): AlgoSignal {
-  if (!r || r.insufficient_data) return { name: "TFT", signal: "no_data", detail: "데이터 부족" };
-  const map: Record<string, Signal> = {
-    strong_buy: "strong_buy", buy: "buy", hold: "hold", sell: "sell", strong_sell: "strong_sell",
-  };
-  const score = r.composite_score;
-
-  // 주요 기여 팩터 추출 (상위 2개)
-  const topFactors = r.factors
-    .slice(0, 2)
-    .map(f => `${f.label}(${f.score >= 0 ? "+" : ""}${f.score.toFixed(1)})`)
-    .join(", ");
-
-  return {
-    name:        "TFT",
-    signal:      map[r.signal] ?? "hold",
-    detail:      `종합점수 ${score >= 0 ? "+" : ""}${score}점`,
-    description: `RSI·MACD·볼린저밴드·거래량·MA교차·모멘텀·변동성 7개 팩터 가중합. -100(강매도)~+100(강매수). 주요: ${topFactors || "분석 중"}`,
-  };
-}
-
-// ── 신호 메타 ─────────────────────────────────────────────────────────────────
 
 const SIGNAL_META: Record<Signal, { label: string; color: string; bg: string; border: string }> = {
   strong_buy:  { label: "강력 매수", color: "text-emerald-400", bg: "bg-emerald-500/12", border: "border-emerald-500/30" },
@@ -61,91 +14,90 @@ const SIGNAL_META: Record<Signal, { label: string; color: string; bg: string; bo
   no_data:     { label: "-",         color: "text-muted-foreground/50", bg: "bg-muted/20", border: "border-transparent"  },
 };
 
-const SCORE: Record<Signal, number> = {
-  strong_buy: 2, buy: 1, hold: 0, sell: -1, strong_sell: -2, loading: 0, no_data: 0,
-};
-
-function calcOverall(signals: AlgoSignal[]): Signal {
-  const valid = signals.filter(s => s.signal !== "loading" && s.signal !== "no_data");
-  if (!valid.length) return "no_data";
-  const avg = valid.reduce((s, a) => s + SCORE[a.signal], 0) / valid.length;
-  if (avg >= 1.2)  return "strong_buy";
-  if (avg >= 0.4)  return "buy";
-  if (avg >= -0.4) return "hold";
-  if (avg >= -1.2) return "sell";
-  return "strong_sell";
-}
-
-// ── 컴포넌트 ──────────────────────────────────────────────────────────────────
-
 interface Props {
   prophet:    ProphetForecastResult | null;
-  tft:        TftResult             | null;
-  loadingMap: Partial<Record<"prophet" | "tft", boolean>>;
+  loading?:   boolean;
 }
 
-export function AlgorithmSignalCard({ prophet, tft, loadingMap }: Props) {
-  const algo: AlgoSignal[] = [
-    loadingMap.prophet ? { name: "앙상블", signal: "loading", detail: "" } : fromProphet(prophet),
-    loadingMap.tft     ? { name: "TFT",     signal: "loading", detail: "" } : fromTft(tft),
-  ];
+export function AlgorithmSignalCard({ prophet, loading }: Props) {
+  const signal: Signal = loading
+    ? "loading"
+    : !prophet || prophet.insufficient_data
+      ? "no_data"
+      : (({
+          strong_buy: "strong_buy", buy: "buy", hold: "hold",
+          sell: "sell", strong_sell: "strong_sell",
+        } as Record<string, Signal>)[prophet.recommendation] ?? "hold");
 
-  const overall = calcOverall(algo);
-  const om      = SIGNAL_META[overall];
+  const m = SIGNAL_META[signal];
 
-  const buyCount  = algo.filter(a => a.signal === "buy" || a.signal === "strong_buy").length;
-  const holdCount = algo.filter(a => a.signal === "hold").length;
-  const sellCount = algo.filter(a => a.signal === "sell" || a.signal === "strong_sell").length;
+  const ret5d  = prophet?.predicted_return_5d  ?? null;
+  const ret30d = prophet?.predicted_return_30d ?? null;
+  const r2     = prophet?.r_squared            ?? null;
+  const atrPct = prophet?.atr_pct              ?? null;
+  const trend  = prophet?.trend_direction      ?? null;
+
+  const TREND_LABEL: Record<string, string> = { up: "▲ 상승", down: "▼ 하락", flat: "→ 횡보" };
+  const TREND_COLOR: Record<string, string> = { up: "text-green-400", down: "text-red-400", flat: "text-muted-foreground" };
 
   return (
     <div className="rounded-xl border overflow-hidden"
       style={{ background: "var(--card)", borderColor: "var(--border)" }}>
 
-      {/* 헤더 — 종합 판단 */}
+      {/* 헤더 */}
       <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-y-2 border-b"
         style={{ borderColor: "var(--border)" }}>
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-sm font-semibold whitespace-nowrap">알고리즘 종합 신호</span>
-          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap ${om.bg} ${om.color} ${om.border}`}>
-            {om.label}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 text-xs shrink-0">
-          <span className="text-green-400 font-medium">{buyCount} 매수</span>
-          <span className="text-yellow-400 font-medium">{holdCount} 보유</span>
-          <span className="text-red-400 font-medium">{sellCount} 매도</span>
-        </div>
+        <span className="text-sm font-semibold">하이브리드 스태킹 앙상블 신호</span>
+        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap ${m.bg} ${m.color} ${m.border} ${loading ? "animate-pulse" : ""}`}>
+          {m.label}
+        </span>
       </div>
 
-      {/* 알고리즘별 신호 */}
-      <div className="grid grid-cols-2 divide-x" style={{ borderColor: "var(--border)" }}>
-        {algo.map((a) => {
-          const m = SIGNAL_META[a.signal];
-          return (
-            <div key={a.name} className="px-4 py-4 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">{a.name}</span>
-                <span className={`px-2 py-0.5 rounded-md text-xs font-semibold border whitespace-nowrap ${m.bg} ${m.color} ${m.border} ${a.signal === "loading" ? "animate-pulse" : ""}`}>
-                  {m.label}
-                </span>
+      {/* 바디 */}
+      <div className="px-4 py-4 space-y-3">
+        {/* 예측 수익률 */}
+        <div className="flex flex-wrap gap-4">
+          {ret5d !== null && (
+            <div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">5일 예측</div>
+              <div className={`text-lg font-bold tabular-nums ${ret5d >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {ret5d >= 0 ? "+" : ""}{ret5d.toFixed(2)}%
               </div>
-              {a.detail && (
-                <span className={`text-sm font-medium tabular-nums ${
-                  a.signal === "strong_buy" || a.signal === "buy" ? "text-green-400" :
-                  a.signal === "sell" || a.signal === "strong_sell" ? "text-red-400" :
-                  "text-muted-foreground"
-                }`}>
-                  {a.detail}
-                </span>
-              )}
-              {a.description && (
-                <p className="text-xs text-muted-foreground/60 leading-relaxed">
-                  {a.description}
-                </p>
-              )}
             </div>
-          );
-        })}
+          )}
+          {ret30d !== null && (
+            <div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">30일 예측 (Base)</div>
+              <div className={`text-lg font-bold tabular-nums ${ret30d >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {ret30d >= 0 ? "+" : ""}{ret30d.toFixed(2)}%
+              </div>
+            </div>
+          )}
+          {trend && (
+            <div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">추세 방향</div>
+              <div className={`text-lg font-bold ${TREND_COLOR[trend] ?? "text-muted-foreground"}`}>
+                {TREND_LABEL[trend] ?? trend}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 보조 지표 */}
+        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+          {r2 !== null && (
+            <span>모델 적합도(R²) <span className="text-foreground font-medium">{(r2 * 100).toFixed(1)}%</span></span>
+          )}
+          {atrPct !== null && (
+            <span>ATR 변동성 <span className="text-foreground font-medium">{atrPct.toFixed(2)}%</span></span>
+          )}
+        </div>
+
+        {/* 설명 */}
+        <p className="text-xs text-muted-foreground/60 leading-relaxed">
+          LinearTrend · Holt DES · MultiEMA 3종 베이스 모델을 OOF 워크-포워드로 Ridge 메타 학습.
+          MinMaxScaler 정규화 후 리스크 조정 스코어(수익률÷ATR%)로 최종 신호 산출.
+        </p>
       </div>
     </div>
   );

@@ -5,24 +5,16 @@ import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { formatNumber, formatPercent, colorByChange } from "@/lib/utils";
-import { Plus, Trash2, Pencil, RefreshCw, TrendingUp, TrendingDown, Zap, Check, Building2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Pencil, RefreshCw, Zap, Check, Building2, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { PositionModal } from "./PositionModal";
 import { PortfolioCreateModal } from "./PortfolioCreateModal";
 import { BrokerHoldingsModal } from "./BrokerHoldingsModal";
-import { PullbackBadge } from "./PullbackBadge";
-import { ProfitTakingBadge } from "./ProfitTakingBadge";
-import { StopLossBadge } from "./StopLossBadge";
-import { ProphetBadge } from "./ProphetBadge";
 import { PositionActionBadge } from "./PositionActionBadge";
 import { toast } from "sonner";
 import { useRealtimePrices } from "@/lib/websocket";
 import { BrokerConfigManager } from "@/lib/apiConfig";
 import type { BrokerHolding } from "@/lib/server/providers";
-import type { PullbackResult } from "@/lib/server/pullback-analysis";
-import type { ProfitTakingResult } from "@/lib/server/profit-taking";
-import type { StopLossResult } from "@/lib/server/stop-loss-signal";
-import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
 import type { PositionAnalysisResult } from "@/lib/server/position-manager-service";
 
 // summary 캐시에서 positions 변경 후 합계 재계산 (Yahoo 재조회 없이 로컬 계산)
@@ -97,113 +89,7 @@ export function PortfolioPage() {
   const tickers = (summary as any)?.positions?.map((p: any) => p.ticker) ?? [];
   const rt = useRealtimePrices(tickers);
 
-  // ── 눌림목 분석 ─────────────────────────────────────────────────────────────
-  const { data: pullbackData } = useSWR<PullbackResult[]>(
-    tickers.length > 0 ? `pullback-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/pullback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    {
-      revalidateOnFocus: false,
-      refreshInterval: 300_000,    // 5분마다 갱신
-      dedupingInterval: 60_000,
-    },
-  );
-  const pullbackMap = new Map<string, PullbackResult>(
-    pullbackData?.map((r) => [r.ticker, r]) ?? [],
-  );
-
-  // ── 익절 시그널 분석 ──────────────────────────────────────────────────────
-  const { data: profitTakingData } = useSWR<ProfitTakingResult[]>(
-    tickers.length > 0 ? `profit-taking-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/profit-taking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    {
-      revalidateOnFocus: false,
-      refreshInterval: 300_000,
-      dedupingInterval: 60_000,
-    },
-  );
-  const profitTakingMap = new Map<string, ProfitTakingResult>(
-    profitTakingData?.map((r) => [r.ticker, r]) ?? [],
-  );
-
-  // ── 손절 시그널 분석 ──────────────────────────────────────────────────────
-  const { data: stopLossData } = useSWR<StopLossResult[]>(
-    tickers.length > 0 ? `stop-loss-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/stop-loss", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    {
-      revalidateOnFocus: false,
-      refreshInterval: 300_000,
-      dedupingInterval: 60_000,
-    },
-  );
-  const stopLossMap = new Map<string, StopLossResult>(
-    stopLossData?.map((r) => [r.ticker, r]) ?? [],
-  );
-
-  // ── TFT 멀티팩터 분석 ────────────────────────────────────────────────────
-  const { data: tftData } = useSWR<import("@/app/api/analysis/tft/route").TftResult[]>(
-    tickers.length > 0 ? `tft-portfolio-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/tft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    { revalidateOnFocus: false, refreshInterval: 300_000, dedupingInterval: 60_000 },
-  );
-  const tftMap = new Map<string, import("@/app/api/analysis/tft/route").TftResult>(
-    tftData?.map((r) => [r.ticker, r]) ?? [],
-  );
-
-  // ── Prophet 가격 예측 ─────────────────────────────────────────────────────
-  const { data: prophetData } = useSWR<ProphetForecastResult[]>(
-    tickers.length > 0 ? `prophet-portfolio-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/prophet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    {
-      revalidateOnFocus: false,
-      refreshInterval:   600_000,   // 10분
-      dedupingInterval:  120_000,
-    },
-  );
-  const prophetMap = new Map<string, ProphetForecastResult>(
-    prophetData?.map((r) => [r.ticker, r]) ?? [],
-  );
-
-  // ── 포지션 관리 분석 (손절·익절·피라미딩) ────────────────────────────────
+  // ── 포지션 관리 분석 (ATR 기반 손절·익절·피라미딩) ──────────────────────
   const {
     data: positionAnalysisData,
     mutate: mutatePositionAnalysis,
@@ -560,7 +446,7 @@ export function PortfolioPage() {
               <table className="text-sm whitespace-nowrap">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "앙상블예측", "TFT신호", "포지션관리", "손절/목표", ""].map((h) => (
+                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "포지션관리", "손절/목표", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -589,7 +475,7 @@ export function PortfolioPage() {
                       >
                         <td className="py-3 px-3">
                           <Link
-                            href={`/market/${pos.ticker}?avg_price=${pos.avg_price}&quantity=${pos.quantity}`}
+                            href={`/market/${pos.ticker}?avg_price=${pos.avg_price}&quantity=${pos.quantity}&portfolio_id=${portfolioId}&position_id=${pos.position_id}`}
                             className="hover:text-blue-400 transition-colors"
                           >
                             <div className="font-medium">{pos.name}</div>
@@ -623,63 +509,7 @@ export function PortfolioPage() {
                             {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
                           </div>
                         </td>
-                        <td className="py-3 px-3">
-                          <div className="flex flex-col gap-1">
-                            {pullbackMap.has(pos.ticker) ? (
-                              <PullbackBadge result={pullbackMap.get(pos.ticker)!} />
-                            ) : (
-                              <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                            )}
-                            {pnlPct < 0 && (
-                              stopLossMap.has(pos.ticker) ? (
-                                <StopLossBadge result={stopLossMap.get(pos.ticker)!} />
-                              ) : (
-                                <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                              )
-                            )}
-                            {pnlPct > 0 && (
-                              profitTakingMap.has(pos.ticker) ? (
-                                <ProfitTakingBadge result={profitTakingMap.get(pos.ticker)!} />
-                              ) : (
-                                <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                              )
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3">
-                          {prophetMap.has(pos.ticker) ? (
-                            <ProphetBadge result={prophetMap.get(pos.ticker)!} />
-                          ) : (
-                            <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                          )}
-                        </td>
-                        {/* TFT 신호 */}
-                        <td className="py-3 px-3">
-                          {(() => {
-                            const t = tftMap.get(pos.ticker);
-                            if (!t) return <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>;
-                            if (t.insufficient_data) return <span className="text-xs text-muted-foreground/40">-</span>;
-                            const COLOR: Record<string, string> = {
-                              strong_buy: "text-emerald-400 bg-emerald-500/10 border-emerald-500/25",
-                              buy:        "text-green-400   bg-green-500/10   border-green-500/20",
-                              hold:       "text-yellow-400  bg-yellow-500/10  border-yellow-500/20",
-                              sell:       "text-orange-400  bg-orange-500/10  border-orange-500/20",
-                              strong_sell:"text-red-400     bg-red-500/10     border-red-500/20",
-                            };
-                            const LABEL: Record<string, string> = { strong_buy: "강력매수", buy: "매수", hold: "보유", sell: "매도", strong_sell: "강력매도" };
-                            return (
-                              <div className="flex flex-col gap-0.5">
-                                <span className={`text-xs font-medium px-1.5 py-0.5 rounded border w-fit whitespace-nowrap ${COLOR[t.signal] ?? ""}`}>
-                                  {LABEL[t.signal] ?? t.signal}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground/60 tabular-nums">
-                                  {t.composite_score >= 0 ? "+" : ""}{t.composite_score}점
-                                </span>
-                              </div>
-                            );
-                          })()}
-                        </td>
-                        {/* 포지션 관리 — 손절·익절·피라미딩 판단 */}
+                        {/* 포지션 관리 — ATR 기반 손절·익절·피라미딩 판단 */}
                         <td className="py-3 px-3">
                           {(() => {
                             const pa = positionAnalysisMap.get(pos.position_id);
