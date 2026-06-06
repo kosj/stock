@@ -18,29 +18,43 @@ export async function GET() {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  // 계좌 upsert — 없으면 자동 생성, 있으면 기존 값 반환
-  await supabase
-    .from("mock_accounts")
-    .upsert({ user_id: userId, cash: INITIAL_CASH }, { onConflict: "user_id", ignoreDuplicates: true });
-
-  // 계좌 + 포지션 병렬 조회 (필요 컬럼만 select)
-  const [{ data: account }, { data: positions }] = await Promise.all([
+  // 계좌 + 포지션 병렬 조회 (계좌가 없는 경우에만 INSERT — 최초 1회)
+  const [{ data: existing }, { data: positions }] = await Promise.all([
     supabase.from("mock_accounts")
       .select("cash, auto_trade_capital")
       .eq("user_id", userId)
-      .single(),
+      .maybeSingle(),
     supabase.from("mock_positions")
       .select("ticker, name, quantity, avg_price")
       .eq("user_id", userId)
       .order("updated_at", { ascending: false }),
   ]);
 
+  const account = existing ?? (
+    await supabase.from("mock_accounts")
+      .insert({ user_id: userId, cash: INITIAL_CASH })
+      .select("cash, auto_trade_capital")
+      .single()
+  ).data;
+
   if (!account) return NextResponse.json({ error: "계좌 조회 실패" }, { status: 500 });
 
   const rows = positions ?? [];
 
-  // 현재가 병렬 조회 (5개씩 배치)
-  const quotes = await Promise.allSettled(rows.map(p => getQuote(p.ticker)));
+  // 현재가 10개씩 배치 병렬 조회 (Yahoo 과부하 방지)
+  async function batchAllSettled<T, R>(
+    items: T[],
+    fn: (item: T) => Promise<R>,
+    size = 10,
+  ): Promise<PromiseSettledResult<R>[]> {
+    const out: PromiseSettledResult<R>[] = [];
+    for (let i = 0; i < items.length; i += size) {
+      out.push(...await Promise.allSettled(items.slice(i, i + size).map(fn)));
+    }
+    return out;
+  }
+
+  const quotes = await batchAllSettled(rows, p => getQuote(p.ticker));
 
   let stock_value = 0;
   const enriched = rows.map((pos, i) => {

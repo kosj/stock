@@ -1,105 +1,290 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { FinancialsData } from "./yahoo-finance";
 
-// ── 규칙 기반 스코어링 ──────────────────────────────────────────────────────
+// ── 섹터 기준 데이터 ─────────────────────────────────────────────────────────
 
+/**
+ * 업종별 적정 PER 기준값 (한국 시장 기준 중간값).
+ * 절대치 비교 대신 이 기준 대비 상대 비율로 평가한다.
+ * - 성장주(바이오·2차전지): 높은 PER이 정상이므로 기준값을 높게 설정
+ * - 가치주(금융·건설·해운): 낮은 PER이 정상이므로 기준값을 낮게 설정
+ */
+const SECTOR_TYPICAL_PER: Record<string, number> = {
+  "바이오":    45,
+  "ai/로봇":   40,
+  "2차전지":   35,
+  "게임":      30,
+  "엔터":      28,
+  "it":        25,
+  "인터넷/it": 25,
+  "방산":      22,
+  "반도체":    20,
+  "소부장":    18,
+  "자동차":    9,
+  "화학":      13,
+  "에너지":    11,
+  "소재":      11,
+  "철강/소재": 10,
+  "금융":      7,
+  "건설":      7,
+  "해운":      6,
+  "유통":      12,
+  "통신":      11,
+  "물류":      13,
+};
+
+/**
+ * 종목 섹터명 → ETF 섹터명 정규화 맵.
+ * SectorService가 반환하는 ETF 섹터 키와 연결하기 위한 별칭이다.
+ * - "게임"/"엔터": 전용 ETF 없음 → "인터넷/IT" ETF를 프록시로 사용
+ * - "소부장": 반도체 소·부·장 연계 → "반도체" ETF 프록시
+ * - "방산": "AI/로봇" ETF와 모멘텀 유사
+ * - "화학": KODEX 에너지화학에 포함 → "에너지" ETF 프록시
+ */
+const SECTOR_ALIAS: Record<string, string> = {
+  "it":     "인터넷/IT",
+  "소재":   "철강/소재",
+  "게임":   "인터넷/IT",
+  "엔터":   "인터넷/IT",
+  "소부장": "반도체",
+  "방산":   "AI/로봇",
+  "화학":   "에너지",
+  "통신":   "금융",
+  "해운":   "에너지",
+  "물류":   "에너지",
+  "유통":   "금융",
+};
+
+// ── 공통 유틸 ─────────────────────────────────────────────────────────────────
+
+interface SectorPerf { sector: string; change_1m?: number }
+
+/** 종목 섹터명으로 업종 적정 PER를 조회한다. */
+function getSectorTypicalPer(sectorName: string | null): number | null {
+  if (!sectorName) return null;
+  const lower = sectorName.toLowerCase();
+  for (const [key, val] of Object.entries(SECTOR_TYPICAL_PER)) {
+    if (lower.includes(key) || key.includes(lower)) return val;
+  }
+  const aliased = (SECTOR_ALIAS[lower] ?? "").toLowerCase();
+  return aliased ? (SECTOR_TYPICAL_PER[aliased] ?? null) : null;
+}
+
+/**
+ * sectors 배열에서 종목 섹터에 해당하는 1개월 수익률을 반환한다.
+ * 1차: 직접 매칭(양방향 includes)
+ * 2차: SECTOR_ALIAS 정규화 후 재매칭 (ETF 프록시 방식)
+ */
+function getSectorChange1m(sectors: SectorPerf[], sectorName: string | null): number | null {
+  if (!sectorName || sectors.length === 0) return null;
+  const lower = sectorName.toLowerCase();
+
+  let match = sectors.find(s =>
+    lower.includes(s.sector.toLowerCase()) || s.sector.toLowerCase().includes(lower)
+  );
+  if (!match) {
+    const aliased = (SECTOR_ALIAS[lower] ?? "").toLowerCase();
+    if (aliased) match = sectors.find(s => s.sector.toLowerCase() === aliased);
+  }
+  return match?.change_1m ?? null;
+}
+
+// ── 밸류에이션 점수 (상대평가) ────────────────────────────────────────────────
+
+/**
+ * 절대 PER 기준을 폐기하고 '업종 적정 PER 대비 상대 비율'로 평가한다.
+ * - ratio = currentPER / sectorTypicalPER: 1.0이 업종 평균, 0.8이면 20% 저평가
+ * - Forward PER < Trailing PER이면 이익 성장 기대 → 추가 가점
+ * - 섹터 기준이 없을 때는 완화된 절대값 fallback 적용
+ */
 function calcValuation(f: FinancialsData): { score: number; notes: string[] } {
   let score = 12.5;
   const notes: string[] = [];
-  const { per, pbr, roe } = f;
+  const { per, forward_per, pbr, roe } = f;
+  const sectorName = f.sector || f.industry;
+  const typicalPer = getSectorTypicalPer(sectorName);
 
-  if (per != null) {
-    if (per < 0)       { score -= 5;  notes.push(`PER 음수 (${per.toFixed(1)}) - 적자`); }
-    else if (per < 10) { score += 10; notes.push(`PER ${per.toFixed(1)} - 저평가`); }
-    else if (per < 15) { score += 6;  notes.push(`PER ${per.toFixed(1)} - 적정`); }
-    else if (per < 25) { score += 2;  notes.push(`PER ${per.toFixed(1)} - 다소 고평가`); }
-    else if (per < 40) { score -= 3;  notes.push(`PER ${per.toFixed(1)} - 고평가`); }
-    else               { score -= 8;  notes.push(`PER ${per.toFixed(1)} - 과도 고평가`); }
+  if (per != null && per > 0) {
+    if (typicalPer != null) {
+      const ratio = per / typicalPer;
+      if (ratio < 0.5)      { score += 10; notes.push(`PER ${per.toFixed(1)} — 업종 평균(${typicalPer})의 ${(ratio*100).toFixed(0)}% (크게 저평가)`); }
+      else if (ratio < 0.8) { score += 6;  notes.push(`PER ${per.toFixed(1)} — 업종 대비 저평가`); }
+      else if (ratio < 1.1) { score += 2;  notes.push(`PER ${per.toFixed(1)} — 업종 평균 수준`); }
+      else if (ratio < 1.5) { score -= 2;  notes.push(`PER ${per.toFixed(1)} — 업종 대비 다소 고평가`); }
+      else if (ratio < 2.0) { score -= 5;  notes.push(`PER ${per.toFixed(1)} — 업종 대비 고평가 (${ratio.toFixed(1)}배)`); }
+      else                  { score -= 8;  notes.push(`PER ${per.toFixed(1)} — 업종 대비 과도 고평가 (${ratio.toFixed(1)}배)`); }
+    } else {
+      // 섹터 기준 없음 → 완화된 절대값 fallback
+      if (per < 5)       { score -= 3; notes.push(`PER ${per.toFixed(1)} — 과도 저평가 의심`); }
+      else if (per < 15) { score += 4; notes.push(`PER ${per.toFixed(1)} — 저평가`); }
+      else if (per < 30) { score += 1; }
+      else if (per < 50) { score -= 3; notes.push(`PER ${per.toFixed(1)} — 고평가`); }
+      else               { score -= 6; notes.push(`PER ${per.toFixed(1)} — 과도 고평가`); }
+    }
+  } else if (per != null && per < 0) {
+    score -= 5;
+    notes.push(`PER 음수 (${per.toFixed(1)}) — 적자 기업`);
   }
+
+  // Forward PER: trailing PER 대비 낮으면 이익 성장 기대를 의미
+  if (per != null && per > 0 && forward_per != null && forward_per > 0) {
+    const fwdRatio = forward_per / per;
+    if (fwdRatio < 0.8)       { score += 4; notes.push(`Forward PER ${forward_per.toFixed(1)} — 이익 고성장 기대`); }
+    else if (fwdRatio < 0.95) { score += 2; notes.push(`Forward PER ${forward_per.toFixed(1)} — 이익 성장 기대`); }
+    else if (fwdRatio > 1.1)  { score -= 2; notes.push(`Forward PER ${forward_per.toFixed(1)} — 이익 감소 우려`); }
+  }
+
   if (pbr != null) {
-    if (pbr < 0.7)      { score += 7; notes.push(`PBR ${pbr.toFixed(2)} - 자산 저평가`); }
-    else if (pbr < 1.5) { score += 3; notes.push(`PBR ${pbr.toFixed(2)} - 적정`); }
-    else if (pbr >= 3)  { score -= 4; notes.push(`PBR ${pbr.toFixed(2)} - 자산 고평가`); }
+    if (pbr < 0.7)      { score += 5; notes.push(`PBR ${pbr.toFixed(2)} — 자산 저평가`); }
+    else if (pbr < 1.5) { score += 2; notes.push(`PBR ${pbr.toFixed(2)} — 적정`); }
+    else if (pbr >= 4)  { score -= 4; notes.push(`PBR ${pbr.toFixed(2)} — 자산 고평가`); }
   }
   if (roe != null) {
-    if (roe > 20)      { score += 6; notes.push(`ROE ${roe.toFixed(1)}% - 우수`); }
-    else if (roe > 10) { score += 2; notes.push(`ROE ${roe.toFixed(1)}% - 양호`); }
-    else if (roe < 0)  { score -= 5; notes.push(`ROE ${roe.toFixed(1)}% - 자본 훼손`); }
+    if (roe > 20)      { score += 4; notes.push(`ROE ${roe.toFixed(1)}% — 우수`); }
+    else if (roe > 10) { score += 2; notes.push(`ROE ${roe.toFixed(1)}% — 양호`); }
+    else if (roe < 0)  { score -= 4; notes.push(`ROE ${roe.toFixed(1)}% — 자본 훼손`); }
   }
   return { score: Math.min(25, Math.max(0, score)), notes };
 }
 
+// ── 성장성 점수 (단기 폭발력 + 장기 추세 혼합) ───────────────────────────────
+
+/**
+ * 단일 YoY 지표만 쓰면 기저효과에 왜곡될 수 있다.
+ * 가중 혼합: (매출 성장률 × 0.7) + (이익 성장률 × 0.3)
+ * - 매출 성장률: 단기 모멘텀 반영 (가중치 70%)
+ * - 이익 성장률: 수익 구조의 장기 안정성 반영 (가중치 30%)
+ * 영업이익률은 지속 경쟁력 지표로 추가 조정에 사용한다.
+ */
 function calcGrowth(f: FinancialsData): { score: number; notes: string[] } {
   let score = 12.5;
   const notes: string[] = [];
   const { revenue_growth, earnings_growth, operating_margin } = f;
 
-  if (revenue_growth != null) {
-    if (revenue_growth > 30)        { score += 8; notes.push(`매출 성장률 ${revenue_growth.toFixed(1)}% - 고성장`); }
-    else if (revenue_growth > 10)   { score += 4; notes.push(`매출 성장률 ${revenue_growth.toFixed(1)}%`); }
-    else if (revenue_growth > 0)    { score += 1; }
-    else if (revenue_growth > -10)  { score -= 3; notes.push(`매출 역성장 ${revenue_growth.toFixed(1)}%`); }
-    else                            { score -= 7; notes.push(`매출 급감 ${revenue_growth.toFixed(1)}%`); }
+  let composite: number | null = null;
+  if (revenue_growth != null && earnings_growth != null) {
+    composite = revenue_growth * 0.7 + earnings_growth * 0.3;
+    notes.push(`복합 성장률 ${composite.toFixed(1)}% (매출 ${revenue_growth.toFixed(0)}%×0.7 + 이익 ${earnings_growth.toFixed(0)}%×0.3)`);
+  } else if (revenue_growth != null) {
+    composite = revenue_growth;
+  } else if (earnings_growth != null) {
+    composite = earnings_growth;
   }
-  if (earnings_growth != null) {
-    if (earnings_growth > 30)       { score += 8; notes.push(`이익 성장률 ${earnings_growth.toFixed(1)}% - 고성장`); }
-    else if (earnings_growth > 10)  { score += 4; }
-    else if (earnings_growth < -20) { score -= 6; notes.push(`이익 급감 ${earnings_growth.toFixed(1)}%`); }
+
+  if (composite != null) {
+    if (composite > 30)       { score += 9; notes.push("고성장 구간 — 강한 모멘텀"); }
+    else if (composite > 15)  { score += 6; notes.push("성장세 양호"); }
+    else if (composite > 5)   { score += 3; }
+    else if (composite > 0)   { score += 1; }
+    else if (composite > -10) { score -= 3; notes.push(`성장 둔화 (${composite.toFixed(1)}%)`); }
+    else                      { score -= 7; notes.push(`역성장 심화 (${composite.toFixed(1)}%)`); }
   }
+
+  // 영업이익률: 장기 수익 구조 품질 반영
   if (operating_margin != null) {
-    if (operating_margin > 25)      { score += 4; notes.push(`영업이익률 ${operating_margin.toFixed(1)}% - 고수익`); }
+    if (operating_margin > 25)      { score += 4; notes.push(`영업이익률 ${operating_margin.toFixed(1)}% — 고수익 구조`); }
     else if (operating_margin > 10) { score += 2; }
-    else if (operating_margin < 0)  { score -= 4; notes.push(`영업손실 중`); }
+    else if (operating_margin < 0)  { score -= 4; notes.push("영업손실 중"); }
   }
   return { score: Math.min(25, Math.max(0, score)), notes };
 }
 
-function calcTechnical(signals: Record<string, unknown>): { score: number; notes: string[] } {
+// ── 기술적 점수 (추세 추종 × 눌림목 복합 조건) ───────────────────────────────
+
+/**
+ * 기존의 "RSI 30 미만 → 무조건 고점수" 절대 조건을 폐기한다.
+ * 새 전략: '중기 상승 추세(MA60 위) + 단기 눌림목(RSI 40~50)'의 AND 조건이
+ * 가장 높은 점수를 받는다. 추세 없이 떨어지는 주식에는 낮은 점수를 준다.
+ *
+ * 주도 섹터 예외: 섹터 1개월 수익률 +10% 이상이면 RSI 75 이상 과열 구간에서도
+ * 감점하지 않는다 (강한 추세 구간에서 과매수 신호가 오래 유지될 수 있음).
+ */
+function calcTechnical(
+  signals: Record<string, unknown>,
+  sectorChange1m: number | null = null,
+): { score: number; notes: string[] } {
   let score = 12.5;
   const notes: string[] = [];
-  const { rsi, macd_bullish, above_ma20, above_ma60, bb_position_pct } = signals as {
-    rsi?: number; macd_bullish?: boolean; above_ma20?: boolean;
-    above_ma60?: boolean; bb_position_pct?: number;
+  const { rsi, macd_bullish, above_ma60, above_ma120, bb_position_pct } = signals as {
+    rsi?: number; macd_bullish?: boolean;
+    above_ma60?: boolean; above_ma120?: boolean; bb_position_pct?: number;
   };
 
+  const isLeadingSector = sectorChange1m !== null && sectorChange1m > 10;
+  if (isLeadingSector) notes.push(`주도 섹터 (+${sectorChange1m!.toFixed(1)}%) — RSI 과열 감점 면제`);
+
+  // RSI × MA60 복합 평가
   if (rsi != null) {
-    if (rsi < 30)       { score += 8; notes.push(`RSI ${rsi.toFixed(0)} - 과매도 (반등 기대)`); }
-    else if (rsi < 45)  { score += 3; notes.push(`RSI ${rsi.toFixed(0)} - 중립 하단`); }
-    else if (rsi < 60)  { score += 1; }
-    else if (rsi < 75)  { score -= 2; notes.push(`RSI ${rsi.toFixed(0)} - 과열 접근`); }
-    else                { score -= 6; notes.push(`RSI ${rsi.toFixed(0)} - 과매수`); }
+    if (above_ma60 === true) {
+      // 60일선 위 = 중기 상승 추세 확인됨
+      if (rsi >= 40 && rsi < 50)      { score += 12; notes.push(`RSI ${rsi.toFixed(0)} + MA60 위 — 눌림목 최적 진입`); }
+      else if (rsi >= 50 && rsi < 65) { score += 7;  notes.push(`RSI ${rsi.toFixed(0)} + MA60 위 — 상승 추세`); }
+      else if (rsi >= 30 && rsi < 40) { score += 5;  notes.push(`RSI ${rsi.toFixed(0)} + MA60 위 — 단기 과매도, 반등 기대`); }
+      else if (rsi >= 65 && rsi < 75) { score += 3;  notes.push(`RSI ${rsi.toFixed(0)} + MA60 위 — 강세 지속`); }
+      else if (rsi >= 75) {
+        if (isLeadingSector)           { score += 3;  notes.push(`RSI ${rsi.toFixed(0)} — 주도 섹터 과열 유지`); }
+        else                           { score -= 2;  notes.push(`RSI ${rsi.toFixed(0)} — MA60 위지만 과매수`); }
+      } else {
+        // rsi < 30, MA60 위에서 극단 과매도 (드문 케이스)
+        score += 4; notes.push(`RSI ${rsi.toFixed(0)} + MA60 위 — 극단 과매도, 강반등 기대`);
+      }
+    } else {
+      // 60일선 아래 = 하락 추세 또는 약세
+      if (rsi < 30)      { score += 1;  notes.push(`RSI ${rsi.toFixed(0)} — 과매도 (하락 추세 중, 낙폭 과다)`); }
+      else if (rsi < 45) { score -= 1; }
+      else if (rsi < 65) { score -= 3;  notes.push(`RSI ${rsi.toFixed(0)} + MA60 아래 — 하락 추세`); }
+      else               { score -= 6;  notes.push(`RSI ${rsi.toFixed(0)} + MA60 아래 — 하락 중 과열 위험`); }
+    }
+  } else {
+    // RSI 데이터 없을 때 MA60 단독 판단
+    if (above_ma60 === true)  { score += 3; notes.push("MA60 위 — 중기 상승"); }
+    if (above_ma60 === false) { score -= 3; notes.push("MA60 아래 — 중기 하락"); }
   }
+
   if (macd_bullish === true)  { score += 4; notes.push("MACD 상승 추세"); }
   if (macd_bullish === false) { score -= 3; notes.push("MACD 하락 추세"); }
-  if (above_ma20 === true)    score += 2;
-  if (above_ma20 === false)   score -= 2;
-  if (above_ma60 === true)    { score += 3; notes.push("60일선 위 - 중기 상승"); }
-  if (above_ma60 === false)   { score -= 3; notes.push("60일선 아래 - 중기 하락"); }
+
+  // MA120: 장기 추세 (기존 MA20 대신 사용하여 추세 신뢰도 향상)
+  if (above_ma120 === true)  { score += 2; }
+  if (above_ma120 === false) { score -= 2; notes.push("MA120 아래 — 장기 하락 추세"); }
+
   if (bb_position_pct != null) {
-    if (bb_position_pct < 15)   { score += 4; notes.push("볼린저밴드 하단 - 반등 가능"); }
-    else if (bb_position_pct > 85) { score -= 3; notes.push("볼린저밴드 상단 - 과열"); }
+    if (bb_position_pct < 15) {
+      score += 3; notes.push("볼린저밴드 하단 — 반등 가능");
+    } else if (bb_position_pct > 85) {
+      if (!isLeadingSector) { score -= 3; notes.push("볼린저밴드 상단 — 과열"); }
+    }
   }
   return { score: Math.min(25, Math.max(0, score)), notes };
 }
 
-interface SectorPerf { sector: string; change_1m?: number }
+// ── 섹터 점수 (ETF 프록시 + 카테고리 연동) ───────────────────────────────────
 
-function calcSector(sectors: SectorPerf[], sectorName: string | null): { score: number; notes: string[] } {
+/**
+ * getSectorChange1m()이 SECTOR_ALIAS를 통해 ETF 프록시 방식으로 매칭하므로
+ * 섹터 데이터가 있을 때 빈 배열로 인한 12.5 고정 문제가 해소된다.
+ * change1m을 반환값에 포함하여 calcTechnical의 주도 섹터 예외 처리에 활용한다.
+ */
+function calcSector(
+  sectors: SectorPerf[],
+  sectorName: string | null,
+): { score: number; notes: string[]; change1m: number | null } {
   let score = 12.5;
   const notes: string[] = [];
-  if (!sectorName || sectors.length === 0) return { score, notes };
+  const change1m = getSectorChange1m(sectors, sectorName);
 
-  const lower = sectorName.toLowerCase();
-  const match = sectors.find(s => lower.includes(s.sector.toLowerCase()));
-  if (match) {
-    const m1 = match.change_1m ?? 0;
-    if (m1 > 10)       { score += 8; notes.push(`섹터(${match.sector}) 1개월 +${m1.toFixed(1)}% 강세`); }
-    else if (m1 > 3)   { score += 3; }
-    else if (m1 < -10) { score -= 6; notes.push(`섹터(${match.sector}) 1개월 ${m1.toFixed(1)}% 약세`); }
-    else if (m1 < -3)  { score -= 2; }
-  }
-  return { score: Math.min(25, Math.max(0, score)), notes };
+  if (change1m === null) return { score, notes, change1m: null };
+
+  const label = sectorName ?? "";
+  if (change1m > 10)       { score += 8; notes.push(`섹터(${label}) 1개월 +${change1m.toFixed(1)}% — 강세`); }
+  else if (change1m > 3)   { score += 3; notes.push(`섹터(${label}) 1개월 +${change1m.toFixed(1)}%`); }
+  else if (change1m < -10) { score -= 6; notes.push(`섹터(${label}) 1개월 ${change1m.toFixed(1)}% — 약세`); }
+  else if (change1m < -3)  { score -= 2; notes.push(`섹터(${label}) 1개월 ${change1m.toFixed(1)}%`); }
+
+  return { score: Math.min(25, Math.max(0, score)), notes, change1m };
 }
+
+// ── 추천 텍스트 ───────────────────────────────────────────────────────────────
 
 function toRecommendation(score: number): string {
   if (score >= 75) return "Strong Buy";
@@ -109,7 +294,7 @@ function toRecommendation(score: number): string {
   return "Strong Sell";
 }
 
-// ── Claude API 분석 텍스트 ──────────────────────────────────────────────────
+// ── Claude API 분석 텍스트 ────────────────────────────────────────────────────
 
 async function claudeAnalysis(
   ticker: string,
@@ -145,11 +330,11 @@ async function claudeAnalysis(
 - 기술적분석: ${(breakdown.technical_score as number).toFixed(1)}/25 | 섹터: ${(breakdown.sector_score as number).toFixed(1)}/25
 ${positionSection}
 ## 재무
-PER ${financials.per ?? "N/A"} | PBR ${financials.pbr ?? "N/A"} | ROE ${financials.roe ?? "N/A"}%
-영업이익률 ${financials.operating_margin ?? "N/A"}% | 매출성장 ${financials.revenue_growth ?? "N/A"}% | 섹터 ${financials.sector ?? "N/A"}
+PER ${financials.per ?? "N/A"} | Forward PER ${financials.forward_per ?? "N/A"} | PBR ${financials.pbr ?? "N/A"} | ROE ${financials.roe ?? "N/A"}%
+영업이익률 ${financials.operating_margin ?? "N/A"}% | 섹터 ${financials.sector ?? "N/A"}
 
 ## 기술
-RSI ${(signals.rsi as number | null) ?? "N/A"} | MACD ${(signals.macd_bullish as boolean) ? "상승" : "하락"} | 60일선 ${(signals.above_ma60 as boolean) ? "위" : "아래"} | 52주위치 ${(signals.pos_52w_pct as number | null) ?? "N/A"}%
+RSI ${(signals.rsi as number | null) ?? "N/A"} | MACD ${(signals.macd_bullish as boolean) ? "상승" : "하락"} | MA60 ${(signals.above_ma60 as boolean) ? "위" : "아래"} | 52주위치 ${(signals.pos_52w_pct as number | null) ?? "N/A"}%
 
 ## 주요 포인트
 ${allNotes.map((n) => `- ${n}`).join("\n") || "- 데이터 부족"}
@@ -188,15 +373,15 @@ function fallback(
     : "";
   return {
     summary: `${n}은(는) 종합 점수 ${score.toFixed(0)}점으로 ${recommendation} 의견입니다.${posNote} ${sentiment} 흐름이 관찰됩니다. 분할 접근을 권고합니다.`,
-    valuation_analysis: `밸류에이션 점수 ${(breakdown.valuation_score as number).toFixed(0)}/25점. 업종 평균 대비 검토 필요.`,
-    technical_analysis: `기술적 점수 ${(breakdown.technical_score as number).toFixed(0)}/25점. 이동평균선 배열 모니터링 권고.`,
+    valuation_analysis: `밸류에이션 점수 ${(breakdown.valuation_score as number).toFixed(0)}/25점. 업종 상대 PER 기준으로 평가되었습니다.`,
+    technical_analysis: `기술적 점수 ${(breakdown.technical_score as number).toFixed(0)}/25점. MA60 기준 추세와 눌림목 조건이 반영되었습니다.`,
     risk_factors: ["거시경제 불확실성", "환율 변동 리스크", "업종 경쟁 심화"],
     catalysts: ["실적 개선 기대", "섹터 모멘텀 회복"],
-    target_price_comment: "현 주가 대비 적정 밸류에이션 기반 목표가 산정 필요.",
+    target_price_comment: "현 주가 대비 업종 상대 밸류에이션 기반 목표가 산정 필요.",
   };
 }
 
-// ── 메인 분석 ───────────────────────────────────────────────────────────────
+// ── 메인 분석 ─────────────────────────────────────────────────────────────────
 
 export async function analyzeStock(
   ticker: string,
@@ -210,8 +395,9 @@ export async function analyzeStock(
   const sectorName = financials.sector || financials.industry;
   const v = calcValuation(financials);
   const g = calcGrowth(financials);
-  const t = calcTechnical(signals);
+  // calcSector → change1m → calcTechnical (주도 섹터 예외 처리 연동)
   const s = calcSector(sectors, sectorName);
+  const t = calcTechnical(signals, s.change1m);
 
   const total = v.score + g.score + t.score + s.score;
   const recommendation = toRecommendation(total);
@@ -228,7 +414,6 @@ export async function analyzeStock(
 
   const current = (signals.current_price as number | null) || financials.week_52_high;
 
-  // 보유 포지션 컨텍스트 계산
   const position =
     avgPrice && avgPrice > 0 && current
       ? {

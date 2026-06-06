@@ -346,7 +346,7 @@ export function ProphetForecastCard({ result, loading }: Props) {
     return (
       <div className="rounded-xl border p-4 text-sm text-muted-foreground"
         style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-        앙상블 예측: 데이터 부족 (최소 30거래일 필요)
+        Hybrid Stacking Ensemble 예측: 데이터 부족 (최소 30거래일 필요)
       </div>
     );
   }
@@ -372,7 +372,7 @@ export function ProphetForecastCard({ result, loading }: Props) {
         onClick={() => setExpanded(v => !v)}
       >
         <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold">앙상블 가격 예측</span>
+          <span className="text-sm font-semibold">Hybrid Stacking Ensemble 가격 예측</span>
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${meta.bg} ${meta.color}`}>
             {meta.label}
           </span>
@@ -552,7 +552,7 @@ export function ProphetForecastCard({ result, loading }: Props) {
           )}
 
           <p className="text-xs text-muted-foreground/40">
-            시나리오: 앙상블 예측강도 × 0.55 + 잔차 σ × 0.8 의 누적 편차 (Bear는 ×1.15 비대칭). 투자 손익 보장 불가.
+            시나리오: 앙상블 추세강도 × 0.55 + 잔차 σ × 0.8 의 누적 편차 (Bear는 ×1.15 비대칭). 투자 손익 보장 불가.
           </p>
         </div>
       )}

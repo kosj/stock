@@ -41,11 +41,12 @@ const _l1 = new Map<string, { data: unknown; exp: number }>();
 
 const TTL = { QUOTE: 60_000, CHART: 300_000, FINANCIALS: 3_600_000, SEARCH: 600_000, CALENDAR: 3_600_000 };
 
-// L2 사용 여부: QUOTE는 TTL이 짧아 DB 왕복이 오히려 느림
-const L2_KEYS = new Set(["chart:", "financials:", "financials-v2:", "search:"]);
+// L2 사용 여부: QUOTE도 포함 — 콜드 스타트 후 Supabase 캐시(~50ms)로 Naver 재호출(~500ms) 절감
+const L2_KEYS = new Set(["quote:", "chart:", "financials:", "financials-v2:", "search:"]);
 
 // L2→L1 워밍업 시 키 접두사에 맞는 TTL 반환
 const L2_TTL_MAP: Record<string, number> = {
+  "quote:":      TTL.QUOTE,
   "chart:":      TTL.CHART,
   "financials:": TTL.FINANCIALS,
   "search:":     TTL.SEARCH,
@@ -113,6 +114,23 @@ async function cacheSet<T>(key: string, data: T, ttlMs: number): Promise<void> {
   }
 }
 
+// ── Yahoo Finance 차단 감지 (인스턴스별 circuit breaker) ──────────────────────
+// Vercel IP 차단 시 tryYahooLib() 타임아웃(2s×2 + 6s)이 매 요청마다 누적되는 것을 방지
+// 3회 연속 실패 → 5분간 Yahoo 건너뛰고 Naver 직행
+let _yahooFailCount = 0;
+let _yahooBlockedUntil = 0;
+function _isYahooBlocked(): boolean {
+  return _yahooFailCount >= 3 && Date.now() < _yahooBlockedUntil;
+}
+function _markYahooFail(): void {
+  _yahooFailCount++;
+  if (_yahooFailCount >= 3) _yahooBlockedUntil = Date.now() + 300_000;
+}
+function _markYahooOk(): void {
+  _yahooFailCount = 0;
+  _yahooBlockedUntil = 0;
+}
+
 // ── 네이버 파이낸스 국내 지수 조회 ───────────────────────────────────────────
 
 const NAVER_INDEX_CODE: Record<string, string> = {
@@ -135,9 +153,10 @@ export async function getIndexFromNaver(yahooSymbol: string): Promise<QuoteData 
     const j = await res.json();
     const toNum = (v: unknown) =>
       parseFloat(String(v ?? "0").replace(/[,+%\s]/g, "")) || 0;
-    const price      = toNum(j.closePrice ?? j.currentPrice);
-    const change     = toNum(j.compareToPreviousClosePrice);
-    const change_pct = toNum(j.fluctuationsRatio);
+    const price    = toNum(j.closePrice ?? j.currentPrice);
+    const change   = toNum(j.compareToPreviousClosePrice);
+    const rawRatio = toNum(j.fluctuationsRatio);
+    const change_pct = (change < 0 && rawRatio > 0) ? -rawRatio : rawRatio;
     if (price <= 0) return null;
     return {
       ticker:     yahooSymbol,
@@ -197,12 +216,16 @@ async function getQuoteFromNaverPolling(ticker: string): Promise<QuoteData | nul
     const price = Number(d.nv);
     if (!price || price <= 0) return null;
 
+    // cv(변동가)·cr(등락률)은 항상 양수(절댓값) — rf(등락구분)로 부호 결정
+    // rf: "2" = 상승, "5" = 하락, "3" = 보합
+    const sign = String(d.rf) === "5" ? -1 : 1;
+
     return {
       ticker,
       name:       d.nm ? String(d.nm) : ticker,
       price,
-      change:     Number(d.cv) || 0,
-      change_pct: Number(d.cr) || 0,
+      change:     sign * (Number(d.cv) || 0),
+      change_pct: sign * (Number(d.cr) || 0),
       volume:     Number(d.aq) || 0,
       high:       Number(d.hv) || price,
       low:        Number(d.lv) || price,
@@ -235,8 +258,10 @@ async function getQuoteFromNaver(ticker: string): Promise<QuoteData | null> {
       parseFloat(String(v ?? "0").replace(/[,+%\s]/g, "")) || 0;
     const price = toNum(d.closePrice ?? d.currentPrice);
     if (price <= 0) return null;
-    const change     = toNum(d.compareToPreviousClosePrice);
-    const change_pct = toNum(d.fluctuationsRatio);
+    const change   = toNum(d.compareToPreviousClosePrice);
+    const rawRatio = toNum(d.fluctuationsRatio);
+    // fluctuationsRatio가 부호 없는 절댓값으로 올 수 있음 — change 부호로 보정
+    const change_pct = (change < 0 && rawRatio > 0) ? -rawRatio : rawRatio;
     return {
       ticker,
       name:       String(d.stockName || d.reutersCode || ticker),
@@ -329,26 +354,27 @@ export interface QuoteData {
   market_cap: number | null;
 }
 
-export async function getQuote(ticker: string): Promise<QuoteData | null> {
-  const yt = toYahooTicker(ticker);
+export async function getQuote(ticker: string, nocache = false): Promise<QuoteData | null> {
+  const yt  = toYahooTicker(ticker);
   const key = `quote:${yt}`;
-  const hit = await cacheGet<QuoteData>(key);
-  if (hit) return hit;
+  if (!nocache) {
+    const hit = await cacheGet<QuoteData>(key);
+    if (hit) return hit;
+  }
 
-  async function tryQuote(symbol: string): Promise<any> {
+  // Yahoo Finance v3 라이브러리 래퍼 — 타임아웃 2s (4s→2s: 어차피 Naver와 경쟁이므로 짧게)
+  async function tryYahooLib(symbol: string): Promise<any> {
     try {
       return await Promise.race([
         yf.quote(symbol),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 2000)),
       ]);
     } catch { return null; }
   }
 
-  let q = await tryQuote(yt);
-  if (!q && KR_CODE.test(ticker)) q = await tryQuote(`${ticker}.KQ`);
-
-  if (q?.regularMarketPrice != null) {
-    const data: QuoteData = {
+  // Yahoo raw 응답 → QuoteData 변환 (ticker는 외부 스코프에서 캡처)
+  function buildFromYahoo(q: any): QuoteData {
+    return {
       ticker,
       name:       await resolveKoreanName(ticker, q.shortName || q.longName || null),
       price:      q.regularMarketPrice,
@@ -358,12 +384,10 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
       high:       q.regularMarketDayHigh ?? q.regularMarketPrice,
       low:        q.regularMarketDayLow  ?? q.regularMarketPrice,
       open:       q.regularMarketOpen    ?? q.regularMarketPrice,
-      prev_close:  q.regularMarketPreviousClose ?? q.regularMarketPrice,
-      timestamp:   new Date().toISOString(),
-      market_cap:  q.marketCap ?? null,
+      prev_close: q.regularMarketPreviousClose ?? q.regularMarketPrice,
+      timestamp:  new Date().toISOString(),
+      market_cap: q.marketCap ?? null,
     };
-    await cacheSet(key, data, TTL.QUOTE);
-    return data;
   }
 
   // yahoo-finance2 라이브러리 실패 → 직접 Yahoo Finance v8 API 재시도
@@ -377,16 +401,52 @@ export async function getQuote(ticker: string): Promise<QuoteData | null> {
 
   // Yahoo v8도 실패 (Vercel IP 차단) → 국내 종목은 네이버 폴링 → 기본 API 순으로 폴백
   if (KR_CODE.test(ticker)) {
-    const naverPolling = await getQuoteFromNaverPolling(ticker);
-    if (naverPolling) {
-      await cacheSet(key, naverPolling, TTL.QUOTE);
-      return naverPolling;
+    // 국내 종목: Naver 폴링(~0.5s, 안정)과 Yahoo(Vercel IP 차단 가능, 최대 10s)를 동시 시작
+    // Promise.any → 먼저 성공하는 쪽을 즉시 반환 (직렬 폴백 대비 최대 18s 절감)
+    const naverSource = getQuoteFromNaverPolling(ticker)
+      .then(v => (v != null ? v : Promise.reject(new Error("naver null"))));
+
+    const yahooSource: Promise<QuoteData> = _isYahooBlocked()
+      ? Promise.reject(new Error("yahoo blocked"))
+      : (async (): Promise<QuoteData> => {
+          let q = await tryYahooLib(yt) ?? await tryYahooLib(`${ticker}.KQ`);
+          if (!q) q = await getQuoteDirect(yt);
+          if (!q?.regularMarketPrice) {
+            _markYahooFail();
+            throw new Error("yahoo null");
+          }
+          _markYahooOk();
+          return buildFromYahoo(q);
+        })();
+
+    const result = await Promise.any([naverSource, yahooSource]).catch(() => null);
+    if (result) {
+      await cacheSet(key, result, TTL.QUOTE);
+      return result;
     }
+
+    // 두 소스 모두 실패 → Naver basic 폴백
     const naver = await getQuoteFromNaver(ticker);
     if (naver) {
       await cacheSet(key, naver, TTL.QUOTE);
       return naver;
     }
+    return null;
+  }
+
+  // 해외 종목 — Yahoo 라이브러리 → v8 직접 API 순차 시도
+  let q = await tryYahooLib(yt);
+  if (q?.regularMarketPrice != null) {
+    const data = buildFromYahoo(q);
+    await cacheSet(key, data, TTL.QUOTE);
+    return data;
+  }
+
+  const direct = await getQuoteDirect(yt);
+  if (direct) {
+    direct.ticker = ticker;
+    await cacheSet(key, direct, TTL.QUOTE);
+    return direct;
   }
 
   return null;
@@ -537,12 +597,14 @@ async function fetchNaverKoreanSummary(ticker6: string): Promise<string | null> 
 }
 
 // 6자리 한국 종목코드를 받아 한국어 사업내용 반환
-// .KS / .KQ 모두 시도 → Yahoo 실패 시 Naver 폴백
+// .KS / .KQ 병렬 시도 → 둘 다 실패 시 Naver 폴백 (순차 대비 최대 5s 절감)
 async function getKoreanBusinessSummary(ticker6: string): Promise<string | null> {
-  for (const suffix of [".KS", ".KQ"]) {
-    const r = await fetchYahooKoreanSummary(`${ticker6}${suffix}`);
-    if (r) return r;
-  }
+  const [ks, kq] = await Promise.allSettled([
+    fetchYahooKoreanSummary(`${ticker6}.KS`),
+    fetchYahooKoreanSummary(`${ticker6}.KQ`),
+  ]);
+  const hit = (ks.status === "fulfilled" && ks.value) || (kq.status === "fulfilled" && kq.value);
+  if (hit) return hit;
   return fetchNaverKoreanSummary(ticker6);
 }
 

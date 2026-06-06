@@ -24,7 +24,7 @@ function fromProphet(r: ProphetForecastResult | null | undefined): AlgoSignal {
     name:        "앙상블",
     signal:      map[r.recommendation] ?? "hold",
     detail:      `30일 예측 ${ret >= 0 ? "+" : ""}${ret.toFixed(1)}%`,
-    description: "하이브리드 스태킹 앙상블(선형추세·Holt·EMA → Ridge 메타) 기반 30일 가격 예측. Base 시나리오 수익률과 R² 적합도로 판단.",
+    description: "추세·기술지표·모멘텀 다중 모델을 스태킹 앙상블로 결합한 30일 가격 예측. Base 시나리오 수익률과 R² 적합도로 판단.",
   };
 }
 

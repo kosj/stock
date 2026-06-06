@@ -37,7 +37,7 @@ export function StopLossBadge({ result }: Props) {
 
       {open && (
         <div
-          className="absolute z-50 top-full left-0 mt-1 min-w-[280px] rounded-lg border shadow-xl p-3 space-y-2 text-xs"
+          className="absolute z-50 top-full left-0 mt-1 min-w-[280px] rounded-lg border shadow-xl p-3 space-y-2 text-xs whitespace-normal"
           style={{ background: "var(--card)", borderColor: "var(--border)" }}
           onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
         >

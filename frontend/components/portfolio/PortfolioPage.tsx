@@ -514,7 +514,7 @@ export function PortfolioPage() {
             </CardHeader>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="text-sm whitespace-nowrap">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
                     {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "앙상블예측", "TFT신호", "손절/목표", ""].map((h) => (

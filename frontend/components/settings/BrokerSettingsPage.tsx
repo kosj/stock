@@ -9,15 +9,30 @@ import { toast } from "sonner";
 
 // ── 브로커 메타 ────────────────────────────────────────────────────────────────
 
-type BrokerType = "kis" | "kb" | "shinhan" | "meritz";
+type BrokerType = "kis" | "miraeasset" | "kb" | "shinhan" | "meritz";
 
-const BROKER_INFO: Record<BrokerType, { name: string; description: string; available: boolean }> = {
-  kis:     { name: "한국투자증권", description: "App Key · App Secret · 계좌번호로 보유종목 조회", available: true  },
-  kb:      { name: "KB증권",       description: "준비 중",                                         available: false },
-  shinhan: { name: "신한증권",     description: "준비 중",                                         available: false },
-  meritz:  { name: "메리츠증권",   description: "준비 중",                                         available: false },
+interface BrokerMeta {
+  name:              string;
+  description:       string;
+  available:         boolean;
+  accountPlaceholder?: string;
+  accountHelp?:        string;
+}
+
+const BROKER_INFO: Record<BrokerType, BrokerMeta> = {
+  kis: {
+    name:               "한국투자증권",
+    description:        "App Key · App Secret · 계좌번호로 보유종목 조회",
+    available:          true,
+    accountPlaceholder: "예: 12345678-01",
+    accountHelp:        "앞 8자리 + 뒤 2자리 (종합/위탁계좌: 01)",
+  },
+  miraeasset: { name: "미래에셋증권", description: "준비 중",       available: false },
+  kb:         { name: "KB증권",       description: "준비 중",       available: false },
+  shinhan:    { name: "신한증권",     description: "준비 중",       available: false },
+  meritz:     { name: "메리츠증권",   description: "준비 중",       available: false },
 };
-const BROKER_TYPES: BrokerType[] = ["kis", "kb", "shinhan", "meritz"];
+const BROKER_TYPES: BrokerType[] = ["kis", "miraeasset", "kb", "shinhan", "meritz"];
 
 // ── API 헬퍼 ──────────────────────────────────────────────────────────────────
 
@@ -152,11 +167,13 @@ function BrokerCard({
                 <input
                   value={form.accountNumber}
                   onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))}
-                  placeholder="예: 12345678-01"
+                  placeholder={info.accountPlaceholder ?? "계좌번호 입력"}
                   className="w-full px-3 py-2 rounded border border-border bg-muted text-sm font-mono"
                   disabled={saving}
                 />
-                <p className="text-xs text-muted-foreground mt-1">앞 8자리 + 뒤 2자리 (종합/위탁계좌: 01)</p>
+                {info.accountHelp && (
+                  <p className="text-xs text-muted-foreground mt-1">{info.accountHelp}</p>
+                )}
               </div>
               <div className="flex gap-2 pt-1">
                 <Button onClick={handleSave} disabled={saving} className="flex-1">

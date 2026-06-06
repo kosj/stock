@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import React from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import {
@@ -246,7 +247,7 @@ export function ProphetRecommendations() {
       <CardHeader>
         <div className="flex items-center gap-2 flex-wrap">
           <CardTitle>
-            앙상블 추천 종목{hasData ? ` TOP ${rows.length}` : ""}
+            Hybrid Stacking Ensemble 추천 종목{hasData ? ` TOP ${rows.length}` : ""}
           </CardTitle>
           {runDate && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -278,10 +279,10 @@ export function ProphetRecommendations() {
 
       {hasData && (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                {["#", "종목", "시장", "현재가", "7일", "30일(Base)", "추천", "R²", "추세", ""].map(h => (
+                {["#", "종목", "시장", "현재가", "5일(α)", "30일(α)", "추천", "R²", "추세", ""].map(h => (
                   <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -299,9 +300,8 @@ export function ProphetRecommendations() {
                 const isKosdaq = row.market === "KOSDAQ";
 
                 return (
-                  <>
+                  <React.Fragment key={row.rank}>
                     <tr
-                      key={row.rank}
                       onClick={() => setExpanded(isExpanded ? null : row.rank)}
                       className={`border-b cursor-pointer transition-colors hover:bg-white/2 ${isExpanded ? "bg-white/3" : ""}`}
                       style={{ borderColor: "var(--border)" }}
@@ -374,7 +374,7 @@ export function ProphetRecommendations() {
                     {isExpanded && (
                       <tr key={`exp-${row.rank}`} className="border-b"
                         style={{ borderColor: "var(--border)" }}>
-                        <td colSpan={11} className="p-0">
+                        <td colSpan={10} className="p-0">
                           <ExpandedRow
                             ticker={row.ticker}
                             accuracyJson={row.accuracy_json}
@@ -382,7 +382,7 @@ export function ProphetRecommendations() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -391,7 +391,7 @@ export function ProphetRecommendations() {
       )}
 
       <div className="px-4 py-2 text-xs text-muted-foreground/40 border-t" style={{ borderColor: "var(--border)" }}>
-        시총 5000억 이상 · 하이브리드 스태킹 앙상블 예측 기반 — 투자 손익 보장 불가 · 매일 오후 4:00 KST 자동 갱신
+        시총 5000억 이상 · Hybrid Stacking Ensemble 예측 기반 — 투자 손익 보장 불가 · 매일 오후 4:00 KST 자동 갱신
       </div>
     </Card>
   );

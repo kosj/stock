@@ -64,8 +64,8 @@ export const api = {
   market: {
     search:    (q: string, creds?: BrokerCreds) =>
       request(`/api/market/search?q=${encodeURIComponent(q)}`, { headers: brokerHeaders(creds) }),
-    quote:     (ticker: string, creds?: BrokerCreds) =>
-      request(`/api/market/quote/${ticker}`, { headers: brokerHeaders(creds) }),
+    quote:     (ticker: string, creds?: BrokerCreds, nocache?: boolean) =>
+      request(`/api/market/quote/${ticker}${nocache ? "?nocache=1" : ""}`, { headers: brokerHeaders(creds) }),
     chart:     (ticker: string, period = "1y") =>
       request(`/api/market/chart/${ticker}?period=${period}`),
     financials: (ticker: string) => request(`/api/market/financials/${ticker}`),

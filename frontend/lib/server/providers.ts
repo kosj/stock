@@ -1,6 +1,6 @@
 // 증권사 API 프로바이더 (다중 증권사 확장성 고려)
 
-export type BrokerType = 'kis' | 'kb' | 'shinhan' | 'meritz';
+export type BrokerType = 'kis' | 'kb' | 'shinhan' | 'meritz' | 'miraeasset';
 
 export interface BrokerCredentials {
   appKey: string;
@@ -363,8 +363,7 @@ export class KISProvider extends BrokerProvider {
 
 export function createBrokerProvider(type: BrokerType, credentials: BrokerCredentials): BrokerProvider {
   switch (type) {
-    case 'kis':
-      return new KISProvider(credentials);
+    case 'kis': return new KISProvider(credentials);
     default:
       throw new Error(`${type} 증권사는 아직 지원되지 않습니다`);
   }
