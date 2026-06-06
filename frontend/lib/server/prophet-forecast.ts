@@ -724,17 +724,17 @@ export async function prophetForecast(
   const { oofMat, oofTargets, oofA, oofB, oofC, oofD } =
     buildOofPredictions(prices, ts, covariates);
 
-  const xScaler   = new StandardScaler();
-  const scaledOof = xScaler.fitTransform(oofMat);   // fit은 OOF 행렬에서만
-  const metaBeta  = fitRidge(scaledOof, oofTargets);
+  // 인터셉트 컬럼 추가: 절편 없는 Ridge는 X̄=0일 때 ŷ≈0 → 실제 주가 레벨 예측 불가
+  // 4개 모델이 모두 동일 단위(원화 주가)로 예측 → StandardScaler 불필요
+  const oofWithBias = oofMat.map(row => [1, ...row]);
+  const metaBeta    = fitRidge(oofWithBias, oofTargets);
 
   // 다양성 스코어 (6쌍 상관관계 패널티)
   const diversity_score = computeDiversityScore(oofA, oofB, oofC, oofD);
 
   // ── 인샘플 메타 예측 (R², σ 계산용) ─────────────────────────────────────────
-  const inSampleMat    = fittedA.map((a, i) => [a, fittedB[i], fittedC[i], fittedD[i]]);
-  const scaledInSample = xScaler.transform(inSampleMat);
-  const y_fit          = mv(scaledInSample, metaBeta);
+  const inSampleMat = fittedA.map((a, i) => [a, fittedB[i], fittedC[i], fittedD[i]]);
+  const y_fit       = mv(inSampleMat.map(row => [1, ...row]), metaBeta);
   const resids         = prices.map((p, i) => p - y_fit[i]);
   const sigma          = stddev(resids);
   const R2             = r2(prices, y_fit);
@@ -748,9 +748,8 @@ export async function prophetForecast(
   const futureC = multiEmaForecast(prices, FORECAST_DAYS);
   const futureD = tftForecastMultiStep(prices, FORECAST_DAYS, covariates);
 
-  const futureMat    = futureA.map((a, i) => [a, futureB[i], futureC[i], futureD[i]]);
-  const scaledFuture = xScaler.transform(futureMat);
-  const y_future     = mv(scaledFuture, metaBeta);
+  const futureMat = futureA.map((a, i) => [a, futureB[i], futureC[i], futureD[i]]);
+  const y_future  = mv(futureMat.map(row => [1, ...row]), metaBeta);
 
   // ── 개별 모델 수익률 (크론 복합 스코어용) ────────────────────────────────────
   const currentPrice   = prices[n - 1];
