@@ -34,7 +34,6 @@ import yfinance as yf
 import lightgbm as lgb
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
-from sklearn.metrics import r2_score
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
@@ -327,15 +326,16 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     meta = Ridge(alpha=1.0)
     meta.fit(meta_X, meta_y)
 
-    # 진짜 OOF R²: 메타 모델을 3-fold CV로 평가 (학습 데이터와 평가 데이터 분리)
-    # → in-sample R² 계산 방지 (기존 r2_score(meta_y, meta.predict(meta_X))는 in-sample)
+    # OOF R²: 메타 모델을 TimeSeriesSplit 3-fold CV로 평가
+    # - TimeSeriesSplit: 시계열 순서 유지 (KFold 대신 사용 — 미래 누수 방지)
+    # - clip 제거: 음수 R²도 그대로 노출 (clip하면 진짜 실패를 0.0으로 마스킹함)
     if len(meta_y) > 30:
         cv_scores = cross_val_score(
             Ridge(alpha=1.0), meta_X, meta_y,
-            cv=min(3, len(meta_y) // 10),
+            cv=TimeSeriesSplit(n_splits=3),
             scoring="r2",
         )
-        oof_r2 = float(np.clip(cv_scores.mean(), 0.0, 1.0))
+        oof_r2 = float(cv_scores.mean())
     else:
         oof_r2 = 0.0
 
