@@ -282,7 +282,7 @@ export function ProphetRecommendations() {
           <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                {["#", "종목", "시장", "현재가", "7일", "30일(Base)", "추천", "R²", "추세", ""].map(h => (
+                {["#", "종목", "시장", "현재가", "5일(α)", "30일(α)", "추천", "R²", "추세", ""].map(h => (
                   <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal whitespace-nowrap">{h}</th>
                 ))}
               </tr>

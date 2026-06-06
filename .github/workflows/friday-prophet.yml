@@ -1,34 +1,32 @@
-name: "Prophet Daily Recommendations"
+name: "Hybrid Stacking Ensemble Daily"
 
-# 매일 오후 4:00 KST (= 07:00 UTC) — 한국장 마감(15:30) 후 30분
+# 매일 16:00 KST (07:00 UTC) — 한국장 마감(15:30) 후 30분
 on:
   schedule:
     - cron: "0 7 * * *"
   workflow_dispatch:          # GitHub Actions UI에서 수동 실행 가능
 
 jobs:
-  run-prophet:
+  run-ensemble:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
 
     steps:
-      - name: "Prophet 추천 종목 분석 실행"
-        run: |
-          RESPONSE=$(curl -sL --max-time 120 \
-            -X POST "${{ secrets.VERCEL_APP_URL }}/api/cron/prophet-top10" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -w "\nHTTP_STATUS:%{http_code}")
+      - name: Checkout
+        uses: actions/checkout@v4
 
-          HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
-          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: scripts/requirements.txt
 
-          echo "HTTP Status: $HTTP_STATUS"
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
 
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "Response: $BODY"
-            echo "요청 실패 (HTTP $HTTP_STATUS)"
-            exit 1
-          fi
-
-          echo "$BODY" | python3 -m json.tool
+      - name: Run Hybrid Stacking Ensemble
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/hybrid_ensemble.py
