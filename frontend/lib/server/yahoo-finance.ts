@@ -373,7 +373,7 @@ export async function getQuote(ticker: string, nocache = false): Promise<QuoteDa
   }
 
   // Yahoo raw 응답 → QuoteData 변환 (ticker는 외부 스코프에서 캡처)
-  function buildFromYahoo(q: any): QuoteData {
+  async function buildFromYahoo(q: any): Promise<QuoteData> {
     return {
       ticker,
       name:       await resolveKoreanName(ticker, q.shortName || q.longName || null),
@@ -416,7 +416,7 @@ export async function getQuote(ticker: string, nocache = false): Promise<QuoteDa
             throw new Error("yahoo null");
           }
           _markYahooOk();
-          return buildFromYahoo(q);
+          return await buildFromYahoo(q);
         })();
 
     const result = await Promise.any([naverSource, yahooSource]).catch(() => null);
@@ -437,16 +437,16 @@ export async function getQuote(ticker: string, nocache = false): Promise<QuoteDa
   // 해외 종목 — Yahoo 라이브러리 → v8 직접 API 순차 시도
   let q = await tryYahooLib(yt);
   if (q?.regularMarketPrice != null) {
-    const data = buildFromYahoo(q);
+    const data = await buildFromYahoo(q);
     await cacheSet(key, data, TTL.QUOTE);
     return data;
   }
 
-  const direct = await getQuoteDirect(yt);
-  if (direct) {
-    direct.ticker = ticker;
-    await cacheSet(key, direct, TTL.QUOTE);
-    return direct;
+  const directFallback = await getQuoteDirect(yt);
+  if (directFallback) {
+    directFallback.ticker = ticker;
+    await cacheSet(key, directFallback, TTL.QUOTE);
+    return directFallback;
   }
 
   return null;

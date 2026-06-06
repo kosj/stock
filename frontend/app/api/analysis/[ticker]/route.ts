@@ -21,13 +21,13 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const [financials, candles, sectorPerf] = await Promise.allSettled([
     getFinancials(t),
     getChart(t, "1y"),
-    SectorService.getPerformance(),
+    SectorService.getMomentum(),
   ]);
 
   const fin     = financials.status === "fulfilled" ? financials.value : { ticker: t } as any;
   const cdls    = candles.status    === "fulfilled" ? candles.value    : [];
   const sectors = sectorPerf.status === "fulfilled"
-    ? sectorPerf.value.map(s => ({ sector: s.sector ?? "", change_1m: s.change_1m }))
+    ? sectorPerf.value.map(s => ({ sector: s.sector_name ?? "", change_1m: s.return_1m }))
     : [];
   const signals = cdls.length > 0 ? calcSignals(cdls) : {};
 
