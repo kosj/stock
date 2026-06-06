@@ -53,6 +53,8 @@ export const api = {
       request(`/api/portfolio/positions/${posId}`, { method: "DELETE" }),
     autoFill: (id: number) =>
       request(`/api/portfolio/${id}/auto-fill`, { method: "POST" }),
+    positionAnalysis: (id: number) =>
+      request(`/api/portfolio/${id}/position-analysis`),
     allPositionsWithTargets: () => request("/api/portfolio/positions"),
     watchlist:      () => request("/api/portfolio/watchlist/"),
     addWatchlist:   (body: object) =>

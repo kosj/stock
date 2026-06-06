@@ -14,6 +14,7 @@ import { PullbackBadge } from "./PullbackBadge";
 import { ProfitTakingBadge } from "./ProfitTakingBadge";
 import { StopLossBadge } from "./StopLossBadge";
 import { ProphetBadge } from "./ProphetBadge";
+import { PositionActionBadge } from "./PositionActionBadge";
 import { toast } from "sonner";
 import { useRealtimePrices } from "@/lib/websocket";
 import { BrokerConfigManager } from "@/lib/apiConfig";
@@ -22,6 +23,7 @@ import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 import type { StopLossResult } from "@/lib/server/stop-loss-signal";
 import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
+import type { PositionAnalysisResult } from "@/lib/server/position-manager-service";
 
 // summary 캐시에서 positions 변경 후 합계 재계산 (Yahoo 재조회 없이 로컬 계산)
 function recalcTotals(cur: any): any {
@@ -48,6 +50,9 @@ export function PortfolioPage() {
   // AI 갱신 상태
   const [autoFillLoading, setAutoFillLoading] = useState(false);
   const autoFillAbortRef = useRef<AbortController | null>(null);
+
+  // 피라미딩 완료 표시 — 로딩 중인 position_id Set
+  const [pyramidingIds, setPyramidingIds] = useState<Set<number>>(new Set());
 
   // 증권사 보유종목 가져오기 상태
   const [showBrokerHoldings, setShowBrokerHoldings] = useState(false);
@@ -197,6 +202,44 @@ export function PortfolioPage() {
   const prophetMap = new Map<string, ProphetForecastResult>(
     prophetData?.map((r) => [r.ticker, r]) ?? [],
   );
+
+  // ── 포지션 관리 분석 (손절·익절·피라미딩) ────────────────────────────────
+  const {
+    data: positionAnalysisData,
+    mutate: mutatePositionAnalysis,
+  } = useSWR<{ results: PositionAnalysisResult[] }>(
+    portfolioId ? `position-analysis-${portfolioId}` : null,
+    () => api.portfolio.positionAnalysis(portfolioId) as Promise<{ results: PositionAnalysisResult[] }>,
+    {
+      revalidateOnFocus: false,
+      refreshInterval:   300_000,   // 5분
+      dedupingInterval:  60_000,
+    },
+  );
+  const positionAnalysisMap = new Map<number, PositionAnalysisResult>(
+    positionAnalysisData?.results?.map((r) => [r.position_id, r]) ?? [],
+  );
+
+  // 피라미딩 완료 표시 핸들러 — position.notes에 "[pyramided]" 추가
+  async function handleMarkPyramided(posId: number, currentNotes: string | null) {
+    setPyramidingIds((prev) => new Set([...prev, posId]));
+    try {
+      const newNotes = currentNotes
+        ? `${currentNotes} [pyramided]`
+        : "[pyramided]";
+      await api.portfolio.updatePosition(posId, { notes: newNotes });
+      await Promise.all([mutateSummary(), mutatePositionAnalysis()]);
+      toast.success("피라미딩 완료 표시 — 이 종목은 더 이상 추가 매수를 추천하지 않습니다.");
+    } catch (err: any) {
+      toast.error(err.message ?? "처리 실패");
+    } finally {
+      setPyramidingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(posId);
+        return next;
+      });
+    }
+  }
 
   // 포트폴리오 변경 시 요약 데이터 재갱신
   // ※ autoSyncedRef는 여기서 초기화하지 않음 — 포트폴리오를 바꿀 때마다 자동동기화가
@@ -517,7 +560,7 @@ export function PortfolioPage() {
               <table className="text-sm whitespace-nowrap">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "앙상블예측", "TFT신호", "손절/목표", ""].map((h) => (
+                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "앙상블예측", "TFT신호", "포지션관리", "손절/목표", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -633,6 +676,30 @@ export function PortfolioPage() {
                                   {t.composite_score >= 0 ? "+" : ""}{t.composite_score}점
                                 </span>
                               </div>
+                            );
+                          })()}
+                        </td>
+                        {/* 포지션 관리 — 손절·익절·피라미딩 판단 */}
+                        <td className="py-3 px-3">
+                          {(() => {
+                            const pa = positionAnalysisMap.get(pos.position_id);
+                            if (!pa) {
+                              return (
+                                <span className="text-xs text-muted-foreground/30 animate-pulse">
+                                  분석 중…
+                                </span>
+                              );
+                            }
+                            return (
+                              <PositionActionBadge
+                                result={pa}
+                                onMarkPyramided={
+                                  pa.action.type === "BUY"
+                                    ? () => handleMarkPyramided(pos.position_id, pos.notes ?? null)
+                                    : undefined
+                                }
+                                markingPyramided={pyramidingIds.has(pos.position_id)}
+                              />
                             );
                           })()}
                         </td>
