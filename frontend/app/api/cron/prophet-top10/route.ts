@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
 
   console.log(`[cron] 시총 필터: ${STOCK_UNIVERSE.length} → ${candidates.length}종목`);
 
-  // ── Step 2: Prophet 병렬 분석 ─────────────────────────────────────────────
+  // ── Step 2: 하이브리드 스태킹 앙상블 병렬 분석 ───────────────────────────
   const settled = await Promise.allSettled(
     candidates.map(({ ticker, name }) =>
       Promise.race([

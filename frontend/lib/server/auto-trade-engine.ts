@@ -44,7 +44,7 @@ interface MockPosition {
   avg_price: number;
 }
 
-// ── Prophet 최신 추천 종목 조회 ──────────────────────────────────────────────
+// ── 앙상블 최신 추천 종목 조회 ───────────────────────────────────────────────
 
 async function getLatestProphetRecs(): Promise<{ ticker: string; name: string; recommendation: string }[]> {
   const since = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);

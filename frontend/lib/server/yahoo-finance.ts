@@ -319,6 +319,24 @@ async function getQuoteDirect(yahooSymbol: string): Promise<QuoteData | null> {
   }
 }
 
+// ── 한국 종목 한글명 보완 ─────────────────────────────────────────────────────
+// Yahoo Finance는 한국 종목명을 영문으로 반환하는 경우가 많음.
+// 6자리 코드 + 영문명 조합이면 네이버 폴링 → 네이버 기본 순으로 한글명 취득.
+
+async function resolveKoreanName(
+  ticker: string,
+  yahooName: string | null,
+): Promise<string | null> {
+  if (!KR_CODE.test(ticker)) return yahooName;
+  // 이미 한글 포함 → 그대로
+  if (yahooName && /[가-힣]/.test(yahooName)) return yahooName;
+  const polling = await getQuoteFromNaverPolling(ticker);
+  if (polling?.name && /[가-힣]/.test(polling.name)) return polling.name;
+  const basic = await getQuoteFromNaver(ticker);
+  if (basic?.name && /[가-힣]/.test(basic.name)) return basic.name;
+  return yahooName;
+}
+
 // ── 시세 조회 ─────────────────────────────────────────────────────────────────
 
 export interface QuoteData {
@@ -358,7 +376,7 @@ export async function getQuote(ticker: string, nocache = false): Promise<QuoteDa
   function buildFromYahoo(q: any): QuoteData {
     return {
       ticker,
-      name:       q.shortName || q.longName || null,
+      name:       await resolveKoreanName(ticker, q.shortName || q.longName || null),
       price:      q.regularMarketPrice,
       change:     q.regularMarketChange ?? 0,
       change_pct: q.regularMarketChangePercent ?? 0,
@@ -372,6 +390,16 @@ export async function getQuote(ticker: string, nocache = false): Promise<QuoteDa
     };
   }
 
+  // yahoo-finance2 라이브러리 실패 → 직접 Yahoo Finance v8 API 재시도
+  const direct = await getQuoteDirect(yt);
+  if (direct) {
+    direct.ticker = ticker;
+    direct.name   = await resolveKoreanName(ticker, direct.name);
+    await cacheSet(key, direct, TTL.QUOTE);
+    return direct;
+  }
+
+  // Yahoo v8도 실패 (Vercel IP 차단) → 국내 종목은 네이버 폴링 → 기본 API 순으로 폴백
   if (KR_CODE.test(ticker)) {
     // 국내 종목: Naver 폴링(~0.5s, 안정)과 Yahoo(Vercel IP 차단 가능, 최대 10s)를 동시 시작
     // Promise.any → 먼저 성공하는 쪽을 즉시 반환 (직렬 폴백 대비 최대 18s 절감)
@@ -663,8 +691,13 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
     };
     // 한국 종목 — 사업내용이 없거나 영문이면 한국어로 대체 시도
     if (KR_CODE.test(ticker) && (!data.summary || !/[가-힣]/.test(data.summary))) {
-      const korSummary = await getKoreanBusinessSummary(ticker); // 6자리 코드 전달
+      const korSummary = await getKoreanBusinessSummary(ticker);
       if (korSummary) data = { ...data, summary: korSummary };
+    }
+    // 한국 종목 — 종목명이 없거나 영문이면 네이버 한글명으로 보완
+    if (KR_CODE.test(ticker) && (!data.name || !/[가-힣]/.test(data.name))) {
+      const koName = await resolveKoreanName(ticker, data.name);
+      if (koName !== data.name) data = { ...data, name: koName };
     }
 
     await cacheSet(key, data, TTL.FINANCIALS);

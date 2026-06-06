@@ -408,3 +408,45 @@ CREATE TABLE IF NOT EXISTS prophet_recommendations (
 );
 CREATE INDEX IF NOT EXISTS idx_prophet_rec_date ON prophet_recommendations(run_date);
 ALTER TABLE prophet_recommendations DISABLE ROW LEVEL SECURITY;
+
+-- ============================================================
+-- 섹터 로테이션 — ETF 마스터 & 일별 종가
+-- ============================================================
+
+-- sector_etfs: 추적할 섹터 ETF 목록
+CREATE TABLE IF NOT EXISTS sector_etfs (
+  id          SERIAL      PRIMARY KEY,
+  ticker      TEXT        NOT NULL UNIQUE,
+  sector_name TEXT        NOT NULL,
+  etf_name    TEXT        NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE sector_etfs DISABLE ROW LEVEL SECURITY;
+
+-- 초기 데이터: 국내 대표 10개 섹터 KODEX ETF
+INSERT INTO sector_etfs (ticker, sector_name, etf_name) VALUES
+  ('091160', '반도체',    'KODEX 반도체'),
+  ('305720', '2차전지',   'KODEX 2차전지산업'),
+  ('244580', '바이오',    'KODEX 바이오'),
+  ('139260', '인터넷/IT', 'KODEX 인터넷'),
+  ('091180', '자동차',    'KODEX 자동차'),
+  ('139270', '금융',      'KODEX 은행'),
+  ('117460', '에너지',    'KODEX 에너지화학'),
+  ('139220', '건설',      'KODEX 건설'),
+  ('139230', '철강/소재', 'KODEX 철강'),
+  ('364980', 'AI/로봇',   'KODEX K-로봇액티브')
+ON CONFLICT (ticker) DO NOTHING;
+
+-- etf_daily_prices: ETF 일별 종가 (etf_id + date Unique)
+CREATE TABLE IF NOT EXISTS etf_daily_prices (
+  id          BIGSERIAL    PRIMARY KEY,
+  etf_id      INTEGER      NOT NULL REFERENCES sector_etfs(id) ON DELETE CASCADE,
+  date        DATE         NOT NULL,
+  close_price NUMERIC(12,2) NOT NULL,
+  created_at  TIMESTAMPTZ  DEFAULT NOW(),
+  UNIQUE (etf_id, date)
+);
+-- 모멘텀 계산 쿼리(etf_id 기준 최신 N행 조회)에 최적화
+CREATE INDEX IF NOT EXISTS idx_etf_prices_etf_date ON etf_daily_prices(etf_id, date DESC);
+ALTER TABLE etf_daily_prices DISABLE ROW LEVEL SECURITY;
+
