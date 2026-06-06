@@ -11,13 +11,14 @@ Layer 2 (Meta Model):
 
 Validation : TimeSeriesSplit / Walk-forward (no look-ahead bias enforced)
 Target     : 5-day forward excess return vs KOSPI benchmark (Alpha)
-Score      : expected_alpha / 60d_annualised_volatility  (Risk-Adjusted)
+Score      : expected_alpha / 60d_annualised_volatility  (Risk-Adjusted Sharpe analog)
 
 Post-processing:
-  - Liquidity filter : 20d average trading value >= 5B KRW
-  - Sector cap       : max 5 tickers per sector in final Top 30
+  - Liquidity filter   : 20d average trading value >= 5B KRW
+  - Positive alpha gate: risk_adj_score > SCORE_FLOOR (no negative-alpha stocks in Top 30)
+  - Sector cap         : max 5 tickers per sector in final Top 30
 
-Output: Upserted into Supabase `prophet_recommendations` table (existing schema).
+Output: Upserted into Supabase `prophet_recommendations` table.
 """
 
 import os
@@ -34,7 +35,7 @@ import lightgbm as lgb
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
@@ -45,12 +46,15 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 # ── 하이퍼파라미터 ─────────────────────────────────────────────────────────────
-TARGET_DAYS   = 5               # 예측 대상: 5거래일 선행 알파
-SECTOR_CAP    = 5               # 섹터당 최대 종목 수 (쏠림 방지)
-LIQUIDITY_MIN = 5_000_000_000   # 20일 평균 거래대금 최소치 (50억 KRW)
-CV_SPLITS     = 5               # Walk-forward 분할 수
-MIN_TRAIN_ROWS = 100            # 폴드당 최소 훈련 행 수
-BENCHMARK_YF  = "^KS11"        # KOSPI 벤치마크
+TARGET_DAYS    = 5               # 예측 대상: 5거래일 선행 알파
+SECTOR_CAP     = 5               # 섹터당 최대 종목 수 (쏠림 방지)
+LIQUIDITY_MIN  = 5_000_000_000   # 20일 평균 거래대금 최소치 (50억 KRW)
+CV_SPLITS      = 5               # Walk-forward 분할 수
+MIN_TRAIN_ROWS = 100             # 폴드당 최소 훈련 행 수
+MIN_OOF_R2     = 0.01            # 메타 모델 최소 OOF R² — 미달 시 경고 출력
+SCORE_FLOOR    = 0.0             # Top30 진입 최소 리스크 조정 스코어 (음의 알파 차단)
+ALPHA30_DECAY  = 0.5             # 30일 외삽 감쇠 계수 (평균회귀 반영: 6 → 3배)
+BENCHMARK_YF   = "^KS11"        # KOSPI 벤치마크
 
 # ── 종목 유니버스 ─────────────────────────────────────────────────────────────
 # stock-universe.ts와 동기화 유지
@@ -201,39 +205,32 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame) -> pd.DataFrame:
 
     f = pd.DataFrame(index=c.index)
 
-    # 과거 수익률 (여러 lag)
     for lag in [1, 2, 3, 5, 10, 20]:
         f[f"ret_{lag}d"] = c.pct_change(lag)
 
-    # 초과수익률 (alpha) lag
     for lag in [1, 5]:
         f[f"alpha_{lag}d"] = c.pct_change(lag) - mret.rolling(lag).sum()
 
-    # 기술적 지표
     f["rsi_14"]    = _rsi(c, 14)
     f["macd_hist"] = _macd_hist(c)
     f["bb_pct"]    = _bb_pct(c)
 
-    # 이동평균 대비 위치
     for w in [5, 20, 60]:
         f[f"vs_ma{w}"] = c / c.rolling(w).mean() - 1
 
-    # 거래량 비율
-    vol_ma20      = vol.rolling(20).mean()
+    vol_ma20       = vol.rolling(20).mean()
     f["vol_ratio"] = vol / vol_ma20.replace(0, np.nan)
 
-    # 실현 변동성 (연환산)
     f["vol_20d"] = ret.rolling(20).std() * np.sqrt(252)
     f["vol_60d"] = ret.rolling(60).std() * np.sqrt(252)
 
-    # 시장 맥락
     f["market_ret_5d"]  = mret.rolling(5).sum()
     f["market_ret_20d"] = mret.rolling(20).sum()
 
     # 유동성 계산용 (훈련 피처 아님)
     f["trading_value"] = c * vol
 
-    # ── 타깃: 5거래일 선행 초과수익률 (훈련 레이블) ──────────────────────────
+    # ── 타깃: 5거래일 선행 초과수익률 ─────────────────────────────────────────
     fwd_ret  = c.pct_change(TARGET_DAYS).shift(-TARGET_DAYS)
     fwd_mret = mret.rolling(TARGET_DAYS).sum().shift(-TARGET_DAYS)
     f["target_alpha_5d"] = fwd_ret - fwd_mret
@@ -255,7 +252,6 @@ def _make_base_models():
         n_estimators=200, max_depth=6, min_samples_leaf=5,
         max_features=0.7, random_state=42, n_jobs=-1,
     )
-    # MLP: lag 피처를 시계열 입력으로 사용 — LSTM과 동일한 단기 의존성 학습
     mlp = MLPRegressor(
         hidden_layer_sizes=(64, 32), activation="relu", solver="adam",
         max_iter=400, random_state=42, learning_rate_init=0.001,
@@ -272,7 +268,10 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     """
     날짜 기준 walk-forward 분할로 미래 데이터 참조를 원천 차단.
     panel MultiIndex: (ticker, date)
-    Returns: trained models dict + OOF R²
+
+    OOF R² 계산 방식:
+      - base 모델 3종의 OOF 예측을 쌓아(stacking) Ridge 메타 모델 학습
+      - 진짜 OOF R²: 메타 모델 자체도 3-fold CV로 평가 (in-sample R² 방지)
     """
     dates     = panel.index.get_level_values("date").unique().sort_values()
     row_dates = panel.index.get_level_values("date").to_numpy()
@@ -298,7 +297,6 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
         X_tr_raw, y_tr_raw = X_all[tr], y_all[tr]
         X_te = X_all[te]
 
-        # NaN 행 제거
         ok = ~np.isnan(y_tr_raw) & ~np.any(np.isnan(X_tr_raw), axis=1)
         X_tr, y_tr = X_tr_raw[ok], y_tr_raw[ok]
 
@@ -321,15 +319,33 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
 
         print(f"  Fold {fold+1}/{CV_SPLITS}: train={tr.sum():,}행  test={te.sum():,}행")
 
-    # ── Ridge 메타 모델 (L2 규제) ─────────────────────────────────────────────
-    valid = oof_mask & ~np.isnan(y_all) & ~np.isnan(oof_lgbm)
-    meta_X = np.column_stack([oof_lgbm[valid], oof_rf[valid], oof_mlp[valid]])
-    meta_y = y_all[valid]
+    # ── Ridge 메타 모델 ────────────────────────────────────────────────────────
+    valid   = oof_mask & ~np.isnan(y_all) & ~np.isnan(oof_lgbm)
+    meta_X  = np.column_stack([oof_lgbm[valid], oof_rf[valid], oof_mlp[valid]])
+    meta_y  = y_all[valid]
 
-    meta   = Ridge(alpha=1.0)
+    meta = Ridge(alpha=1.0)
     meta.fit(meta_X, meta_y)
-    oof_r2 = r2_score(meta_y, meta.predict(meta_X)) if len(meta_y) > 10 else 0.0
-    print(f"  OOF R²: {oof_r2:.4f}  (Ridge 메타 모델)")
+
+    # 진짜 OOF R²: 메타 모델을 3-fold CV로 평가 (학습 데이터와 평가 데이터 분리)
+    # → in-sample R² 계산 방지 (기존 r2_score(meta_y, meta.predict(meta_X))는 in-sample)
+    if len(meta_y) > 30:
+        cv_scores = cross_val_score(
+            Ridge(alpha=1.0), meta_X, meta_y,
+            cv=min(3, len(meta_y) // 10),
+            scoring="r2",
+        )
+        oof_r2 = float(np.clip(cv_scores.mean(), 0.0, 1.0))
+    else:
+        oof_r2 = 0.0
+
+    print(f"  OOF R² (meta CV): {oof_r2:.4f}")
+
+    # ── 모델 품질 게이트 ──────────────────────────────────────────────────────
+    if oof_r2 < MIN_OOF_R2:
+        print(f"  ⚠ 경고: OOF R²={oof_r2:.4f} < 최소 기준({MIN_OOF_R2})")
+        print(f"  → 베이스 모델이 5일 알파를 유의미하게 예측하지 못하고 있음.")
+        print(f"  → 생성된 추천 신호의 신뢰도가 낮을 수 있음. 결과를 참고 자료로만 활용 권장.")
 
     # ── 전체 데이터로 Base 모델 재훈련 (최종 예측용) ─────────────────────────
     ok_all   = ~np.isnan(y_all) & ~np.any(np.isnan(X_all), axis=1)
@@ -344,7 +360,7 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
 
     return dict(
         lgbm=lgbm_f, rf=rf_f, mlp=mlp_f,
-        meta=meta, scaler=scaler, oof_r2=float(oof_r2),
+        meta=meta, scaler=scaler, oof_r2=oof_r2,
     )
 
 
@@ -372,10 +388,22 @@ def predict_alpha(models: dict, latest: pd.DataFrame) -> pd.Series:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _rec_label(score: float) -> str:
-    if score > 0.80:  return "strong_buy"
-    if score > 0.35:  return "buy"
-    if score > -0.20: return "hold"
-    if score > -0.60: return "sell"
+    """
+    risk_adj_score = alpha_5d(fraction) / vol_60d_ann(fraction) 기준 추천 레이블.
+
+    임계값 근거 (vol_60d_ann = 35% 가정):
+      strong_buy : score > 0.15  → alpha_5d > 5.25%
+      buy        : score > 0.06  → alpha_5d > 2.1%
+      hold       : score > -0.02 → 미미한 양/음 알파 (±0.7%)
+      sell       : score > -0.10 → alpha_5d < -3.5%
+      strong_sell: else          → alpha_5d < -5.25%
+
+    기존 임계값(0.80, 0.35)은 연환산 Sharpe 17~40배에 해당 → 사실상 모든 종목이 "hold"
+    """
+    if score > 0.15:   return "strong_buy"
+    if score > 0.06:   return "buy"
+    if score > -0.02:  return "hold"
+    if score > -0.10:  return "sell"
     return "strong_sell"
 
 
@@ -519,12 +547,24 @@ def main() -> None:
 
     df_all = pd.DataFrame(records)
 
-    # 유동성 필터: 20일 평균 거래대금 50억 KRW 이상
+    # 유동성 필터
     df_liq = df_all[df_all["avg_trading_value_20d"] >= LIQUIDITY_MIN].copy()
-    print(f"  유동성 필터: {len(df_all)} → {len(df_liq)} 종목 (50억 KRW 기준)")
+    print(f"  유동성 필터:    {len(df_all)} → {len(df_liq)} 종목 (50억 KRW)")
+
+    # ── 양의 알파 게이트: 음수 risk_adj_score 종목 Top30 진입 차단 ─────────────
+    # 모델이 음의 초과수익률을 예측하는 종목을 추천 목록에서 제외.
+    # SCORE_FLOOR=0.0: 최소한 시장 대비 양의 초과수익률을 예측한 종목만 포함.
+    df_pos = df_liq[df_liq["risk_adj_score"] > SCORE_FLOOR].copy()
+    print(f"  양의 알파 필터: {len(df_liq)} → {len(df_pos)} 종목 (score > {SCORE_FLOOR})")
+
+    if df_pos.empty:
+        print("\n  ⚠ 양의 알파 예측 종목 없음 — 당일 추천 생략")
+        print("  → 모델이 전 종목에 대해 음의 초과수익률 예측 중.")
+        print("  → 시장 전반적 하락 국면 또는 모델 재훈련 필요.")
+        return
 
     # 리스크 조정 스코어 내림차순 정렬
-    df_sorted = df_liq.sort_values("risk_adj_score", ascending=False).reset_index(drop=True)
+    df_sorted = df_pos.sort_values("risk_adj_score", ascending=False).reset_index(drop=True)
 
     # 섹터 쏠림 방지: 동일 섹터 최대 5종목
     df_top = _apply_sector_cap(df_sorted, cap=SECTOR_CAP)
@@ -532,7 +572,8 @@ def main() -> None:
 
     # ── 결과 출력 ─────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")
-    print(f"  최종 Top {len(df_top)} 추천 종목   (OOF R²={models['oof_r2']:.4f})")
+    print(f"  최종 Top {len(df_top)} 추천 종목   "
+          f"(OOF R²={models['oof_r2']:.4f} | 양의알파풀={len(df_pos)}종목)")
     print(f"{'='*64}")
     disp = df_top[["ticker", "name", "sector", "alpha_5d", "risk_adj_score"]].copy()
     disp.index = disp.index + 1
@@ -546,15 +587,23 @@ def main() -> None:
         }).to_string()
     )
 
-    # ── Supabase 저장 (기존 prophet_recommendations 스키마 재사용) ────────────
+    # 추천 레이블 분포 출력 (진단용)
+    label_counts = df_top["risk_adj_score"].map(_rec_label).value_counts()
+    print(f"\n  추천 분포: {dict(label_counts)}")
+
+    # ── Supabase 저장 ─────────────────────────────────────────────────────────
     oof_r2 = models["oof_r2"]
     rows = []
     for i, row in df_top.iterrows():
-        a5   = row["alpha_5d"]
-        a30  = a5 * 6                   # 30일 외삽 (선형)
-        vol  = row["vol_60d_ann"]
-        bull = a30 + vol * 0.5          # 낙관 시나리오
-        bear = a30 - vol * 0.5          # 비관 시나리오
+        a5  = row["alpha_5d"]
+        vol = row["vol_60d_ann"]
+        score = row["risk_adj_score"]
+
+        # 30일 외삽: 단순 선형(×6) 대신 감쇠 계수 적용 (ALPHA30_DECAY=0.5 → ×3)
+        # 근거: 초과수익은 평균회귀 경향이 있어 5일 알파의 6배는 과장
+        a30  = a5 * (30 / TARGET_DAYS) * ALPHA30_DECAY
+        bull = a30 + vol * 0.5
+        bear = a30 - vol * 0.5
 
         rows.append({
             "run_date":             run_date,
@@ -564,14 +613,16 @@ def main() -> None:
             "market":               row["market"],
             "sector":               row["sector"],
             "current_price":        round(row["current_price"], 2),
-            "predicted_return_7d":  round(a5  * 100, 2),   # 5일 alpha → 7일 컬럼 재활용
+            "predicted_return_7d":  round(a5  * 100, 2),   # 5일 알파 → 7일 컬럼 재활용
             "predicted_return_30d": round(a30 * 100, 2),
             "bull_return_30d":      round(bull * 100, 2),
             "base_return_30d":      round(a30 * 100, 2),
             "bear_return_30d":      round(bear * 100, 2),
-            "recommendation":       _rec_label(row["risk_adj_score"]),
-            "r_squared":            round(max(0.0, min(1.0, oof_r2)), 4),
+            "recommendation":       _rec_label(score),
+            "r_squared":            round(oof_r2, 4),
             "trend_direction":      _trend_dir(row["ret_20d"]),
+            "composite_return":     round(a5  * 100, 2),    # 앙상블 복합 수익률
+            "risk_adjusted_score":  round(score, 4),
             "accuracy_json":        None,
         })
 
