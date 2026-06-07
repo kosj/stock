@@ -202,6 +202,7 @@ function calcGrowth(f: FinancialsData): { score: number; notes: string[] } {
 function calcTechnical(
   signals: Record<string, unknown>,
   sectorChange1m: number | null = null,
+  isOutperformer = false,
 ): { score: number; notes: string[] } {
   let score = 12.5;
   const notes: string[] = [];
@@ -255,6 +256,15 @@ function calcTechnical(
       if (!isLeadingSector) { score -= 3; notes.push("볼린저밴드 상단 — 과열"); }
     }
   }
+
+  // 상대 강도(RS) 보너스: KOSPI 대비 1개월 초과 수익 종목에 +5점 가산
+  // 슬리피지 방어: 거래량 확인 없이 RS 단독으로 진입하면 안 됨.
+  // RS Outperformer는 수급·기술적 점수의 보조 지표로만 활용한다.
+  if (isOutperformer) {
+    score += 5;
+    notes.push("KOSPI 대비 초과 수익 (RS Outperformer) +5");
+  }
+
   return { score: Math.min(25, Math.max(0, score)), notes };
 }
 
@@ -391,13 +401,14 @@ export async function analyzeStock(
   anthropicApiKey = "",
   avgPrice: number | null = null,
   quantity: number | null = null,
+  isOutperformer = false,
 ) {
   const sectorName = financials.sector || financials.industry;
   const v = calcValuation(financials);
   const g = calcGrowth(financials);
   // calcSector → change1m → calcTechnical (주도 섹터 예외 처리 연동)
   const s = calcSector(sectors, sectorName);
-  const t = calcTechnical(signals, s.change1m);
+  const t = calcTechnical(signals, s.change1m, isOutperformer);
 
   const total = v.score + g.score + t.score + s.score;
   const recommendation = toRecommendation(total);

@@ -73,6 +73,9 @@ export const api = {
     financials: (ticker: string) => request(`/api/market/financials/${ticker}`),
     indices:   (creds?: BrokerCreds) =>
       request("/api/market/indices", { headers: brokerHeaders(creds) }),
+    /** 외국인/기관 순매수 트렌드 (국내 6자리 종목 전용) */
+    investorTrend: (ticker: string) =>
+      request(`/api/market/investor-trend/${ticker}`),
   },
 
   analysis: {

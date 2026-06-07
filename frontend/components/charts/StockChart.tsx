@@ -9,6 +9,7 @@ import {
   HistogramSeries,
   type IChartApi,
 } from "lightweight-charts";
+import type { RSPoint } from "@/lib/server/relative-strength";
 
 interface Candle {
   time: string;
@@ -30,6 +31,15 @@ interface StockChartProps {
   stopLoss?: number | null;
   takeProfit?: number | null;
   height?: number;
+  /** 상대 강도 시계열 (기준=100). null이면 토글 버튼 숨김 */
+  rsData?: RSPoint[] | null;
+  /** RS 요약: { stock_return_1m, index_return_1m, rs_ratio, is_outperformer } */
+  rsSummary?: {
+    stock_return_1m: number;
+    index_return_1m: number;
+    rs_ratio: number;
+    is_outperformer: boolean;
+  } | null;
 }
 
 export function StockChart({
@@ -38,12 +48,18 @@ export function StockChart({
   stopLoss,
   takeProfit,
   height = 420,
+  rsData,
+  rsSummary,
 }: StockChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  const containerRef   = useRef<HTMLDivElement>(null);
+  const rsContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef       = useRef<IChartApi | null>(null);
+  const rsChartRef     = useRef<IChartApi | null>(null);
   const [showMa, setShowMa] = useState(true);
   const [showBb, setShowBb] = useState(false);
+  const [showRs, setShowRs] = useState(false);
 
+  // ── 메인 캔들스틱 차트 ────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || !candles.length) return;
 
@@ -63,7 +79,6 @@ export function StockChart({
       height,
     });
 
-    // 캔들스틱 (v5 API)
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#22c55e",
       downColor: "#ef4444",
@@ -95,7 +110,6 @@ export function StockChart({
       });
     }
 
-    // 이동평균선
     if (showMa) {
       const maColors: Record<string, string> = {
         ma5: "#60a5fa", ma20: "#f59e0b", ma60: "#a78bfa", ma120: "#f43f5e",
@@ -110,7 +124,6 @@ export function StockChart({
       }
     }
 
-    // 볼린저 밴드
     if (showBb && indicators.bb_upper?.length) {
       for (const key of ["bb_upper", "bb_mid", "bb_lower"] as const) {
         if (indicators[key]?.length) {
@@ -137,9 +150,58 @@ export function StockChart({
     return () => { ro.disconnect(); chart.remove(); };
   }, [candles, indicators, stopLoss, takeProfit, showMa, showBb, height]);
 
+  // ── 상대 강도(RS) 서브 차트 ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!showRs || !rsData?.length || !rsContainerRef.current) return;
+
+    const chart = createChart(rsContainerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "#64748b",
+      },
+      grid: {
+        vertLines: { color: "#1e293b" },
+        horzLines: { color: "#1e293b" },
+      },
+      rightPriceScale: { borderColor: "#1e293b", scaleMargins: { top: 0.1, bottom: 0.1 } },
+      timeScale: { borderColor: "#1e293b", visible: false },
+      width: rsContainerRef.current.clientWidth,
+      height: 90,
+    });
+
+    const rsSeries = chart.addSeries(LineSeries, {
+      color: "#f59e0b",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+    });
+    rsSeries.setData(rsData as any);
+
+    // 기준선 (RS = 100, KOSPI와 동일 수익률)
+    rsSeries.createPriceLine({
+      price: 100,
+      color: "#475569",
+      lineWidth: 1,
+      lineStyle: LineStyle.Dotted,
+      title: "KOSPI",
+      axisLabelVisible: false,
+    });
+
+    chart.timeScale().fitContent();
+    rsChartRef.current = chart;
+
+    const ro = new ResizeObserver(() => {
+      if (rsContainerRef.current) chart.applyOptions({ width: rsContainerRef.current.clientWidth });
+    });
+    ro.observe(rsContainerRef.current);
+
+    return () => { ro.disconnect(); chart.remove(); };
+  }, [showRs, rsData]);
+
   return (
     <div>
-      <div className="flex gap-2 mb-2">
+      {/* 토글 버튼 행 */}
+      <div className="flex flex-wrap gap-2 mb-2">
         <button
           onClick={() => setShowMa((v) => !v)}
           className={`text-xs px-2 py-1 rounded transition-colors ${showMa ? "bg-blue-600/30 text-blue-400" : "text-muted-foreground hover:bg-white/5"}`}
@@ -152,10 +214,38 @@ export function StockChart({
         >
           볼린저밴드
         </button>
-        {stopLoss && <span className="text-xs px-2 py-1 rounded bg-red-500/10 text-red-400">손절 {stopLoss.toLocaleString()}</span>}
+        {rsData && rsData.length > 0 && (
+          <button
+            onClick={() => setShowRs((v) => !v)}
+            className={`text-xs px-2 py-1 rounded transition-colors ${showRs ? "bg-amber-600/30 text-amber-400" : "text-muted-foreground hover:bg-white/5"}`}
+          >
+            상대강도 (RS)
+          </button>
+        )}
+        {stopLoss   && <span className="text-xs px-2 py-1 rounded bg-red-500/10 text-red-400">손절 {stopLoss.toLocaleString()}</span>}
         {takeProfit && <span className="text-xs px-2 py-1 rounded bg-green-500/10 text-green-400">목표 {takeProfit.toLocaleString()}</span>}
       </div>
+
+      {/* 메인 차트 */}
       <div ref={containerRef} style={{ height }} />
+
+      {/* RS 서브 차트 — showRs 토글 시 마운트 */}
+      {showRs && rsData && rsData.length > 0 && (
+        <div className="mt-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs text-amber-400 font-medium">상대 강도 (vs KOSPI, 기준=100)</span>
+            {rsSummary && (
+              <span className={`text-xs px-1.5 py-0.5 rounded ${rsSummary.is_outperformer ? "bg-amber-400/15 text-amber-400" : "bg-slate-700 text-slate-400"}`}>
+                종목 {rsSummary.stock_return_1m >= 0 ? "+" : ""}{rsSummary.stock_return_1m.toFixed(1)}%
+                &nbsp;/&nbsp;
+                KOSPI {rsSummary.index_return_1m >= 0 ? "+" : ""}{rsSummary.index_return_1m.toFixed(1)}%
+                &nbsp;{rsSummary.is_outperformer ? "▲ 초과수익" : "▼ 미달"}
+              </span>
+            )}
+          </div>
+          <div ref={rsContainerRef} style={{ height: 90 }} />
+        </div>
+      )}
     </div>
   );
 }
