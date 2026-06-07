@@ -45,7 +45,7 @@ function CustomTooltip({
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: p.color }} />
           <span className="text-muted-foreground">{p.name}</span>
           <span className={`font-semibold ${p.value >= 0 ? "text-blue-400" : "text-red-400"}`}>
-            {p.value >= 0 ? "+" : ""}{p.value.toFixed(1)}억원
+            {p.value >= 0 ? "+" : ""}{p.value.toLocaleString()}천주
           </span>
         </div>
       ))}
@@ -103,7 +103,7 @@ export function SupplyDemandCard({ data }: Props) {
     <Card>
       <CardHeader>
         <CardTitle>수급 분석</CardTitle>
-        <span className="text-xs text-muted-foreground">최근 5영업일 외국인/기관 순매수 (억원)</span>
+        <span className="text-xs text-muted-foreground">최근 5영업일 외국인/기관 순매수 (단위: 천주)</span>
       </CardHeader>
 
       {/* 누계 요약 */}
@@ -115,7 +115,7 @@ export function SupplyDemandCard({ data }: Props) {
           >
             <div className="text-xs text-muted-foreground mb-0.5">{label}</div>
             <div className={`font-bold text-sm ${color}`}>
-              {value >= 0 ? "+" : ""}{value.toFixed(1)}억원
+              {value >= 0 ? "+" : ""}{value.toLocaleString()}천주
             </div>
           </div>
         ))}
@@ -141,7 +141,7 @@ export function SupplyDemandCard({ data }: Props) {
             tick={{ fontSize: 11, fill: "#64748b" }}
             axisLine={false}
             tickLine={false}
-            tickFormatter={(v: number) => `${v}억`}
+            tickFormatter={(v: number) => `${v.toLocaleString()}천`}
             width={45}
           />
           <Tooltip content={<CustomTooltip />} />
