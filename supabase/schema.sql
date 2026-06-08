@@ -388,7 +388,7 @@ ALTER TABLE quote_cache DISABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS prophet_recommendations (
   id                   BIGSERIAL    PRIMARY KEY,
   run_date             DATE         NOT NULL,
-  rank                 INTEGER      NOT NULL,
+  rank                 INTEGER,                 -- NULL = 유니버스 전체 저장 종목 (Top30 외)
   ticker               VARCHAR(20)  NOT NULL,
   name                 VARCHAR(100),
   market               VARCHAR(20),
@@ -404,7 +404,7 @@ CREATE TABLE IF NOT EXISTS prophet_recommendations (
   trend_direction      VARCHAR(20),
   accuracy_json        TEXT,
   created_at           TIMESTAMPTZ  DEFAULT NOW(),
-  UNIQUE(run_date, rank)
+  UNIQUE(run_date, ticker)          -- ticker 기준 유니크 (rank NULL 허용)
 );
 CREATE INDEX IF NOT EXISTS idx_prophet_rec_date ON prophet_recommendations(run_date);
 ALTER TABLE prophet_recommendations DISABLE ROW LEVEL SECURITY;
