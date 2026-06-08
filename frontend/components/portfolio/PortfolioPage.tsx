@@ -10,6 +10,7 @@ import Link from "next/link";
 import { PositionModal } from "./PositionModal";
 import { PortfolioCreateModal } from "./PortfolioCreateModal";
 import { BrokerHoldingsModal } from "./BrokerHoldingsModal";
+import { PositionActionBadge } from "./PositionActionBadge";
 import { toast } from "sonner";
 import { useRealtimePrices } from "@/lib/websocket";
 import { BrokerConfigManager } from "@/lib/apiConfig";
@@ -84,6 +85,7 @@ export function PortfolioPage() {
   // ── 포지션 관리 분석 (ATR 기반 손절·익절·피라미딩) ──────────────────────
   const {
     data: positionAnalysisData,
+    mutate: mutatePositionAnalysis,
   } = useSWR<{ results: PositionAnalysisResult[] }>(
     portfolioId ? `position-analysis-${portfolioId}` : null,
     () => api.portfolio.positionAnalysis(portfolioId) as Promise<{ results: PositionAnalysisResult[] }>,
@@ -96,6 +98,23 @@ export function PortfolioPage() {
   const positionAnalysisMap = new Map<number, PositionAnalysisResult>(
     positionAnalysisData?.results?.map((r) => [r.position_id, r]) ?? [],
   );
+
+  // 피라미딩 완료 마킹 중인 포지션 ID
+  const [markingPyramidedId, setMarkingPyramidedId] = useState<number | null>(null);
+
+  async function handleMarkPyramided(positionId: number, currentNotes: string | null) {
+    setMarkingPyramidedId(positionId);
+    try {
+      const notes = ((currentNotes ?? "") + " [pyramided]").trim();
+      await api.portfolio.updatePosition(positionId, { notes });
+      await mutatePositionAnalysis();
+      toast.success("피라미딩 실행 완료 처리됨");
+    } catch (err: any) {
+      toast.error(err.message ?? "처리 실패");
+    } finally {
+      setMarkingPyramidedId(null);
+    }
+  }
 
   // 포트폴리오 변경 시 요약 데이터 재갱신
   // ※ autoSyncedRef는 여기서 초기화하지 않음 — 포트폴리오를 바꿀 때마다 자동동기화가
@@ -377,7 +396,7 @@ export function PortfolioPage() {
               <table className="text-sm whitespace-nowrap">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "ATR 손절/익절", "손절/목표", ""].map((h) => (
+                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "ATR 손절/익절", "매매 신호", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -467,23 +486,25 @@ export function PortfolioPage() {
                             );
                           })()}
                         </td>
+                        {/* ATR 알고리즘 매매 신호 (손절/익절/피라미딩 시 주식 수) */}
                         <td className="py-3 px-3">
-                          <div className="flex flex-col gap-0.5">
-                            {pos.stop_loss ? (
-                              <span className={`text-xs text-red-400 ${pos.is_near_stop ? "font-semibold" : ""}`}>
-                                손절 {formatNumber(pos.stop_loss)}{pos.is_near_stop && " ⚠"}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground/40">손절 -</span>
-                            )}
-                            {pos.take_profit ? (
-                              <span className={`text-xs text-green-400 ${pos.is_near_target ? "font-semibold" : ""}`}>
-                                목표 {formatNumber(pos.take_profit)}{pos.is_near_target && " ✓"}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground/40">목표 -</span>
-                            )}
-                          </div>
+                          {(() => {
+                            const pa = positionAnalysisMap.get(pos.position_id);
+                            if (!pa) {
+                              return (
+                                <span className="text-xs text-muted-foreground/30 animate-pulse">
+                                  분석 중…
+                                </span>
+                              );
+                            }
+                            return (
+                              <PositionActionBadge
+                                result={pa}
+                                onMarkPyramided={() => handleMarkPyramided(pos.position_id, pos.notes ?? null)}
+                                markingPyramided={markingPyramidedId === pos.position_id}
+                              />
+                            );
+                          })()}
                         </td>
                         <td className="py-3 px-3">
                           <div className="flex gap-1">
