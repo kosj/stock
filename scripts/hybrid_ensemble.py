@@ -653,7 +653,7 @@ def main() -> None:
             "bull_return_30d":      round(bull * 100, 2),
             "base_return_30d":      round(a30 * 100, 2),
             "bear_return_30d":      round(bear * 100, 2),
-            "recommendation":       _rec_label(score),
+            "recommendation":       _rec_label(row["risk_adj_score"]),
             "r_squared":            round(oof_r2, 4),
             "trend_direction":      _trend_dir(row["ret_20d"]),
             "accuracy_json":        None,
