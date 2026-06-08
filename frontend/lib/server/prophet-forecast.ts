@@ -756,7 +756,9 @@ export async function prophetForecast(
 
   const futureMat    = futureA.map((a, i) => [a, futureB[i], futureC[i], futureD[i]]);
   const scaledFuture = xScaler.transform(futureMat);
-  const y_future     = mv(scaledFuture.map(row => [1, ...row]), metaBeta);
+  // Ridge 외삽이 음수 가격을 생성하는 것을 물리 하한으로 차단 (주가 ≥ 0)
+  const y_future     = mv(scaledFuture.map(row => [1, ...row]), metaBeta)
+                         .map(p => Math.max(0, p));
 
   // ── 개별 모델 수익률 (크론 복합 스코어용) ────────────────────────────────────
   const currentPrice   = prices[n - 1];
@@ -764,13 +766,19 @@ export async function prophetForecast(
   const tft_return_30d   = ((futureD[Math.min(29, futureD.length - 1)] - currentPrice) / currentPrice) * 100;
 
   // ── Ridge 앙상블 예측 수익률 ─────────────────────────────────────────────────
+  // 수익률 물리 상한: KOSPI 개별주 30일 기준 -75% ~ +150% (급등주 포함 충분한 여유)
+  // 이 범위를 벗어나는 예측은 앙상블 발산 신호 — 클리핑으로 UI 노이즈 방지
+  const CLIP_30D_MIN = -75;
+  const CLIP_30D_MAX = 150;
   const pred5d  = y_future[Math.min(4,  y_future.length - 1)] ?? currentPrice;
   const pred7d  = y_future[Math.min(6,  y_future.length - 1)] ?? currentPrice;
   const pred30d = y_future[Math.min(29, y_future.length - 1)] ?? currentPrice;
 
   const return5d  = ((pred5d  - currentPrice) / currentPrice) * 100;
   const return7d  = ((pred7d  - currentPrice) / currentPrice) * 100;
-  const return30d = ((pred30d - currentPrice) / currentPrice) * 100;
+  const return30d = Math.max(CLIP_30D_MIN, Math.min(CLIP_30D_MAX,
+    ((pred30d - currentPrice) / currentPrice) * 100,
+  ));
 
   const predictions: ProphetPoint[] = futureDates.map((d, i) => {
     const sigScale = 1 + (i / FORECAST_DAYS) * 1.5;

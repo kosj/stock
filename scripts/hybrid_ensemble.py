@@ -56,7 +56,8 @@ CV_SPLITS      = 5               # Walk-forward 분할 수
 MIN_TRAIN_ROWS = 100             # 폴드당 최소 훈련 행 수
 MIN_OOF_R2     = 0.01            # 메타 모델 최소 OOF R² — 미달 시 경고 출력
 SCORE_FLOOR    = 0.0             # Top30 진입 최소 리스크 조정 스코어 (음의 알파 차단)
-ALPHA30_DECAY  = 0.5             # 30일 외삽 감쇠 계수 (평균회귀 반영: 6 → 3배)
+ALPHA30_DECAY  = 0.7             # 30일 외삽 감쇠 계수 — 등비급수 합: Σ(0.7^k, k=0..5) ≈ 4.0×
+A30_CAP        = 0.60            # 30일 예측 최대 ±60% (KOSPI 종목 물리 상한)
 BENCHMARK_YF   = "^KS11"        # KOSPI 벤치마크
 
 # ── 종목 유니버스 ─────────────────────────────────────────────────────────────
@@ -632,10 +633,11 @@ def main() -> None:
     rows = []
     for i, row in df_top.iterrows():
         a5   = row["alpha_5d"]
-        # 평균회귀 감쇠 외삽: 단순 ×6 대신 decay=0.7 적용
-        # α_30d ≈ α_5d × (1 + 0.7 + 0.7² + 0.7³ + 0.7⁴ + 0.7⁵) = α_5d × 4.0
-        # 알파는 지속되지 않고 시간이 갈수록 소멸한다는 현실적 가정 반영
-        a30  = a5 * 4.0
+        # 평균회귀 감쇠 외삽: decay=ALPHA30_DECAY(0.7) 등비급수 합 ≈ 4.0×
+        # Σ(0.7^k, k=0..5) = 4.043 → ≈ 4.0
+        # A30_CAP 클리핑: PRED_CLIP(25%)×4배 = 100%는 과도 — 물리 상한 ±60% 적용
+        a30_raw = a5 * sum(ALPHA30_DECAY ** k for k in range(6))
+        a30  = float(np.clip(a30_raw, -A30_CAP, A30_CAP))
         vol  = row["vol_60d_ann"]
         bull = a30 + vol * 0.4          # 낙관 시나리오
         bear = a30 - vol * 0.4          # 비관 시나리오
