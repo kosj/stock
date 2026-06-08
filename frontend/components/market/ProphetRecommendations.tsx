@@ -146,6 +146,7 @@ function AccuracyTable({ json }: { json: string | null }) {
 
   let points: AccuracyPoint[] = [];
   try { points = JSON.parse(json); } catch { return null; }
+  if (!Array.isArray(points)) return <p className="text-xs text-muted-foreground/50">정확도 데이터 없음</p>;
 
   const avgAbsErr = points.length
     ? points.reduce((s, p) => s + Math.abs(p.diff_pct), 0) / points.length

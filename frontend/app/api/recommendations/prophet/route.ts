@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
     .from("prophet_recommendations")
     .select("rank, ticker, name, market, sector, current_price, predicted_return_7d, predicted_return_30d, bull_return_30d, base_return_30d, bear_return_30d, recommendation, r_squared, trend_direction, accuracy_json")
     .eq("run_date", runDate)
+    .not("rank", "is", null)          // Top30만 반환 (rank IS NOT NULL)
     .order("rank", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
