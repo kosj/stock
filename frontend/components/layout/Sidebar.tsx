@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Briefcase, TrendingUp,
   Globe, BarChart2, Bell, Building2, Settings, Star,
-  Menu, X, LogOut, Shield, Sparkles, Gamepad2,
+  Menu, X, LogOut, Shield, Sparkles, Gamepad2, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -21,6 +21,7 @@ const NAV = [
   { href: "/sectors",       label: "섹터 로테이션", icon: BarChart2 },
   { href: "/krx",           label: "국내증시 통계", icon: Building2 },
   { href: "/alerts",        label: "알림 설정",     icon: Bell },
+  { href: "/glossary",      label: "용어 사전",     icon: BookOpen },
   { href: "/settings",      label: "API 설정",      icon: Settings },
 ];
 

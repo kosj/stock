@@ -8,19 +8,22 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { StockChart, RsiChart, MacdChart } from "@/components/charts/StockChart";
 import { formatNumber, formatPercent, colorByChange, recommendationColor } from "@/lib/utils";
-import { TrendingUp, TrendingDown, RefreshCw, Zap, Calendar, DollarSign } from "lucide-react";
+import { TrendingUp, TrendingDown, RefreshCw, Zap, Calendar, DollarSign, Target } from "lucide-react";
 import { PullbackCard } from "./PullbackCard";
 import { ProfitTakingCard } from "./ProfitTakingCard";
 import { StopLossCard } from "./StopLossCard";
 import { ProphetForecastCard } from "./ProphetForecastCard";
-import { TftAnalysisCard } from "./TftAnalysisCard";
 import { AlgorithmSignalCard } from "./AlgorithmSignalCard";
+import { PositionDetailCard } from "./PositionDetailCard";
 import { CompanyOverviewCard } from "./CompanyOverviewCard";
+import { SupplyDemandCard } from "./SupplyDemandCard";
 import type { PullbackResult } from "@/lib/server/pullback-analysis";
 import type { ProfitTakingResult } from "@/lib/server/profit-taking";
 import type { StopLossResult } from "@/lib/server/stop-loss-signal";
 import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
 import type { DartCompanyInfo } from "@/lib/server/dart";
+import type { PositionAnalysisResult } from "@/lib/server/position-manager-service";
+import type { InvestorTrendResult } from "@/lib/server/investor-trend";
 
 const PERIODS = ["1m", "3m", "6m", "1y", "2y", "5y"] as const;
 type Period = typeof PERIODS[number];
@@ -31,9 +34,13 @@ const PERIOD_LABELS: Record<Period, string> = {
 };
 
 interface Props {
-  ticker: string;
-  avgPrice?: number | null;
-  quantity?: number | null;
+  ticker:        string;
+  avgPrice?:     number | null;
+  quantity?:     number | null;
+  portfolioId?:  number | null;
+  positionId?:   number | null;
+  /** page.tsx 서버 fetch — 수급 분석 초기 데이터 */
+  investorTrend?: InvestorTrendResult | null;
 }
 
 type BrokerCreds = { type: string; appKey: string; appSecret: string } | null;
@@ -45,7 +52,9 @@ function formatDate(dateStr: string | null | undefined): string {
   return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
 }
 
-export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
+export function StockDetailPage({
+  ticker, avgPrice, quantity, portfolioId, positionId, investorTrend,
+}: Props) {
   const [period, setPeriod] = useState<Period>("1y");
   const [brokerCreds, setBrokerCreds] = useState<BrokerCreds>(null);
   const [brokerCredsLoaded, setBrokerCredsLoaded] = useState(false);
@@ -70,26 +79,20 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     dedupingInterval: 0,
   };
 
-  // 이름·섹터 표시용 즉시 시세 (Yahoo, broker 로드 대기 없음)
-  // broker 없는 경우 key가 아래 quoteBroker와 동일해 SWR이 단일 요청으로 합산
   const { data: quoteYahoo } = useSWR(
     `quote-${ticker}-yahoo`,
     () => api.market.quote(ticker),
     { revalidateOnFocus: false, revalidateIfStale: false, dedupingInterval: 60_000 },
   );
 
-  // broker 로드 완료 후 시세 조회 (broker 있으면 KIS, 없으면 Yahoo)
-  // refreshInterval: 30s 자동 갱신 (서버 캐시 TTL 60s → 최대 90s 내 반영)
   const { data: quoteBroker, mutate: refreshQuote } = useSWR(
     brokerCredsLoaded ? `quote-${ticker}-${brokerCreds?.type ?? "yahoo"}` : null,
     () => api.market.quote(ticker, brokerCreds ?? undefined),
     { ...swrConfig, refreshInterval: 30_000 },
   );
 
-  // broker 인증 시세 우선, 로드 전엔 Yahoo 즉시 시세 사용
   const quote = quoteBroker ?? quoteYahoo;
 
-  // 수동 새로고침: 서버 캐시 우회하여 즉시 최신 시세 반영
   async function handleForceRefresh() {
     const fresh = await api.market.quote(ticker, brokerCreds ?? undefined, true);
     await refreshQuote(fresh as any, { revalidate: false });
@@ -106,7 +109,6 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     swrConfig,
   );
 
-  // avg_price/quantity 가 있으면 분석 URL에 포함 → 포지션 맞춤 분석
   const analysisKey = avgPrice
     ? `analysis-${ticker}-${avgPrice}-${quantity ?? 0}`
     : `analysis-${ticker}`;
@@ -116,10 +118,8 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
     swrConfig,
   );
 
-  // 포트폴리오 보유 종목 여부 (avgPrice 있으면 portfolio에서 진입한 것)
   const hasPosition = avgPrice != null && avgPrice > 0;
 
-  // 손절 시그널 분석 — 포트폴리오 보유 종목만
   const { data: stopLossRaw, isLoading: isStopLossLoading } = useSWR<StopLossResult[]>(
     hasPosition ? `stop-loss-${ticker}` : null,
     async () => {
@@ -135,7 +135,6 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   );
   const stopLossResult = stopLossRaw?.[0] ?? null;
 
-  // 익절 시그널 분석 — 포트폴리오 보유 종목만
   const { data: profitTakingRaw, isLoading: isProfitTakingLoading } = useSWR<ProfitTakingResult[]>(
     hasPosition ? `profit-taking-${ticker}` : null,
     async () => {
@@ -151,7 +150,6 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   );
   const profitTakingResult = profitTakingRaw?.[0] ?? null;
 
-  // Prophet 가격 예측
   const { data: prophetRaw, isLoading: isProphetLoading } = useSWR<ProphetForecastResult[]>(
     `prophet-${ticker}`,
     async () => {
@@ -167,18 +165,16 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   );
   const prophetResult = prophetRaw?.[0] ?? null;
 
-  // TFT 멀티팩터 분석
-  const { data: tftResult, isLoading: isTftLoading } = useSWR<import("@/app/api/analysis/tft/route").TftResult>(
-    `tft-${ticker}`,
-    async () => {
-      const res = await fetch(`/api/analysis/tft?ticker=${encodeURIComponent(ticker)}`);
-      if (!res.ok) return null;
-      return res.json();
-    },
-    { revalidateOnFocus: false, dedupingInterval: 300_000 },
-  );
+  const { data: positionAnalysisData, isLoading: isPositionAnalysisLoading } =
+    useSWR<{ results: PositionAnalysisResult[] }>(
+      hasPosition && portfolioId ? `position-analysis-${portfolioId}` : null,
+      () => api.portfolio.positionAnalysis(portfolioId!) as Promise<{ results: PositionAnalysisResult[] }>,
+      { revalidateOnFocus: false, dedupingInterval: 300_000 },
+    );
+  const positionAnalysis = positionAnalysisData?.results?.find(
+    (r) => r.position_id === positionId,
+  ) ?? null;
 
-  // 눌림목 패턴 분석 (3개월 데이터 기준)
   const { data: pullbackRaw, isLoading: isPullbackLoading } = useSWR<PullbackResult[]>(
     `pullback-${ticker}`,
     async () => {
@@ -194,11 +190,10 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   );
   const pullbackResult = pullbackRaw?.[0] ?? null;
 
-  // DART 기업 기본 정보
   const { data: dartRaw, isLoading: isDartLoading } = useSWR<DartCompanyInfo & { available?: boolean }>(
     `dart-company-${ticker}`,
     () => fetch(`/api/market/dart-company/${ticker}`).then(r => r.json()),
-    { revalidateOnFocus: false, dedupingInterval: 86_400_000 }, // 24시간
+    { revalidateOnFocus: false, dedupingInterval: 86_400_000 },
   );
 
   const q = quote as any;
@@ -206,10 +201,21 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
   const f = financials as any;
   const a = analysis as any;
 
-  const priceChange = q?.change ?? 0;
-  const currentPrice = q?.price;
+  const priceChange    = q?.change ?? 0;
+  const currentPrice   = q?.price;
   const positionPnlPct = hasPosition && currentPrice
     ? ((currentPrice - avgPrice!) / avgPrice!) * 100
+    : null;
+
+  // 차트 응답에서 RS 데이터 추출
+  const rsData    = c?.rs?.rs_series ?? null;
+  const rsSummary = c?.rs
+    ? {
+        stock_return_1m:  c.rs.stock_return_1m,
+        index_return_1m:  c.rs.index_return_1m,
+        rs_ratio:         c.rs.rs_ratio,
+        is_outperformer:  c.rs.is_outperformer,
+      }
     : null;
 
   return (
@@ -239,7 +245,6 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
               </span>
             </div>
           )}
-          {/* 보유 포지션 요약 */}
           {hasPosition && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-sm">
               <span className="text-muted-foreground">
@@ -258,7 +263,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
         </Button>
       </div>
 
-      {/* ── 기업 개요 (최상단) ───────────────────────────────────────── */}
+      {/* 기업 개요 */}
       <CompanyOverviewCard
         ticker={ticker}
         dart={dartRaw ?? null}
@@ -292,6 +297,8 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
               indicators={c.indicators}
               stopLoss={undefined}
               takeProfit={undefined}
+              rsData={rsData}
+              rsSummary={rsSummary}
             />
             {c.indicators?.rsi?.length > 0 && (
               <RsiChart data={c.indicators.rsi} />
@@ -312,7 +319,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
       </Card>
 
       <div className="grid md:grid-cols-2 gap-5">
-        {/* 재무 지표 + 주요 일정 */}
+        {/* 재무 지표 + 포워드 컨센서스 + 주요 일정 */}
         <Card>
           <CardHeader><CardTitle>재무 지표</CardTitle></CardHeader>
           {f ? (
@@ -321,6 +328,7 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
                 {[
                   { label: "시가총액",   value: f.market_cap ? `${(f.market_cap / 1e12).toFixed(1)}조` : "-" },
                   { label: "PER",        value: f.per ? `${f.per.toFixed(1)}배` : "-" },
+                  { label: "Fwd PER",    value: f.forward_per ? `${f.forward_per.toFixed(1)}배` : "-" },
                   { label: "PBR",        value: f.pbr ? `${f.pbr.toFixed(2)}배` : "-" },
                   { label: "ROE",        value: f.roe ? `${f.roe.toFixed(1)}%` : "-" },
                   { label: "영업이익률", value: f.operating_margin ? `${f.operating_margin.toFixed(1)}%` : "-" },
@@ -338,6 +346,57 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
                   </div>
                 ))}
               </div>
+
+              {/* ── 포워드 컨센서스 섹션 ─────────────────────────────────────── */}
+              {(f.analyst_mean_target || f.consensus_gap_pct != null) && (
+                <div className="mt-4 pt-4 border-t space-y-2" style={{ borderColor: "var(--border)" }}>
+                  <div className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5 mb-2">
+                    <Target size={12} />
+                    애널리스트 컨센서스
+                    {f.analyst_count && (
+                      <span className="text-muted-foreground/60 font-normal">
+                        ({f.analyst_count}명)
+                      </span>
+                    )}
+                  </div>
+
+                  {f.analyst_mean_target && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">평균 목표주가</span>
+                      <span className="font-medium tabular-nums">{formatNumber(f.analyst_mean_target)}</span>
+                    </div>
+                  )}
+                  {f.analyst_high_target && f.analyst_low_target && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">목표가 범위</span>
+                      <span className="font-medium tabular-nums text-xs">
+                        {formatNumber(f.analyst_low_target)} ~ {formatNumber(f.analyst_high_target)}
+                      </span>
+                    </div>
+                  )}
+                  {f.consensus_gap_pct != null && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">괴리율</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`font-bold tabular-nums ${
+                          f.consensus_gap_pct >= 20
+                            ? "text-green-400"
+                            : f.consensus_gap_pct >= 0
+                            ? "text-blue-400"
+                            : "text-red-400"
+                        }`}>
+                          {f.consensus_gap_pct >= 0 ? "+" : ""}{f.consensus_gap_pct.toFixed(1)}%
+                        </span>
+                        {f.consensus_gap_pct >= 20 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-400/15 text-green-400 font-medium">
+                            저평가 시그널
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 주요 일정 */}
               {(f.next_earnings_date || f.ex_dividend_date || f.dividend_date) && (
@@ -404,7 +463,6 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
           )}
           {a && !isAnalyzing && (
             <div className="space-y-4">
-              {/* 투자 의견 + 점수 + 내 수익률 */}
               <div className="flex items-center gap-3">
                 <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${recommendationColor(a.recommendation)}`}>
                   {a.recommendation}
@@ -420,7 +478,6 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
                 )}
               </div>
 
-              {/* 점수 바 */}
               <div className="space-y-1.5">
                 {[
                   { label: "밸류에이션", score: a.score_breakdown.valuation_score, max: 25 },
@@ -441,10 +498,8 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
                 ))}
               </div>
 
-              {/* 종합 의견 */}
               <div className="text-sm leading-relaxed">{a.summary}</div>
 
-              {/* 목표가 / 손절가 */}
               <div className="flex gap-3">
                 {a.target_price && (
                   <div className="flex-1 rounded-lg p-2.5 text-center" style={{ background: "rgba(34,197,94,0.08)" }}>
@@ -470,7 +525,6 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
                 )}
               </div>
 
-              {/* 리스크 / 촉매 */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="text-xs text-red-400 font-semibold mb-1.5">리스크 요인</div>
@@ -498,35 +552,35 @@ export function StockDetailPage({ ticker, avgPrice, quantity }: Props) {
         </Card>
       </div>
 
-      {/* 알고리즘 종합 신호 */}
-      <AlgorithmSignalCard
-        prophet={prophetResult}
-        tft={tftResult ?? null}
-        loadingMap={{
-          prophet: isProphetLoading,
-          tft:     isTftLoading,
-        }}
-      />
+      {/* 수급 분석 — 국내 종목 전용 (page.tsx 서버 fetch 결과) */}
+      <SupplyDemandCard data={investorTrend ?? null} />
+
+      {/* 앙상블 알고리즘 신호 */}
+      <AlgorithmSignalCard prophet={prophetResult} loading={isProphetLoading} />
 
       {/* Prophet 가격 예측 */}
       <ProphetForecastCard result={prophetResult} loading={isProphetLoading} />
 
-      {/* TFT 멀티팩터 분석 */}
-      <TftAnalysisCard result={tftResult ?? null} loading={isTftLoading} />
+      {/* 포지션 관리 */}
+      {hasPosition && portfolioId && (positionAnalysis || isPositionAnalysisLoading) && (
+        <PositionDetailCard
+          result={positionAnalysis!}
+          loading={isPositionAnalysisLoading || !positionAnalysis}
+        />
+      )}
 
-      {/* 손절 시그널 — 보유 포지션 있을 때는 손실(-) 구간에서만 표시 */}
+      {/* 손절 시그널 */}
       {(!hasPosition || positionPnlPct === null || positionPnlPct < 0) && (
         <StopLossCard result={stopLossResult} loading={isStopLossLoading} avgPrice={avgPrice} />
       )}
 
-      {/* 익절 시그널 — 보유 포지션 있을 때는 수익(+) 구간에서만 표시 */}
+      {/* 익절 시그널 */}
       {(!hasPosition || positionPnlPct === null || positionPnlPct > 0) && (
         <ProfitTakingCard result={profitTakingResult} loading={isProfitTakingLoading} />
       )}
 
       {/* 눌림목 패턴 분석 */}
       <PullbackCard result={pullbackResult} loading={isPullbackLoading} />
-
     </div>
   );
 }

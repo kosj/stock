@@ -53,6 +53,8 @@ export const api = {
       request(`/api/portfolio/positions/${posId}`, { method: "DELETE" }),
     autoFill: (id: number) =>
       request(`/api/portfolio/${id}/auto-fill`, { method: "POST" }),
+    positionAnalysis: (id: number) =>
+      request(`/api/portfolio/${id}/position-analysis`),
     allPositionsWithTargets: () => request("/api/portfolio/positions"),
     watchlist:      () => request("/api/portfolio/watchlist/"),
     addWatchlist:   (body: object) =>
@@ -71,6 +73,9 @@ export const api = {
     financials: (ticker: string) => request(`/api/market/financials/${ticker}`),
     indices:   (creds?: BrokerCreds) =>
       request("/api/market/indices", { headers: brokerHeaders(creds) }),
+    /** 외국인/기관 순매수 트렌드 (국내 6자리 종목 전용) */
+    investorTrend: (ticker: string) =>
+      request(`/api/market/investor-trend/${ticker}`),
   },
 
   analysis: {

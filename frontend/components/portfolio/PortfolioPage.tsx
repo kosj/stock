@@ -1,27 +1,20 @@
 "use client";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { formatNumber, formatPercent, colorByChange } from "@/lib/utils";
-import { Plus, Trash2, Pencil, RefreshCw, TrendingUp, TrendingDown, Zap, Check, Building2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Pencil, RefreshCw, Check, Building2, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { PositionModal } from "./PositionModal";
 import { PortfolioCreateModal } from "./PortfolioCreateModal";
 import { BrokerHoldingsModal } from "./BrokerHoldingsModal";
-import { PullbackBadge } from "./PullbackBadge";
-import { ProfitTakingBadge } from "./ProfitTakingBadge";
-import { StopLossBadge } from "./StopLossBadge";
-import { ProphetBadge } from "./ProphetBadge";
 import { toast } from "sonner";
 import { useRealtimePrices } from "@/lib/websocket";
 import { BrokerConfigManager } from "@/lib/apiConfig";
 import type { BrokerHolding } from "@/lib/server/providers";
-import type { PullbackResult } from "@/lib/server/pullback-analysis";
-import type { ProfitTakingResult } from "@/lib/server/profit-taking";
-import type { StopLossResult } from "@/lib/server/stop-loss-signal";
-import type { ProphetForecastResult } from "@/lib/server/prophet-forecast";
+import type { PositionAnalysisResult } from "@/lib/server/position-manager-service";
 
 // summary 캐시에서 positions 변경 후 합계 재계산 (Yahoo 재조회 없이 로컬 계산)
 function recalcTotals(cur: any): any {
@@ -44,10 +37,6 @@ export function PortfolioPage() {
   const [editingPortfolioId, setEditingPortfolioId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
-
-  // AI 갱신 상태
-  const [autoFillLoading, setAutoFillLoading] = useState(false);
-  const autoFillAbortRef = useRef<AbortController | null>(null);
 
   // 증권사 보유종목 가져오기 상태
   const [showBrokerHoldings, setShowBrokerHoldings] = useState(false);
@@ -92,110 +81,20 @@ export function PortfolioPage() {
   const tickers = (summary as any)?.positions?.map((p: any) => p.ticker) ?? [];
   const rt = useRealtimePrices(tickers);
 
-  // ── 눌림목 분석 ─────────────────────────────────────────────────────────────
-  const { data: pullbackData } = useSWR<PullbackResult[]>(
-    tickers.length > 0 ? `pullback-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/pullback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
+  // ── 포지션 관리 분석 (ATR 기반 손절·익절·피라미딩) ──────────────────────
+  const {
+    data: positionAnalysisData,
+  } = useSWR<{ results: PositionAnalysisResult[] }>(
+    portfolioId ? `position-analysis-${portfolioId}` : null,
+    () => api.portfolio.positionAnalysis(portfolioId) as Promise<{ results: PositionAnalysisResult[] }>,
     {
       revalidateOnFocus: false,
-      refreshInterval: 300_000,    // 5분마다 갱신
-      dedupingInterval: 60_000,
+      refreshInterval:   300_000,   // 5분
+      dedupingInterval:  60_000,
     },
   );
-  const pullbackMap = new Map<string, PullbackResult>(
-    pullbackData?.map((r) => [r.ticker, r]) ?? [],
-  );
-
-  // ── 익절 시그널 분석 ──────────────────────────────────────────────────────
-  const { data: profitTakingData } = useSWR<ProfitTakingResult[]>(
-    tickers.length > 0 ? `profit-taking-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/profit-taking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    {
-      revalidateOnFocus: false,
-      refreshInterval: 300_000,
-      dedupingInterval: 60_000,
-    },
-  );
-  const profitTakingMap = new Map<string, ProfitTakingResult>(
-    profitTakingData?.map((r) => [r.ticker, r]) ?? [],
-  );
-
-  // ── 손절 시그널 분석 ──────────────────────────────────────────────────────
-  const { data: stopLossData } = useSWR<StopLossResult[]>(
-    tickers.length > 0 ? `stop-loss-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/stop-loss", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    {
-      revalidateOnFocus: false,
-      refreshInterval: 300_000,
-      dedupingInterval: 60_000,
-    },
-  );
-  const stopLossMap = new Map<string, StopLossResult>(
-    stopLossData?.map((r) => [r.ticker, r]) ?? [],
-  );
-
-  // ── TFT 멀티팩터 분석 ────────────────────────────────────────────────────
-  const { data: tftData } = useSWR<import("@/app/api/analysis/tft/route").TftResult[]>(
-    tickers.length > 0 ? `tft-portfolio-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/tft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    { revalidateOnFocus: false, refreshInterval: 300_000, dedupingInterval: 60_000 },
-  );
-  const tftMap = new Map<string, import("@/app/api/analysis/tft/route").TftResult>(
-    tftData?.map((r) => [r.ticker, r]) ?? [],
-  );
-
-  // ── Prophet 가격 예측 ─────────────────────────────────────────────────────
-  const { data: prophetData } = useSWR<ProphetForecastResult[]>(
-    tickers.length > 0 ? `prophet-portfolio-${tickers.join(",")}` : null,
-    async () => {
-      const res = await fetch("/api/analysis/prophet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    {
-      revalidateOnFocus: false,
-      refreshInterval:   600_000,   // 10분
-      dedupingInterval:  120_000,
-    },
-  );
-  const prophetMap = new Map<string, ProphetForecastResult>(
-    prophetData?.map((r) => [r.ticker, r]) ?? [],
+  const positionAnalysisMap = new Map<number, PositionAnalysisResult>(
+    positionAnalysisData?.results?.map((r) => [r.position_id, r]) ?? [],
   );
 
   // 포트폴리오 변경 시 요약 데이터 재갱신
@@ -259,33 +158,6 @@ export function PortfolioPage() {
       }
     })();
   }, [portfolioId, hasBrokerConfig, s, autoSyncing, mutateSummary]);
-
-  // ── AI 전체 갱신 ────────────────────────────────────────────────────────
-  const autoFillPositions = useCallback(async (id: number) => {
-    if (!id) return;
-    // 이전 요청 취소
-    autoFillAbortRef.current?.abort();
-    const controller = new AbortController();
-    autoFillAbortRef.current = controller;
-
-    setAutoFillLoading(true);
-    const toastId = toast.loading("AI 분석 중… 손절가·목표가·전략 갱신");
-    try {
-      await api.portfolio.autoFill(id);
-      if (!controller.signal.aborted) {
-        await mutateSummary();
-        toast.success("AI 갱신 완료", { id: toastId });
-      } else {
-        toast.dismiss(toastId);
-      }
-    } catch (err: any) {
-      if (!controller.signal.aborted) {
-        toast.error("AI 갱신 실패: " + (err.message ?? "오류"), { id: toastId });
-      }
-    } finally {
-      if (!controller.signal.aborted) setAutoFillLoading(false);
-    }
-  }, [mutateSummary]);
 
   // ── 포트폴리오 탭 선택 ──────────────────────────────────────────────────
   function handleSelectPortfolio(id: number) {
@@ -419,10 +291,6 @@ export function PortfolioPage() {
 
                 {isActive && !isEditingThis && (
                   <>
-                    {/* AI 갱신 로딩 표시 */}
-                    {autoFillLoading && (
-                      <Zap size={11} className="text-yellow-300 animate-pulse shrink-0" />
-                    )}
                     {/* 이름 편집 버튼 */}
                     <button
                       onClick={(e) => { e.stopPropagation(); startRename(p.id, p.name); }}
@@ -480,14 +348,6 @@ export function PortfolioPage() {
               <CardTitle>보유 종목</CardTitle>
               <div className="flex gap-2">
                 <Button
-                  size="sm" variant="ghost"
-                  onClick={() => portfolioId && autoFillPositions(portfolioId)}
-                  disabled={autoFillLoading}
-                  title="AI 손절·목표·전략 갱신"
-                >
-                  <Zap size={13} className={autoFillLoading ? "animate-pulse text-yellow-400" : ""} />
-                </Button>
-                <Button
                   size="sm"
                   variant="ghost"
                   onClick={() => mutateSummary()}
@@ -517,7 +377,7 @@ export function PortfolioPage() {
               <table className="text-sm whitespace-nowrap">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "투자신호", "앙상블예측", "TFT신호", "손절/목표", ""].map((h) => (
+                    {["종목", "수량", "단가 / 현재가", "손익금 / 수익률", "ATR 손절/익절", "손절/목표", ""].map((h) => (
                       <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -546,7 +406,7 @@ export function PortfolioPage() {
                       >
                         <td className="py-3 px-3">
                           <Link
-                            href={`/market/${pos.ticker}?avg_price=${pos.avg_price}&quantity=${pos.quantity}`}
+                            href={`/market/${pos.ticker}?avg_price=${pos.avg_price}&quantity=${pos.quantity}&portfolio_id=${portfolioId}&position_id=${pos.position_id}`}
                             className="hover:text-blue-400 transition-colors"
                           >
                             <div className="font-medium">{pos.name}</div>
@@ -580,57 +440,28 @@ export function PortfolioPage() {
                             {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
                           </div>
                         </td>
-                        <td className="py-3 px-3">
-                          <div className="flex flex-col gap-1">
-                            {pullbackMap.has(pos.ticker) ? (
-                              <PullbackBadge result={pullbackMap.get(pos.ticker)!} />
-                            ) : (
-                              <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                            )}
-                            {pnlPct < 0 && (
-                              stopLossMap.has(pos.ticker) ? (
-                                <StopLossBadge result={stopLossMap.get(pos.ticker)!} />
-                              ) : (
-                                <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                              )
-                            )}
-                            {pnlPct > 0 && (
-                              profitTakingMap.has(pos.ticker) ? (
-                                <ProfitTakingBadge result={profitTakingMap.get(pos.ticker)!} />
-                              ) : (
-                                <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                              )
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3">
-                          {prophetMap.has(pos.ticker) ? (
-                            <ProphetBadge result={prophetMap.get(pos.ticker)!} />
-                          ) : (
-                            <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>
-                          )}
-                        </td>
-                        {/* TFT 신호 */}
+                        {/* ATR 기반 동적 손절/익절 가격 */}
                         <td className="py-3 px-3">
                           {(() => {
-                            const t = tftMap.get(pos.ticker);
-                            if (!t) return <span className="text-xs text-muted-foreground/30 animate-pulse">분석 중…</span>;
-                            if (t.insufficient_data) return <span className="text-xs text-muted-foreground/40">-</span>;
-                            const COLOR: Record<string, string> = {
-                              strong_buy: "text-emerald-400 bg-emerald-500/10 border-emerald-500/25",
-                              buy:        "text-green-400   bg-green-500/10   border-green-500/20",
-                              hold:       "text-yellow-400  bg-yellow-500/10  border-yellow-500/20",
-                              sell:       "text-orange-400  bg-orange-500/10  border-orange-500/20",
-                              strong_sell:"text-red-400     bg-red-500/10     border-red-500/20",
-                            };
-                            const LABEL: Record<string, string> = { strong_buy: "강력매수", buy: "매수", hold: "보유", sell: "매도", strong_sell: "강력매도" };
+                            const pa = positionAnalysisMap.get(pos.position_id);
+                            if (!pa) {
+                              return (
+                                <span className="text-xs text-muted-foreground/30 animate-pulse">
+                                  분석 중…
+                                </span>
+                              );
+                            }
+                            const stopPrice   = pa.action.meta.stop_loss_price;
+                            const profitPrice = pa.avg_price * (1 + pa.action.meta.config.take_profit_pct / 100);
+                            const nearStop    = currentPrice <= stopPrice * 1.03;
+                            const nearProfit  = currentPrice >= profitPrice * 0.97;
                             return (
                               <div className="flex flex-col gap-0.5">
-                                <span className={`text-xs font-medium px-1.5 py-0.5 rounded border w-fit whitespace-nowrap ${COLOR[t.signal] ?? ""}`}>
-                                  {LABEL[t.signal] ?? t.signal}
+                                <span className={`text-xs tabular-nums ${nearStop ? "text-red-400 font-semibold" : "text-red-400/70"}`}>
+                                  손절 {formatNumber(Math.round(stopPrice))}{nearStop && " ⚠"}
                                 </span>
-                                <span className="text-[10px] text-muted-foreground/60 tabular-nums">
-                                  {t.composite_score >= 0 ? "+" : ""}{t.composite_score}점
+                                <span className={`text-xs tabular-nums ${nearProfit ? "text-green-400 font-semibold" : "text-green-400/70"}`}>
+                                  익절 {formatNumber(Math.round(profitPrice))}{nearProfit && " ✓"}
                                 </span>
                               </div>
                             );

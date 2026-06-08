@@ -13,16 +13,15 @@ export async function GET() {
 
   const admin = createSupabaseAdminClient();
 
-  // user_profiles: 기본 프로필 정보
+  // user_profiles: 기본 프로필 정보 + last_seen_at (앱 접속 시 자체 갱신)
   const { data: profiles, error } = await admin
     .from("user_profiles")
-    .select("id, email, full_name, role, requested_at, approved_at")
+    .select("id, email, full_name, role, requested_at, approved_at, last_seen_at")
     .order("requested_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // auth.admin.listUsers: last_sign_in_at 포함 인증 메타데이터
-  // listUsers()는 최대 1000명까지 반환 (페이지네이션 생략)
+  // auth.admin.listUsers: Supabase 인증 레벨의 last_sign_in_at (이전 세션 값) fallback용
   const { data: authData } = await admin.auth.admin.listUsers({ perPage: 1000 });
   const lastSignInMap = new Map(
     (authData?.users ?? []).map((u) => [u.id, u.last_sign_in_at ?? null])
@@ -30,6 +29,8 @@ export async function GET() {
 
   const result = (profiles ?? []).map((p) => ({
     ...p,
+    // last_seen_at(앱 접속 자체 추적)을 우선하고, 없으면 Supabase Auth 값 fallback
+    last_seen_at:    p.last_seen_at ?? lastSignInMap.get(p.id) ?? null,
     last_sign_in_at: lastSignInMap.get(p.id) ?? null,
   }));
 

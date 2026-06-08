@@ -373,7 +373,7 @@ export async function getQuote(ticker: string, nocache = false): Promise<QuoteDa
   }
 
   // Yahoo raw 응답 → QuoteData 변환 (ticker는 외부 스코프에서 캡처)
-  function buildFromYahoo(q: any): QuoteData {
+  async function buildFromYahoo(q: any): Promise<QuoteData> {
     return {
       ticker,
       name:       await resolveKoreanName(ticker, q.shortName || q.longName || null),
@@ -416,7 +416,7 @@ export async function getQuote(ticker: string, nocache = false): Promise<QuoteDa
             throw new Error("yahoo null");
           }
           _markYahooOk();
-          return buildFromYahoo(q);
+          return await buildFromYahoo(q);
         })();
 
     const result = await Promise.any([naverSource, yahooSource]).catch(() => null);
@@ -437,16 +437,16 @@ export async function getQuote(ticker: string, nocache = false): Promise<QuoteDa
   // 해외 종목 — Yahoo 라이브러리 → v8 직접 API 순차 시도
   let q = await tryYahooLib(yt);
   if (q?.regularMarketPrice != null) {
-    const data = buildFromYahoo(q);
+    const data = await buildFromYahoo(q);
     await cacheSet(key, data, TTL.QUOTE);
     return data;
   }
 
-  const direct = await getQuoteDirect(yt);
-  if (direct) {
-    direct.ticker = ticker;
-    await cacheSet(key, direct, TTL.QUOTE);
-    return direct;
+  const directFallback = await getQuoteDirect(yt);
+  if (directFallback) {
+    directFallback.ticker = ticker;
+    await cacheSet(key, directFallback, TTL.QUOTE);
+    return directFallback;
   }
 
   return null;
@@ -533,6 +533,23 @@ export interface FinancialsData {
   next_earnings_date: string | null;
   ex_dividend_date: string | null;
   dividend_date: string | null;
+  // ── 애널리스트 컨센서스 (포워드 컨센서스) ──────────────────────────────────
+  /** 현재가 (Yahoo financialData.currentPrice) */
+  current_price: number | null;
+  /** 애널리스트 평균 목표주가 */
+  analyst_mean_target: number | null;
+  /** 애널리스트 최고 목표주가 */
+  analyst_high_target: number | null;
+  /** 애널리스트 최저 목표주가 */
+  analyst_low_target: number | null;
+  /** 목표주가 제시 애널리스트 수 */
+  analyst_count: number | null;
+  /**
+   * 괴리율 (%) = (목표주가 - 현재가) / 현재가 × 100
+   * 양수: 저평가(상승 여력), 음수: 고평가(하락 가능성)
+   * 20% 이상: 저평가 시그널로 판단
+   */
+  consensus_gap_pct: number | null;
 }
 
 // ── 한국어 사업내용 — 다단계 폴백 ────────────────────────────────────────────
@@ -624,6 +641,8 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
     beta: null, week_52_high: null, week_52_low: null,
     employees: null, summary: null,
     next_earnings_date: null, ex_dividend_date: null, dividend_date: null,
+    current_price: null, analyst_mean_target: null, analyst_high_target: null,
+    analyst_low_target: null, analyst_count: null, consensus_gap_pct: null,
   };
 
   try {
@@ -660,6 +679,25 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
     };
     const pct = (v: unknown) => { const x = n(v); return x != null ? x * 100 : null; };
 
+    // 애널리스트 컨센서스 계산
+    // Yahoo Finance financialData 모듈에 포함된 목표주가 정보 사용
+    const currentPrice      = n(fd.currentPrice) ?? n(sd.regularMarketPrice);
+    const analystMeanTarget = n(fd.targetMeanPrice);
+    const analystHighTarget = n(fd.targetHighPrice);
+    const analystLowTarget  = n(fd.targetLowPrice);
+    const analystCount      = n(fd.numberOfAnalystOpinions);
+
+    /**
+     * 괴리율 계산: (목표주가 - 현재가) / 현재가 × 100
+     * - 양수: 현재가 대비 목표주가가 높음 (저평가 가능성)
+     * - 20% 이상이면 애널리스트 평균이 유의미한 상승 여력을 제시하는 것
+     * - 단, 담당 애널리스트 수(analystCount)가 3 미만이면 신뢰도 낮음
+     */
+    const consensusGapPct =
+      analystMeanTarget != null && currentPrice != null && currentPrice > 0
+        ? ((analystMeanTarget - currentPrice) / currentPrice) * 100
+        : null;
+
     let data: FinancialsData = {
       ticker,
       name:             ap.name ?? null,
@@ -688,6 +726,13 @@ export async function getFinancials(ticker: string): Promise<FinancialsData> {
       next_earnings_date: toDateStr(ce.earnings?.earningsDate),
       ex_dividend_date:   toDateStr(ce.exDividendDate),
       dividend_date:      toDateStr(ce.dividendDate),
+      // 애널리스트 컨센서스
+      current_price:       currentPrice,
+      analyst_mean_target: analystMeanTarget,
+      analyst_high_target: analystHighTarget,
+      analyst_low_target:  analystLowTarget,
+      analyst_count:       analystCount != null ? Math.round(analystCount) : null,
+      consensus_gap_pct:   consensusGapPct != null ? Math.round(consensusGapPct * 10) / 10 : null,
     };
     // 한국 종목 — 사업내용이 없거나 영문이면 한국어로 대체 시도
     if (KR_CODE.test(ticker) && (!data.summary || !/[가-힣]/.test(data.summary))) {

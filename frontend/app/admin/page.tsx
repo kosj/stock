@@ -12,7 +12,8 @@ type UserProfile = {
   role: "pending" | "user" | "admin" | "rejected";
   requested_at: string;
   approved_at: string | null;
-  last_sign_in_at: string | null;
+  last_seen_at: string | null;    // 앱 접속 자체 추적 (heartbeat)
+  last_sign_in_at: string | null; // Supabase Auth 이전 세션값 (fallback)
 };
 
 type FilterTab = "pending" | "all";
@@ -301,10 +302,17 @@ export default function AdminPage() {
 
                   {/* 마지막 접속 */}
                   <div className="hidden md:block text-xs text-muted-foreground">
-                    <div>{formatRelative(user.last_sign_in_at)}</div>
-                    <div className="text-muted-foreground/50 text-[10px]">
-                      {formatDate(user.last_sign_in_at)}
-                    </div>
+                    {(() => {
+                      const lastSeen = user.last_seen_at ?? user.last_sign_in_at;
+                      return (
+                        <>
+                          <div>{formatRelative(lastSeen)}</div>
+                          <div className="text-muted-foreground/50 text-[10px]">
+                            {formatDate(lastSeen)}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* 삭제 버튼 */}
