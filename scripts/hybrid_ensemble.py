@@ -21,6 +21,7 @@ Post-processing:
 Output: Upserted into Supabase `prophet_recommendations` table.
 """
 
+import json
 import os
 import sys
 import time
@@ -425,6 +426,36 @@ def _trend_dir(ret20: float) -> str:
     return "up" if ret20 > 0.03 else ("down" if ret20 < -0.03 else "flat")
 
 
+def _calc_atr_pct(df: pd.DataFrame, period: int = 14) -> float:
+    """14일 ATR% — 클램핑 0.5 ~ 12.0% 적용"""
+    try:
+        tr = pd.concat([
+            df["High"] - df["Low"],
+            (df["High"] - df["Close"].shift(1)).abs(),
+            (df["Low"]  - df["Close"].shift(1)).abs(),
+        ], axis=1).max(axis=1)
+        atr   = tr.rolling(period).mean().dropna().iloc[-1]
+        price = df["Close"].dropna().iloc[-1]
+        if price <= 0:
+            return 2.0
+        return float(np.clip((atr / price) * 100, 0.5, 12.0))
+    except Exception:
+        return 2.0
+
+
+def _calc_trend_slope_annual_pct(df: pd.DataFrame, days: int = 60) -> float:
+    """최근 N거래일 선형 회귀 기울기 → 연간 환산 %"""
+    try:
+        prices = np.asarray(df["Close"].tail(days).dropna(), dtype=np.float64)
+        if len(prices) < 10:
+            return 0.0
+        xs    = np.arange(len(prices), dtype=np.float64)
+        slope = float(np.polyfit(xs, prices, 1)[0])
+        return float(np.clip((slope * 252 / prices[0]) * 100, -200, 200))
+    except Exception:
+        return 0.0
+
+
 def _apply_sector_cap(df: pd.DataFrame, cap: int) -> pd.DataFrame:
     """섹터별 상위 cap개 초과 종목을 차순위로 교체 (순서 유지)"""
     counts: dict = {}
@@ -515,6 +546,7 @@ def main() -> None:
         per_stock[s["ticker"]] = {
             "info":                  s,
             "feats":                 feats,
+            "df":                    df,           # ATR·trend 계산용 OHLCV
             "current_price":         last_close,
             "avg_trading_value_20d": avg_tv,
             "vol_60d_ann":           max(vol_60d_ann, 0.01),
@@ -628,29 +660,43 @@ def main() -> None:
     label_counts = df_top["risk_adj_score"].map(_rec_label).value_counts()
     print(f"\n  추천 분포: {dict(label_counts)}")
 
-    # ── Supabase 저장 ─────────────────────────────────────────────────────────
-    oof_r2 = models["oof_r2"]
+    # ── Supabase 저장 (전체 유니버스 — Top30 여부는 accuracy_json.is_top 플래그) ──
+    oof_r2     = models["oof_r2"]
+    top_tickers = set(df_top["ticker"].tolist())
+    # df_top은 enumerate 기반 순위 → ticker → rank 매핑
+    rank_map: dict[str, int] = {
+        r["ticker"]: idx + 1
+        for idx, r in enumerate(df_top.to_dict("records"))
+    }
+
     rows = []
-    for i, row in df_top.iterrows():
-        a5   = row["alpha_5d"]
-        # 평균회귀 감쇠 외삽: decay=ALPHA30_DECAY(0.7) 등비급수 합 ≈ 4.0×
-        # Σ(0.7^k, k=0..5) = 4.043 → ≈ 4.0
-        # A30_CAP 클리핑: PRED_CLIP(25%)×4배 = 100%는 과도 — 물리 상한 ±60% 적용
+    for _, row in df_all.iterrows():
+        ticker = row["ticker"]
+        if ticker not in per_stock:
+            continue                    # 데이터 부족으로 skip된 종목
+
+        d      = per_stock[ticker]
+        a5     = row["alpha_5d"]
+        # 평균회귀 감쇠 외삽: decay=0.7 등비급수 합 ≈ 4.0×, 물리 상한 ±60%
         a30_raw = a5 * sum(ALPHA30_DECAY ** k for k in range(6))
         a30  = float(np.clip(a30_raw, -A30_CAP, A30_CAP))
         vol  = row["vol_60d_ann"]
-        bull = a30 + vol * 0.4          # 낙관 시나리오
-        bear = a30 - vol * 0.4          # 비관 시나리오
+        bull = a30 + vol * 0.4
+        bear = a30 - vol * 0.4
+
+        is_top   = ticker in top_tickers
+        atr_pct  = _calc_atr_pct(d["df"])
+        trend_sl = _calc_trend_slope_annual_pct(d["df"])
 
         rows.append({
             "run_date":             run_date,
-            "rank":                 int(i) + 1,
-            "ticker":               row["ticker"],
+            "rank":                 rank_map.get(ticker, None),
+            "ticker":               ticker,
             "name":                 row["name"],
             "market":               row["market"],
             "sector":               row["sector"],
             "current_price":        round(row["current_price"], 2),
-            "predicted_return_7d":  round(a5  * 100, 2),   # 5일 알파 → 7일 컬럼 재활용
+            "predicted_return_7d":  round(a5  * 100, 2),
             "predicted_return_30d": round(a30 * 100, 2),
             "bull_return_30d":      round(bull * 100, 2),
             "base_return_30d":      round(a30 * 100, 2),
@@ -658,11 +704,17 @@ def main() -> None:
             "recommendation":       _rec_label(row["risk_adj_score"]),
             "r_squared":            round(oof_r2, 4),
             "trend_direction":      _trend_dir(row["ret_20d"]),
-            "accuracy_json":        None,
+            "accuracy_json":        json.dumps({
+                "predicted_return_5d":    round(a5  * 100, 2),
+                "atr_pct":                round(atr_pct, 2),
+                "trend_slope_annual_pct": round(trend_sl, 2),
+                "is_top":                 is_top,
+                "oof_r2":                 round(oof_r2, 4),
+            }),
         })
 
     upsert_supabase(rows, run_date)
-    print(f"\n완료: {run_date}  Top {len(rows)} 종목 저장\n")
+    print(f"\n완료: {run_date}  전체 {len(rows)} 종목 저장 (Top30: {len(top_tickers)})\n")
 
 
 if __name__ == "__main__":

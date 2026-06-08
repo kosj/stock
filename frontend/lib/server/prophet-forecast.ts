@@ -29,6 +29,7 @@
  *     tft_return_30d, linear_return_5d, diversity_score
  */
 
+import { supabase } from "./supabase";
 import { getChart } from "./yahoo-finance";
 import type { CandleData } from "./yahoo-finance";
 
@@ -663,6 +664,105 @@ function nextTradingDates(lastDate: Date, n: number): Date[] {
   return out;
 }
 
+// ── Supabase row type (Python hybrid_ensemble.py 저장 스키마) ─────────────────
+
+interface SupabaseRow {
+  run_date:             string;
+  rank:                 number | null;
+  ticker:               string;
+  name:                 string;
+  current_price:        number;
+  predicted_return_7d:  number;    // = alpha_5d × 100
+  predicted_return_30d: number;
+  bull_return_30d:      number;
+  base_return_30d:      number;
+  bear_return_30d:      number;
+  recommendation:       string;
+  r_squared:            number;
+  trend_direction:      string;
+  accuracy_json:        string | null;
+}
+
+function buildResultFromSupabase(
+  row: SupabaseRow,
+  candles: CandleData[],
+  ticker: string,
+): ProphetForecastResult {
+  const acc = row.accuracy_json ? (JSON.parse(row.accuracy_json) as Record<string, number | boolean>) : {};
+  const cp  = row.current_price;
+
+  // 역사 적합 (최근 90봉 선형 OLS — 차트 표시용)
+  const hist = candles.slice(-90);
+  const hp   = hist.map(c => c.close);
+  const hn   = hp.length;
+  const sumX  = (hn * (hn - 1)) / 2;
+  const sumX2 = (hn * (hn - 1) * (2 * hn - 1)) / 6;
+  const sumY  = hp.reduce((s, v) => s + v, 0);
+  const sumXY = hp.reduce((s, v, i) => s + i * v, 0);
+  const denom = hn * sumX2 - sumX * sumX || 1;
+  const hSlope = (hn * sumXY - sumX * sumY) / denom;
+  const hInt   = (sumY - hSlope * sumX) / hn;
+
+  const history_fit: ProphetPoint[] = hist.map((c, i) => {
+    const yhat = hSlope * i + hInt;
+    return { date: typeof c.time === "string" ? c.time : new Date(c.time).toISOString().slice(0, 10), yhat, yhat_lower: yhat * 0.97, yhat_upper: yhat * 1.03, trend: yhat };
+  });
+  const history_actual = hist.map(c => ({
+    date:  typeof c.time === "string" ? c.time : new Date(c.time).toISOString().slice(0, 10),
+    price: c.close,
+  }));
+
+  // 미래 30 거래일 시나리오
+  const lastDate   = new Date(candles[candles.length - 1].time);
+  const futureDts  = nextTradingDates(lastDate, FORECAST_DAYS);
+  const base30     = cp * (1 + row.predicted_return_30d / 100);
+  const bull30     = cp * (1 + row.bull_return_30d       / 100);
+  const bear30     = cp * (1 + row.bear_return_30d       / 100);
+
+  const mkScenario = (target: number): ScenarioPoint[] =>
+    futureDts.map((d, i) => ({
+      date:  d.toISOString().slice(0, 10),
+      price: cp + (target - cp) * ((i + 1) / FORECAST_DAYS),
+    }));
+
+  const predictions: ProphetPoint[] = futureDts.map((d, i) => {
+    const yhat = cp + (base30 - cp) * ((i + 1) / FORECAST_DAYS);
+    return { date: d.toISOString().slice(0, 10), yhat, yhat_lower: yhat * 0.97, yhat_upper: yhat * 1.03, trend: yhat };
+  });
+
+  return {
+    ticker,
+    current_price:          cp,
+    predictions,
+    history_fit,
+    history_actual,
+    scenarios: {
+      bull: mkScenario(bull30),
+      base: mkScenario(base30),
+      bear: mkScenario(bear30),
+      bull_return_30d: row.bull_return_30d,
+      base_return_30d: row.base_return_30d,
+      bear_return_30d: row.bear_return_30d,
+      bull_price_30d:  bull30,
+      base_price_30d:  base30,
+      bear_price_30d:  bear30,
+    },
+    recommendation:         (row.recommendation ?? "hold") as ProphetForecastResult["recommendation"],
+    predicted_return_5d:    typeof acc.predicted_return_5d === "number" ? acc.predicted_return_5d : row.predicted_return_7d,
+    predicted_return_7d:    row.predicted_return_7d,
+    predicted_return_30d:   row.predicted_return_30d,
+    trend_direction:        (row.trend_direction ?? "flat") as ProphetForecastResult["trend_direction"],
+    trend_slope_annual_pct: typeof acc.trend_slope_annual_pct === "number" ? acc.trend_slope_annual_pct : 0,
+    r_squared:              row.r_squared ?? 0,
+    changepoint_dates:      [],
+    atr_pct:                typeof acc.atr_pct === "number" ? acc.atr_pct : ATR_PCT_FLOOR,
+    tft_return_30d:         row.predicted_return_30d,
+    linear_return_5d:       typeof acc.predicted_return_5d === "number" ? acc.predicted_return_5d : row.predicted_return_7d,
+    diversity_score:        1.0,
+    insufficient_data:      false,
+  };
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function prophetForecast(
@@ -704,6 +804,28 @@ export async function prophetForecast(
   };
 
   if (candles.length < MIN_SAMPLES) return EMPTY;
+
+  // ── Supabase 우선 조회 (Python LightGBM 앙상블 — 3거래일 이내 신선도) ────────
+  if (typeof tickerOrCandles === "string") {
+    try {
+      const { data: row } = await supabase
+        .from("prophet_recommendations")
+        .select("*")
+        .eq("ticker", ticker)
+        .order("run_date", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (row) {
+        const diffDays = (Date.now() - new Date((row as SupabaseRow).run_date).getTime()) / 86_400_000;
+        if (diffDays <= 3) {
+          return buildResultFromSupabase(row as SupabaseRow, candles, ticker);
+        }
+      }
+    } catch {
+      // Supabase 미스 → TypeScript 앙상블 폴백
+    }
+  }
 
   // ── 데이터 준비 ──────────────────────────────────────────────────────────────
   const dates  = candles.map(c => new Date(c.time));
