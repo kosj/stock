@@ -45,9 +45,11 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 # ── 하이퍼파라미터 ─────────────────────────────────────────────────────────────
-TARGET_DAYS   = 5               # 예측 대상: 5거래일 선행 알파
-SECTOR_CAP    = 5               # 섹터당 최대 종목 수 (쏠림 방지)
-LIQUIDITY_MIN = 5_000_000_000   # 20일 평균 거래대금 최소치 (50억 KRW)
+TARGET_DAYS    = 5               # 예측 대상: 5거래일 선행 알파
+SECTOR_CAP     = 5               # 섹터당 최대 종목 수 (쏠림 방지)
+LIQUIDITY_MIN  = 5_000_000_000   # 20일 평균 거래대금 최소치 (50억 KRW)
+TARGET_CLIP    = 0.40            # 훈련 타깃 클리핑 ±40% (극단 급등락 종목 오염 방지)
+PRED_CLIP      = 0.25            # 최종 예측 상한 ±25% (MLP 외삽 방지)
 CV_SPLITS     = 5               # Walk-forward 분할 수
 MIN_TRAIN_ROWS = 100            # 폴드당 최소 훈련 행 수
 BENCHMARK_YF  = "^KS11"        # KOSPI 벤치마크
@@ -236,7 +238,8 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame) -> pd.DataFrame:
     # ── 타깃: 5거래일 선행 초과수익률 (훈련 레이블) ──────────────────────────
     fwd_ret  = c.pct_change(TARGET_DAYS).shift(-TARGET_DAYS)
     fwd_mret = mret.rolling(TARGET_DAYS).sum().shift(-TARGET_DAYS)
-    f["target_alpha_5d"] = fwd_ret - fwd_mret
+    # ±TARGET_CLIP 클리핑: 에코프로·바이오株 등 급등락 이벤트가 훈련 데이터를 오염하는 것을 방지
+    f["target_alpha_5d"] = (fwd_ret - fwd_mret).clip(-TARGET_CLIP, TARGET_CLIP)
 
     return f.dropna(subset=["rsi_14", "vs_ma60", "vol_60d"])
 
@@ -296,11 +299,15 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
         te = np.isin(row_dates, list(te_dates))
 
         X_tr_raw, y_tr_raw = X_all[tr], y_all[tr]
-        X_te = X_all[te]
+        X_te_raw = X_all[te]
 
-        # NaN 행 제거
-        ok = ~np.isnan(y_tr_raw) & ~np.any(np.isnan(X_tr_raw), axis=1)
-        X_tr, y_tr = X_tr_raw[ok], y_tr_raw[ok]
+        # NaN 행 제거 — 훈련셋
+        ok_tr = ~np.isnan(y_tr_raw) & ~np.any(np.isnan(X_tr_raw), axis=1)
+        X_tr, y_tr = X_tr_raw[ok_tr], y_tr_raw[ok_tr]
+
+        # NaN 행 제거 — 테스트셋 (RF는 NaN을 처리하지 못함; OOF 인덱스 분리 관리)
+        ok_te = ~np.any(np.isnan(X_te_raw), axis=1)
+        X_te  = X_te_raw[ok_te]
 
         if len(X_tr) < MIN_TRAIN_ROWS or len(X_te) == 0:
             print(f"  Fold {fold+1}/{CV_SPLITS}: skip (train={len(X_tr)}, test={len(X_te)})")
@@ -314,10 +321,12 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
         rf.fit(X_tr, y_tr)
         mlp.fit(X_tr_s, y_tr)
 
-        oof_lgbm[te] = lgbm.predict(X_te)
-        oof_rf[te]   = rf.predict(X_te)
-        oof_mlp[te]  = mlp.predict(X_te_s)
-        oof_mask[te] = True
+        # te 마스크 내 NaN-없는 행에만 OOF 기록 (인덱스 정합성 유지)
+        te_idx = np.where(te)[0][ok_te]
+        oof_lgbm[te_idx] = lgbm.predict(X_te)
+        oof_rf[te_idx]   = rf.predict(X_te)
+        oof_mlp[te_idx]  = mlp.predict(X_te_s)
+        oof_mask[te_idx] = True
 
         print(f"  Fold {fold+1}/{CV_SPLITS}: train={tr.sum():,}행  test={te.sum():,}행")
 
@@ -360,11 +369,10 @@ def predict_alpha(models: dict, latest: pd.DataFrame) -> pd.Series:
     p_rf   = models["rf"].predict(X)
     p_mlp  = models["mlp"].predict(Xs)
     meta_X = np.column_stack([p_lgbm, p_rf, p_mlp])
-    return pd.Series(
-        models["meta"].predict(meta_X),
-        index=latest.index,
-        name="alpha_5d",
-    )
+    raw = models["meta"].predict(meta_X)
+    # MLP는 훈련 범위 밖으로 외삽 가능 — ±PRED_CLIP으로 물리적 상한 적용
+    clipped = np.clip(raw, -PRED_CLIP, PRED_CLIP)
+    return pd.Series(clipped, index=latest.index, name="alpha_5d")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -479,8 +487,12 @@ def main() -> None:
 
     panel = pd.concat(panel_dfs, ignore_index=True).set_index(["ticker", "date"])
     train_panel = panel.dropna(subset=["target_alpha_5d"] + FEATURE_COLS)
+    # 타깃 클리핑은 make_features에서 이미 적용됨; 여기서는 잔여 NaN만 확인
+    before_n = len(train_panel)
+    train_panel = train_panel[train_panel["target_alpha_5d"].abs() <= TARGET_CLIP]
     n_tickers = train_panel.index.get_level_values("ticker").nunique()
-    print(f"  훈련 패널: {len(train_panel):,}행 × {len(FEATURE_COLS)}피처 / {n_tickers}종목")
+    print(f"  훈련 패널: {len(train_panel):,}행 × {len(FEATURE_COLS)}피처 / {n_tickers}종목 "
+          f"(극단값 제거: {before_n - len(train_panel)}행)")
 
     # ── 4. Walk-forward 앙상블 훈련 ───────────────────────────────────────────
     print("\n[4/6] Walk-forward TimeSeriesSplit 앙상블 훈련...")
@@ -553,10 +565,13 @@ def main() -> None:
     rows = []
     for i, row in df_top.iterrows():
         a5   = row["alpha_5d"]
-        a30  = a5 * 6                   # 30일 외삽 (선형)
+        # 평균회귀 감쇠 외삽: 단순 ×6 대신 decay=0.7 적용
+        # α_30d ≈ α_5d × (1 + 0.7 + 0.7² + 0.7³ + 0.7⁴ + 0.7⁵) = α_5d × 4.0
+        # 알파는 지속되지 않고 시간이 갈수록 소멸한다는 현실적 가정 반영
+        a30  = a5 * 4.0
         vol  = row["vol_60d_ann"]
-        bull = a30 + vol * 0.5          # 낙관 시나리오
-        bear = a30 - vol * 0.5          # 비관 시나리오
+        bull = a30 + vol * 0.4          # 낙관 시나리오
+        bear = a30 - vol * 0.4          # 비관 시나리오
 
         rows.append({
             "run_date":             run_date,
