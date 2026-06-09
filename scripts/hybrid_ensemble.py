@@ -655,6 +655,22 @@ def main() -> None:
     )
     print(f"  → 랭크 기반 타깃 적용: 날짜별 크로스섹셔널 백분위 (-0.5 ~ +0.5)")
 
+    # ── 크로스섹셔널 피처 정규화 (날짜별 z-score) ─────────────────────────────
+    # 핵심: 모델이 "RSI>60이면 상승" 같은 시계열 절대값 신호 대신
+    #       "같은 날 다른 종목 대비 RSI가 높은 종목이 초과수익" 하는
+    #       상대 순위 패턴을 학습하도록 강제.
+    for _col in FEATURE_COLS:
+        _cs_mean = train_panel.groupby(level="date")[_col].transform("mean")
+        _cs_std  = (
+            train_panel.groupby(level="date")[_col]
+            .transform("std")
+            .replace(0, np.nan)
+            .fillna(1.0)
+        )
+        train_panel[_col] = (train_panel[_col] - _cs_mean) / _cs_std
+    train_panel = train_panel.dropna(subset=FEATURE_COLS)
+    print(f"  → 크로스섹셔널 피처 정규화 완료: {len(train_panel):,}행")
+
     # ── 4. Walk-forward 앙상블 훈련 ───────────────────────────────────────────
     print("\n[4/6] Walk-forward TimeSeriesSplit 앙상블 훈련...")
     models = walk_forward_stack(train_panel)
@@ -686,6 +702,15 @@ def main() -> None:
 
     # 크로스섹셔널 상대강도 순위 (최신 날짜 기준)
     latest_df["rs_rank_20d"] = latest_df["ret_20d"].rank(pct=True)
+
+    # 크로스섹셔널 피처 정규화 — 훈련 데이터와 동일한 방식 적용
+    for _col in FEATURE_COLS:
+        if _col not in latest_df.columns:
+            continue
+        _mean = latest_df[_col].mean()
+        _std  = latest_df[_col].std()
+        if _std > 1e-8:
+            latest_df[_col] = (latest_df[_col] - _mean) / _std
 
     latest = latest_df[FEATURE_COLS].dropna()
     latest.index.name = "ticker"
