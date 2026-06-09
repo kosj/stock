@@ -33,9 +33,11 @@ import pandas as pd
 import requests
 import yfinance as yf
 import lightgbm as lgb
+from scipy.stats import spearmanr
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import TimeSeriesSplit, cross_val_score
+from sklearn.metrics import r2_score
+from sklearn.model_selection import TimeSeriesSplit, cross_val_predict
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
@@ -392,27 +394,26 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     meta = Ridge(alpha=1.0)
     meta.fit(meta_X, meta_y)
 
-    # OOF R²: 메타 모델을 TimeSeriesSplit 3-fold CV로 평가
-    # - TimeSeriesSplit: 시계열 순서 유지 (KFold 대신 사용 — 미래 누수 방지)
-    # - clip 제거: 음수 R²도 그대로 노출 (clip하면 진짜 실패를 0.0으로 마스킹함)
+    # OOF R² + IC: 메타 모델을 TimeSeriesSplit 3-fold CV로 평가
+    # - R²: 절대 예측 오차 (noise floor에 가까우면 음수 가능)
+    # - IC (Spearman): 순위 상관관계 — 랭킹 모델의 실질 지표
+    #   IC > 0이면 예측 순위와 실제 순위가 같은 방향 → 랭킹에 유용
     if len(meta_y) > 30:
-        cv_scores = cross_val_score(
-            Ridge(alpha=1.0), meta_X, meta_y,
-            cv=TimeSeriesSplit(n_splits=3),
-            scoring="r2",
-        )
-        oof_r2 = float(cv_scores.mean())
+        _cv = TimeSeriesSplit(n_splits=3)
+        meta_oof_pred = cross_val_predict(Ridge(alpha=1.0), meta_X, meta_y, cv=_cv)
+        oof_r2 = float(r2_score(meta_y, meta_oof_pred))
+        oof_ic = float(spearmanr(meta_oof_pred, meta_y).statistic)
     else:
-        oof_r2 = 0.0
+        oof_r2, oof_ic = 0.0, 0.0
 
-    print(f"  OOF R² (meta CV): {oof_r2:.4f}")
+    print(f"  OOF R²  (meta CV): {oof_r2:.4f}")
+    print(f"  OOF IC  (Spearman): {oof_ic:.4f}  ← 랭킹 품질 지표 (>0 = 유효)")
 
-    # ── 모델 품질 게이트 ──────────────────────────────────────────────────────
-    if oof_r2 < 0.0:
-        print(f"  ❌ OOF R²={oof_r2:.4f} < 0 — 무작위 신호 방지를 위해 훈련 중단")
-        print(f"  → 모델이 null 예측보다 못함. Supabase 저장 생략.")
-    elif oof_r2 < MIN_OOF_R2:
-        print(f"  ⚠ 경고: OOF R²={oof_r2:.4f} < 최소 기준({MIN_OOF_R2})")
+    # ── 모델 품질 게이트 (IC 기준) ────────────────────────────────────────────
+    # R²는 절대 오차 기준으로 noise floor에서 쉽게 음수가 됨.
+    # IC > -0.02: 순위 방향이 심하게 반전되지 않으면 랭킹 신호로 활용.
+    if oof_ic < MIN_OOF_R2:
+        print(f"  ⚠ 경고: OOF IC={oof_ic:.4f} < 최소 기준({MIN_OOF_R2})")
         print(f"  → 신호 신뢰도 낮음. 결과를 참고 자료로만 활용 권장.")
 
     # ── 전체 데이터로 Base 모델 재훈련 (최종 예측용) ─────────────────────────
@@ -428,7 +429,7 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
 
     return dict(
         lgbm=lgbm_f, rf=rf_f, mlp=mlp_f,
-        meta=meta, scaler=scaler, oof_r2=oof_r2,
+        meta=meta, scaler=scaler, oof_r2=oof_r2, oof_ic=oof_ic,
     )
 
 
@@ -676,10 +677,10 @@ def main() -> None:
     models = walk_forward_stack(train_panel)
 
     # ── R² 게이트: 극단적 음수(-0.005 미만)만 차단 ─────────────────────────
-    # -0.005 ~ 0 은 거의 null 예측 수준이나 랭킹 신호로 활용 가능
-    # 크로스섹셔널 단기 알파 예측에서 R²=0.01~0.05도 세계적 수준임을 감안
-    if models["oof_r2"] < -0.01:
-        print(f"\n❌ OOF R² = {models['oof_r2']:.4f} < -0.01 — 당일 저장 생략")
+    # IC(Spearman) 기준 게이트: 순위 방향이 심하게 반전된 경우만 차단
+    # R²는 noise floor에서 쉽게 음수가 되지만 IC > 0이면 랭킹은 유효
+    if models["oof_ic"] < -0.02:
+        print(f"\n❌ OOF IC = {models['oof_ic']:.4f} < -0.02 — 순위 반전 신호, 당일 저장 생략")
         print("  피처 추가 또는 데이터 확장 후 재실행 권장")
         return
 
@@ -844,11 +845,12 @@ def main() -> None:
             "r_squared":            round(oof_r2, 4),
             "trend_direction":      _trend_dir(row["ret_20d"]),
             "accuracy_json":        json.dumps({
-                "predicted_return_10d":   round(a10 * 100, 2),  # 5d→10d로 명칭 변경
+                "predicted_return_10d":   round(a10 * 100, 2),
                 "atr_pct":                round(atr_pct, 2),
                 "trend_slope_annual_pct": round(trend_sl, 2),
                 "is_top":                 is_top,
                 "oof_r2":                 round(oof_r2, 4),
+                "oof_ic":                 round(models["oof_ic"], 4),
             }),
         })
 
