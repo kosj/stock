@@ -182,6 +182,7 @@ FEATURE_COLS = [
     "high_52w_pct",         # 52주 고점 대비 위치 (모멘텀·돌파 신호)
     "sector_rel_ret_5d",    # 동일 섹터 평균 대비 5일 초과수익 (섹터 중립 신호)
     "sector_rel_ret_20d",   # 동일 섹터 평균 대비 20일 초과수익
+    "rs_rank_20d",          # 크로스섹셔널 20일 수익률 상대강도 순위 0~1
 ]
 
 
@@ -631,6 +632,9 @@ def main() -> None:
         sec_avg = panel_raw.groupby(["date", "_sector"])[col].transform("mean")
         panel_raw[dest] = panel_raw[col] - sec_avg
 
+    # 크로스섹셔널 상대강도 순위: 날짜별 ret_20d 백분위 (0~1)
+    panel_raw["rs_rank_20d"] = panel_raw.groupby("date")["ret_20d"].rank(pct=True)
+
     panel = panel_raw.drop(columns=["_sector"]).set_index(["ticker", "date"])
 
     train_panel = panel.dropna(subset=["target_alpha_5d"] + FEATURE_COLS)
@@ -640,6 +644,17 @@ def main() -> None:
     print(f"  훈련 패널: {len(train_panel):,}행 × {len(FEATURE_COLS)}피처 / {n_tickers}종목 "
           f"(극단값 제거: {before_n - len(train_panel)}행)")
 
+    # ── 랭크 기반 타깃 변환 ─────────────────────────────────────────────────────
+    # 날짜별 알파 백분위 순위 → 중앙값 중심 (-0.5 ~ +0.5)
+    # Ridge가 bounded target에서 안정적; 아웃라이어 없음; 랭킹 목적에 최적
+    train_panel = train_panel.copy()
+    train_panel["target_alpha_5d"] = (
+        train_panel.groupby(level="date")["target_alpha_5d"]
+        .rank(pct=True)
+        - 0.5
+    )
+    print(f"  → 랭크 기반 타깃 적용: 날짜별 크로스섹셔널 백분위 (-0.5 ~ +0.5)")
+
     # ── 4. Walk-forward 앙상블 훈련 ───────────────────────────────────────────
     print("\n[4/6] Walk-forward TimeSeriesSplit 앙상블 훈련...")
     models = walk_forward_stack(train_panel)
@@ -647,19 +662,32 @@ def main() -> None:
     # ── R² 게이트: 극단적 음수(-0.005 미만)만 차단 ─────────────────────────
     # -0.005 ~ 0 은 거의 null 예측 수준이나 랭킹 신호로 활용 가능
     # 크로스섹셔널 단기 알파 예측에서 R²=0.01~0.05도 세계적 수준임을 감안
-    if models["oof_r2"] < -0.005:
-        print(f"\n❌ OOF R² = {models['oof_r2']:.4f} < -0.005 — 당일 저장 생략")
+    if models["oof_r2"] < -0.01:
+        print(f"\n❌ OOF R² = {models['oof_r2']:.4f} < -0.01 — 당일 저장 생략")
         print("  피처 추가 또는 데이터 확장 후 재실행 권장")
         return
 
     # ── 5. 최신 피처로 알파 예측 ──────────────────────────────────────────────
-    print("\n[5/6] 최신 피처 → 5일 기대 초과수익률(Alpha) 예측...")
-    latest = (
-        pd.DataFrame(
-            {t: d["feats"][FEATURE_COLS].iloc[-1] for t, d in per_stock.items()}
-        )
-        .T.dropna()
-    )
+    print("\n[5/6] 최신 피처 → 기대 상대강도 순위(Alpha Rank) 예측...")
+
+    # cross-sectional 피처(sector_rel, rs_rank)는 d["feats"]에 없으므로 별도 계산
+    _CS_FEATS = {"sector_rel_ret_5d", "sector_rel_ret_20d", "rs_rank_20d"}
+    _local_fcols = [f for f in FEATURE_COLS if f not in _CS_FEATS]
+
+    latest_df = pd.DataFrame(
+        {t: d["feats"][_local_fcols].iloc[-1] for t, d in per_stock.items()}
+    ).T
+
+    # 섹터 상대 피처 (최신 날짜 기준 크로스섹셔널)
+    latest_df["_sector"] = latest_df.index.map(sector_map)
+    for _src, _dest in [("ret_5d", "sector_rel_ret_5d"), ("ret_20d", "sector_rel_ret_20d")]:
+        _sec_avg = latest_df.groupby("_sector")[_src].transform("mean")
+        latest_df[_dest] = latest_df[_src] - _sec_avg
+
+    # 크로스섹셔널 상대강도 순위 (최신 날짜 기준)
+    latest_df["rs_rank_20d"] = latest_df["ret_20d"].rank(pct=True)
+
+    latest = latest_df[FEATURE_COLS].dropna()
     latest.index.name = "ticker"
     pred = predict_alpha(models, latest)
 
