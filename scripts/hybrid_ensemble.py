@@ -135,12 +135,13 @@ UNIVERSE = [
 
 # 훈련·예측에 사용할 피처 컬럼 목록
 FEATURE_COLS = [
-    "ret_1d", "ret_2d", "ret_3d", "ret_5d", "ret_10d", "ret_20d",
-    "alpha_1d", "alpha_5d",
+    "ret_1d", "ret_2d", "ret_3d", "ret_5d", "ret_10d", "ret_20d", "ret_60d",
+    "alpha_1d", "alpha_5d", "alpha_20d",
     "rsi_14", "macd_hist", "bb_pct",
     "vs_ma5", "vs_ma20", "vs_ma60",
     "vol_ratio", "vol_20d", "vol_60d",
     "market_ret_5d", "market_ret_20d",
+    "high_52w_pct",         # 52주 고점 대비 위치 (모멘텀·돌파 신호)
 ]
 
 
@@ -152,7 +153,7 @@ def to_yf(code: str, market: str) -> str:
     return code + (".KS" if market == "KOSPI" else ".KQ")
 
 
-def fetch_ohlcv(ticker_yf: str, period: str = "2y") -> pd.DataFrame:
+def fetch_ohlcv(ticker_yf: str, period: str = "5y") -> pd.DataFrame:
     for attempt in range(3):
         try:
             df = yf.download(ticker_yf, period=period, auto_adjust=True,
@@ -210,10 +211,10 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame) -> pd.DataFrame:
 
     f = pd.DataFrame(index=c.index)
 
-    for lag in [1, 2, 3, 5, 10, 20]:
+    for lag in [1, 2, 3, 5, 10, 20, 60]:
         f[f"ret_{lag}d"] = c.pct_change(lag)
 
-    for lag in [1, 5]:
+    for lag in [1, 5, 20]:
         f[f"alpha_{lag}d"] = c.pct_change(lag) - mret.rolling(lag).sum()
 
     f["rsi_14"]    = _rsi(c, 14)
@@ -231,6 +232,9 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame) -> pd.DataFrame:
 
     f["market_ret_5d"]  = mret.rolling(5).sum()
     f["market_ret_20d"] = mret.rolling(20).sum()
+
+    # 52주(252거래일) 고점 대비 현재가 위치 (돌파·조정 국면 식별)
+    f["high_52w_pct"] = c / c.rolling(252).max() - 1
 
     # 유동성 계산용 (훈련 피처 아님)
     f["trading_value"] = c * vol
@@ -358,10 +362,12 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     print(f"  OOF R² (meta CV): {oof_r2:.4f}")
 
     # ── 모델 품질 게이트 ──────────────────────────────────────────────────────
-    if oof_r2 < MIN_OOF_R2:
+    if oof_r2 < 0.0:
+        print(f"  ❌ OOF R²={oof_r2:.4f} < 0 — 무작위 신호 방지를 위해 훈련 중단")
+        print(f"  → 모델이 null 예측보다 못함. Supabase 저장 생략.")
+    elif oof_r2 < MIN_OOF_R2:
         print(f"  ⚠ 경고: OOF R²={oof_r2:.4f} < 최소 기준({MIN_OOF_R2})")
-        print(f"  → 베이스 모델이 5일 알파를 유의미하게 예측하지 못하고 있음.")
-        print(f"  → 생성된 추천 신호의 신뢰도가 낮을 수 있음. 결과를 참고 자료로만 활용 권장.")
+        print(f"  → 신호 신뢰도 낮음. 결과를 참고 자료로만 활용 권장.")
 
     # ── 전체 데이터로 Base 모델 재훈련 (최종 예측용) ─────────────────────────
     ok_all   = ~np.isnan(y_all) & ~np.any(np.isnan(X_all), axis=1)
@@ -581,6 +587,12 @@ def main() -> None:
     print("\n[4/6] Walk-forward TimeSeriesSplit 앙상블 훈련...")
     models = walk_forward_stack(train_panel)
 
+    # ── R² 음수 차단: 무작위 신호 저장 방지 ─────────────────────────────────
+    if models["oof_r2"] < 0.0:
+        print(f"\n❌ OOF R² 음수({models['oof_r2']:.4f}) — 당일 저장 생략")
+        print("  피처 추가 또는 데이터 확장 후 재실행 권장")
+        return
+
     # ── 5. 최신 피처로 알파 예측 ──────────────────────────────────────────────
     print("\n[5/6] 최신 피처 → 5일 기대 초과수익률(Alpha) 예측...")
     latest = (
@@ -616,15 +628,30 @@ def main() -> None:
 
     df_all = pd.DataFrame(records)
 
+    # ── 크로스섹셔널 z-score 혼합 스코어 재계산 ─────────────────────────────
+    # 기존: alpha/vol → 저변동성 방어주(통신·금융) 구조적 우선선택 문제
+    # 개선: alpha_z(0.5) + sharpe_z(0.5) 혼합
+    #   - alpha_z:  절대 알파 크기 반영 → 성장주 불이익 해소
+    #   - sharpe_z: 리스크 조정 반영 → 무분별한 고변동성 선택 방지
+    if len(df_all) >= 2:
+        raw_sharpe = df_all["alpha_5d"] / df_all["vol_60d_ann"]
+        def _cs_zscore(s: pd.Series) -> pd.Series:
+            std = float(s.std())
+            return (s - s.mean()) / std if std > 1e-8 else pd.Series(0.0, index=s.index)
+        df_all["risk_adj_score"] = (
+            0.5 * _cs_zscore(df_all["alpha_5d"]) +
+            0.5 * _cs_zscore(raw_sharpe)
+        )
+
     # 유동성 필터
     df_liq = df_all[df_all["avg_trading_value_20d"] >= LIQUIDITY_MIN].copy()
     print(f"  유동성 필터:    {len(df_all)} → {len(df_liq)} 종목 (50억 KRW)")
 
-    # ── 양의 알파 게이트: 음수 risk_adj_score 종목 Top30 진입 차단 ─────────────
-    # 모델이 음의 초과수익률을 예측하는 종목을 추천 목록에서 제외.
-    # SCORE_FLOOR=0.0: 최소한 시장 대비 양의 초과수익률을 예측한 종목만 포함.
-    df_pos = df_liq[df_liq["risk_adj_score"] > SCORE_FLOOR].copy()
-    print(f"  양의 알파 필터: {len(df_liq)} → {len(df_pos)} 종목 (score > {SCORE_FLOOR})")
+    # ── 양의 알파 게이트: 절대 alpha_5d < 0 종목 차단 ──────────────────────────
+    # z-score 기반 score를 쓰더라도 절대 알파가 음수인 종목은 제외.
+    # (z-score 정규화 시 음수 알파 종목도 양의 z-score를 받을 수 있어 별도 게이트 필요)
+    df_pos = df_liq[df_liq["alpha_5d"] > 0].copy()
+    print(f"  양의 알파 필터: {len(df_liq)} → {len(df_pos)} 종목 (alpha_5d > 0)")
 
     if df_pos.empty:
         print("\n  ⚠ 양의 알파 예측 종목 없음 — 당일 추천 생략")
