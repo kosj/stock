@@ -748,7 +748,9 @@ function buildResultFromSupabase(
       bear_price_30d:  bear30,
     },
     recommendation:         (row.recommendation ?? "hold") as ProphetForecastResult["recommendation"],
-    predicted_return_5d:    typeof acc.predicted_return_5d === "number" ? acc.predicted_return_5d : row.predicted_return_7d,
+    predicted_return_5d:    typeof acc.predicted_return_10d === "number" ? acc.predicted_return_10d
+                          : typeof acc.predicted_return_5d  === "number" ? acc.predicted_return_5d
+                          : row.predicted_return_7d,
     predicted_return_7d:    row.predicted_return_7d,
     predicted_return_30d:   row.predicted_return_30d,
     trend_direction:        (row.trend_direction ?? "flat") as ProphetForecastResult["trend_direction"],
@@ -757,7 +759,9 @@ function buildResultFromSupabase(
     changepoint_dates:      [],
     atr_pct:                typeof acc.atr_pct === "number" ? acc.atr_pct : ATR_PCT_FLOOR,
     tft_return_30d:         row.predicted_return_30d,
-    linear_return_5d:       typeof acc.predicted_return_5d === "number" ? acc.predicted_return_5d : row.predicted_return_7d,
+    linear_return_5d:       typeof acc.predicted_return_10d === "number" ? acc.predicted_return_10d
+                          : typeof acc.predicted_return_5d  === "number" ? acc.predicted_return_5d
+                          : row.predicted_return_7d,
     diversity_score:        1.0,
     insufficient_data:      false,
   };

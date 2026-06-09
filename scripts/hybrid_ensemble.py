@@ -46,20 +46,17 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 # ── 하이퍼파라미터 ─────────────────────────────────────────────────────────────
-TARGET_DAYS    = 5               # 예측 대상: 5거래일 선행 알파
+TARGET_DAYS    = 10              # 예측 대상: 10거래일 선행 섹터 중립 알파 (5→10: SNR 개선)
 SECTOR_CAP     = 5               # 섹터당 최대 종목 수 (쏠림 방지)
 LIQUIDITY_MIN  = 5_000_000_000   # 20일 평균 거래대금 최소치 (50억 KRW)
-TARGET_CLIP    = 0.40            # 훈련 타깃 클리핑 ±40% (극단 급등락 종목 오염 방지)
-PRED_CLIP      = 0.25            # 최종 예측 상한 ±25% (MLP 외삽 방지)
-MIN_TRAIN_ROWS = 100            # 폴드당 최소 훈련 행 수
-BENCHMARK_YF  = "^KS11"        # KOSPI 벤치마크
-CV_SPLITS      = 5               # Walk-forward 분할 수
-MIN_TRAIN_ROWS = 100             # 폴드당 최소 훈련 행 수
-MIN_OOF_R2     = 0.01            # 메타 모델 최소 OOF R² — 미달 시 경고 출력
-SCORE_FLOOR    = 0.0             # Top30 진입 최소 리스크 조정 스코어 (음의 알파 차단)
-ALPHA30_DECAY  = 0.7             # 30일 외삽 감쇠 계수 — 등비급수 합: Σ(0.7^k, k=0..5) ≈ 4.0×
-A30_CAP        = 0.60            # 30일 예측 최대 ±60% (KOSPI 종목 물리 상한)
+TARGET_CLIP    = 0.40            # 훈련 타깃 클리핑 ±40%
+PRED_CLIP      = 0.20            # 최종 예측 상한 ±20% (섹터 중립 알파는 절대값이 작음)
+MIN_TRAIN_ROWS = 200             # 폴드당 최소 훈련 행 수 (5y 데이터로 기준 상향)
 BENCHMARK_YF   = "^KS11"        # KOSPI 벤치마크
+CV_SPLITS      = 5               # Walk-forward 분할 수
+MIN_OOF_R2     = 0.01            # 메타 모델 최소 OOF R² — 미달 시 경고
+ALPHA30_DECAY  = 0.7             # 30일 외삽 감쇠 계수 — 10d×3스텝: Σ(0.7^k, k=0..2) ≈ 2.19×
+A30_CAP        = 0.60            # 30일 예측 최대 ±60%
 
 # ── 종목 유니버스 ─────────────────────────────────────────────────────────────
 # stock-universe.ts와 동기화 유지
@@ -142,6 +139,8 @@ FEATURE_COLS = [
     "vol_ratio", "vol_20d", "vol_60d",
     "market_ret_5d", "market_ret_20d",
     "high_52w_pct",         # 52주 고점 대비 위치 (모멘텀·돌파 신호)
+    "sector_rel_ret_5d",    # 동일 섹터 평균 대비 5일 초과수익 (섹터 중립 신호)
+    "sector_rel_ret_20d",   # 동일 섹터 평균 대비 20일 초과수익
 ]
 
 
@@ -254,18 +253,23 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame) -> pd.DataFrame:
 
 def _make_base_models():
     lgbm = lgb.LGBMRegressor(
-        n_estimators=300, learning_rate=0.05, max_depth=5,
-        num_leaves=31, subsample=0.8, colsample_bytree=0.8,
-        reg_lambda=1.0, random_state=42, verbose=-1,
+        n_estimators=500, learning_rate=0.03,  # 트리 늘리고 학습률 낮춤 (일반화 개선)
+        max_depth=4, num_leaves=15,             # 복잡도 축소 (과적합 억제)
+        subsample=0.8, colsample_bytree=0.7,
+        reg_lambda=2.0,                         # L2 정규화 강화
+        min_child_samples=20,                   # 리프 최소 샘플 (노이즈 과적합 방지)
+        random_state=42, verbose=-1,
     )
     rf = RandomForestRegressor(
-        n_estimators=200, max_depth=6, min_samples_leaf=5,
-        max_features=0.7, random_state=42, n_jobs=-1,
+        n_estimators=300, max_depth=5,          # 깊이 축소 (6→5)
+        min_samples_leaf=10,                    # 리프 최소 샘플 상향 (5→10)
+        max_features=0.6, random_state=42, n_jobs=-1,
     )
     mlp = MLPRegressor(
         hidden_layer_sizes=(64, 32), activation="relu", solver="adam",
-        max_iter=400, random_state=42, learning_rate_init=0.001,
-        early_stopping=True, validation_fraction=0.1, n_iter_no_change=20,
+        max_iter=500, random_state=42, learning_rate_init=0.001,
+        early_stopping=True, validation_fraction=0.1, n_iter_no_change=25,
+        alpha=0.01,                             # L2 정규화 추가
     )
     return lgbm, rf, mlp
 
@@ -567,16 +571,35 @@ def main() -> None:
 
     # ── 3. 패널 데이터셋 구성 ─────────────────────────────────────────────────
     print("\n[3/6] 패널 데이터셋 구성...")
+    sector_map = {t: d["info"]["sector"] for t, d in per_stock.items()}
+
     panel_dfs = []
     for ticker, d in per_stock.items():
         f = d["feats"].copy()
         f.index.name = "date"
-        f["ticker"] = ticker
+        f["ticker"]  = ticker
+        f["_sector"] = sector_map[ticker]
         panel_dfs.append(f.reset_index())
 
-    panel = pd.concat(panel_dfs, ignore_index=True).set_index(["ticker", "date"])
+    panel_raw = pd.concat(panel_dfs, ignore_index=True)
+
+    # ── 섹터 상대 피처: 동일 섹터 평균 대비 초과수익 ─────────────────────────
+    # 크로스섹셔널 정보 활용 — 섹터 공통 움직임 제거 후 순수 개별 종목 신호 추출
+    for col, dest in [("ret_5d", "sector_rel_ret_5d"), ("ret_20d", "sector_rel_ret_20d")]:
+        sec_avg = panel_raw.groupby(["date", "_sector"])[col].transform("mean")
+        panel_raw[dest] = panel_raw[col] - sec_avg
+
+    # ── 섹터 중립 타깃: KOSPI 대비 알파 → 섹터 평균 알파 추가 차감 ────────────
+    # stock - KOSPI → (stock - KOSPI) - (sector_avg - KOSPI) = stock - sector_avg
+    # 섹터 전체 움직임을 제거해 순수 종목별 예측 능력 강화
+    sec_tgt_avg = panel_raw.groupby(["date", "_sector"])["target_alpha_5d"].transform("mean")
+    panel_raw["target_alpha_5d"] = (
+        (panel_raw["target_alpha_5d"] - sec_tgt_avg).clip(-TARGET_CLIP, TARGET_CLIP)
+    )
+
+    panel = panel_raw.drop(columns=["_sector"]).set_index(["ticker", "date"])
+
     train_panel = panel.dropna(subset=["target_alpha_5d"] + FEATURE_COLS)
-    # 타깃 클리핑은 make_features에서 이미 적용됨; 여기서는 잔여 NaN만 확인
     before_n = len(train_panel)
     train_panel = train_panel[train_panel["target_alpha_5d"].abs() <= TARGET_CLIP]
     n_tickers = train_panel.index.get_level_values("ticker").nunique()
@@ -703,9 +726,9 @@ def main() -> None:
             continue                    # 데이터 부족으로 skip된 종목
 
         d      = per_stock[ticker]
-        a5     = row["alpha_5d"]
-        # 평균회귀 감쇠 외삽: decay=0.7 등비급수 합 ≈ 4.0×, 물리 상한 ±60%
-        a30_raw = a5 * sum(ALPHA30_DECAY ** k for k in range(6))
+        a10    = row["alpha_5d"]            # 컬럼명은 alpha_5d 유지, 실제는 10일 섹터중립 알파
+        # 10d → 30d 외삽: 감쇠 3스텝 (10×3=30일), Σ(0.7^k, k=0..2) ≈ 2.19×
+        a30_raw = a10 * sum(ALPHA30_DECAY ** k for k in range(3))
         a30  = float(np.clip(a30_raw, -A30_CAP, A30_CAP))
         vol  = row["vol_60d_ann"]
         bull = a30 + vol * 0.4
@@ -723,7 +746,7 @@ def main() -> None:
             "market":               row["market"],
             "sector":               row["sector"],
             "current_price":        round(row["current_price"], 2),
-            "predicted_return_7d":  round(a5  * 100, 2),
+            "predicted_return_7d":  round(a10 * 100, 2),   # 10일 섹터중립 알파 (컬럼 재활용)
             "predicted_return_30d": round(a30 * 100, 2),
             "bull_return_30d":      round(bull * 100, 2),
             "base_return_30d":      round(a30 * 100, 2),
@@ -732,7 +755,7 @@ def main() -> None:
             "r_squared":            round(oof_r2, 4),
             "trend_direction":      _trend_dir(row["ret_20d"]),
             "accuracy_json":        json.dumps({
-                "predicted_return_5d":    round(a5  * 100, 2),
+                "predicted_return_10d":   round(a10 * 100, 2),  # 5d→10d로 명칭 변경
                 "atr_pct":                round(atr_pct, 2),
                 "trend_slope_annual_pct": round(trend_sl, 2),
                 "is_top":                 is_top,
