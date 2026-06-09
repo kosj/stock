@@ -37,7 +37,7 @@ from scipy.stats import spearmanr
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
-from sklearn.model_selection import TimeSeriesSplit, cross_val_predict
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
@@ -394,15 +394,13 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     meta = Ridge(alpha=1.0)
     meta.fit(meta_X, meta_y)
 
-    # OOF R² + IC: 메타 모델을 TimeSeriesSplit 3-fold CV로 평가
-    # - R²: 절대 예측 오차 (noise floor에 가까우면 음수 가능)
-    # - IC (Spearman): 순위 상관관계 — 랭킹 모델의 실질 지표
-    #   IC > 0이면 예측 순위와 실제 순위가 같은 방향 → 랭킹에 유용
-    if len(meta_y) > 30:
-        _cv = TimeSeriesSplit(n_splits=3)
-        meta_oof_pred = cross_val_predict(Ridge(alpha=1.0), meta_X, meta_y, cv=_cv)
-        oof_r2 = float(r2_score(meta_y, meta_oof_pred))
-        oof_ic = float(spearmanr(meta_oof_pred, meta_y).statistic)
+    # OOF R² + IC: walk-forward 루프에서 계산된 LightGBM OOF 기반
+    # cross_val_predict + TimeSeriesSplit은 partition이 아니어서 사용 불가
+    # (첫 1/n_splits 샘플이 어떤 test fold에도 속하지 않아 ValueError 발생)
+    valid_oof = oof_mask & ~np.isnan(y_all) & ~np.isnan(oof_lgbm)
+    if valid_oof.sum() > 30:
+        oof_r2 = float(r2_score(y_all[valid_oof], oof_lgbm[valid_oof]))
+        oof_ic = float(spearmanr(oof_lgbm[valid_oof], y_all[valid_oof]).statistic)
     else:
         oof_r2, oof_ic = 0.0, 0.0
 
