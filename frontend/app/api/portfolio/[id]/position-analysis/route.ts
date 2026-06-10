@@ -142,10 +142,16 @@ export async function GET(req: NextRequest, { params }: Ctx) {
         : null;
 
     // ─ Peak Price(최고가) 산정 ────────────────────────────────────────────
-    let peakPrice = currentPrice;
+    // 트레일링 스탑 기준가는 반드시 "매수 이후" 달성한 고가여야 함.
+    // 90일 lookback은 매수 전 고가를 포함할 수 있으므로,
+    // avgPrice를 하한으로 설정 → 매수가 이상으로 가격이 오른 적 없으면
+    // trailingDrop = 0이 되어 트레일링 스탑 오발동을 방지.
+    let peakPrice = pos.avg_price;  // 최소값: 평균 매수가
     if (candles.length > 0) {
       const tail = candles.slice(-PEAK_LOOKBACK_DAYS);
-      peakPrice = Math.max(...tail.map((c) => c.high ?? c.close));
+      const windowHigh = Math.max(...tail.map((c) => c.high ?? c.close));
+      // avgPrice보다 높은 경우에만 적용 (매수 후 한 번이라도 수익 구간 진입했을 때만)
+      peakPrice = Math.max(windowHigh, pos.avg_price);
     }
 
     // ─ 피라미딩 1회 제한 플래그 확인 ─────────────────────────────────────
