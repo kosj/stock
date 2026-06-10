@@ -26,8 +26,12 @@ export const maxDuration = 45;
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** 최근 N 거래일의 고가 max를 peak_price로 사용 */
-const PEAK_LOOKBACK_DAYS = 90;
+/**
+ * 트레일링 스탑 기준 고가 산정 윈도우 (거래일)
+ * 30일(약 6주) = 최근 단기 추세의 고점을 포착하는 합리적 구간.
+ * 90일로 설정하면 매수 이전의 랠리 고점이 포함되어 트레일링 스탑 오발동 가능.
+ */
+const PEAK_LOOKBACK_DAYS = 30;
 
 /**
  * ATR(14) 계산에 필요한 최소 캔들 수

@@ -584,7 +584,19 @@ export class PositionManagerService {
      *
      * 수량: 전량(100%) 매도 (추세가 꺾인 것으로 판단)
      */
-    if (peakPrice > 0 && trailingDropPct <= config.trailing_stop_pct) {
+    /**
+     * 트레일링 스탑 추가 조건: grossPnlPct >= 0 (수익 구간 진입 필수)
+     *
+     * 트레일링 스탑의 목적 = "달성된 수익 보호". 포지션이 매수가 아래(손실)일 때
+     * 트레일링 스탑을 발동하는 것은 설계 의도와 어긋난다:
+     *   - 손실 구간 보호 → 손절(Stop-Loss)의 역할
+     *   - 수익 구간 보호 → 트레일링 스탑의 역할
+     *
+     * 이 조건이 없으면 "매수 전 고점이 90일 lookback에 포함될 때"
+     * 포지션이 수익이 없음에도 트레일링 스탑이 손절보다 먼저 발동되는 오발동 발생.
+     * grossPnlPct >= 0 이면 수익 구간이므로 트레일링 스탑 발동 허용.
+     */
+    if (peakPrice > 0 && trailingDropPct <= config.trailing_stop_pct && grossPnlPct >= 0) {
       return {
         type:     "SELL",
         quantity,
