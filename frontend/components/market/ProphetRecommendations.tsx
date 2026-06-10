@@ -57,8 +57,8 @@ const REC_COLOR: Record<string, string> = {
 
 // ── 유틸 컴포넌트 ─────────────────────────────────────────────────────────────
 
-function RetCell({ v, small }: { v: number; small?: boolean }) {
-  const c = v >= 3 ? "text-green-400" : v <= -3 ? "text-red-400" : "text-muted-foreground";
+function RetCell({ v, small, threshold = 1 }: { v: number; small?: boolean; threshold?: number }) {
+  const c = v >= threshold ? "text-green-400" : v <= -threshold ? "text-red-400" : "text-muted-foreground";
   return (
     <span className={`tabular-nums font-medium ${c} ${small ? "text-xs" : ""}`}>
       {v >= 0 ? "+" : ""}{v.toFixed(1)}%
@@ -283,7 +283,7 @@ export function ProphetRecommendations() {
           <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                {["#", "종목", "시장", "현재가", "10일(α%)", "30일(α%)", "추천", "R²", "추세", ""].map(h => (
+                {["#", "종목", "시장", "현재가", "10일 예측", "30일 예측", "추천", "R²", "추세", ""].map(h => (
                   <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -343,9 +343,9 @@ export function ProphetRecommendations() {
                         {formatNumber(Math.round(row.current_price))}
                       </td>
 
-                      {/* 7일 / 30일 */}
-                      <td className="py-3 px-3"><RetCell v={row.predicted_return_7d} /></td>
-                      <td className="py-3 px-3"><RetCell v={row.base_return_30d} /></td>
+                      {/* 10일 / 30일 예측수익률 */}
+                      <td className="py-3 px-3"><RetCell v={row.predicted_return_7d} threshold={1} /></td>
+                      <td className="py-3 px-3"><RetCell v={row.base_return_30d} threshold={2} /></td>
 
                       {/* 추천 */}
                       <td className="py-3 px-3">
@@ -392,7 +392,7 @@ export function ProphetRecommendations() {
       )}
 
       <div className="px-4 py-2 text-xs text-muted-foreground/40 border-t" style={{ borderColor: "var(--border)" }}>
-        시총 5000억 이상 · Hybrid Stacking Ensemble 예측 기반 — 투자 손익 보장 불가 · 매일 오후 4:00 KST 자동 갱신
+        거래대금 50억 이상 · Hybrid Stacking Ensemble 예측 기반 — 투자 손익 보장 불가 · 매일 오후 4:00 KST 자동 갱신
       </div>
     </Card>
   );
