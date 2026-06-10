@@ -647,6 +647,15 @@ def main() -> None:
     print(f"  훈련 패널: {len(train_panel):,}행 × {len(FEATURE_COLS)}피처 / {n_tickers}종목 "
           f"(극단값 제거: {before_n - len(train_panel)}행)")
 
+    # ── 랭크 기반 타깃 변환 전: 실제 알파 분위수 맵 저장 ──────────────────────
+    # IC 개선을 위해 랭크 모델은 유지하되, 예측 랭크 점수 → 실제 수익률 역변환에 사용.
+    # 훈련 타깃의 경험적 분포(분율 단위)를 101개 분위수로 저장.
+    _raw_vals = train_panel["target_alpha_5d"].dropna().values
+    raw_alpha_q = np.percentile(_raw_vals, np.arange(0, 101))
+    print(f"  → 알파 분포(실제): "
+          f"p10={raw_alpha_q[10]*100:+.2f}%  p50={raw_alpha_q[50]*100:+.2f}%  "
+          f"p90={raw_alpha_q[90]*100:+.2f}%  (10거래일 알파 기준)")
+
     # ── 랭크 기반 타깃 변환 ─────────────────────────────────────────────────────
     # 날짜별 알파 백분위 순위 → 중앙값 중심 (-0.5 ~ +0.5)
     # Ridge가 bounded target에서 안정적; 아웃라이어 없음; 랭킹 목적에 최적
@@ -721,13 +730,22 @@ def main() -> None:
 
     # ── 6. 리스크 조정 스코어 + 필터링 ───────────────────────────────────────
     print("\n[6/6] 리스크 조정 스코어 산출 → Top 30 선정...")
+
+    def _rank_to_return(rank_score: float) -> float:
+        """랭크 점수(-0.5~+0.5) → 실제 기대 알파(분율) 역변환.
+        훈련 데이터의 경험적 분위수 맵을 사용해 선형 보간."""
+        pct = float(np.clip(rank_score + 0.5, 0.0, 1.0)) * 100.0
+        return float(np.interp(pct, np.arange(0, 101), raw_alpha_q))
+
     records = []
-    for ticker, alpha_5d in pred.items():
-        if np.isnan(alpha_5d) or ticker not in per_stock:
+    for ticker, rank_score in pred.items():
+        if np.isnan(rank_score) or ticker not in per_stock:
             continue
-        d    = per_stock[ticker]
-        info = d["info"]
-        vol  = d["vol_60d_ann"]
+        d       = per_stock[ticker]
+        info    = d["info"]
+        vol     = d["vol_60d_ann"]
+        # 랭크 점수 → 실제 기대 수익률(분율)로 역변환
+        alpha_5d = _rank_to_return(float(rank_score))
         records.append({
             "ticker":                ticker,
             "name":                  info["name"],
@@ -735,8 +753,8 @@ def main() -> None:
             "market":                info["market"],
             "current_price":         d["current_price"],
             "avg_trading_value_20d": d["avg_trading_value_20d"],
-            "alpha_5d":              float(alpha_5d),
-            "risk_adj_score":        float(alpha_5d) / vol,
+            "alpha_5d":              alpha_5d,
+            "risk_adj_score":        alpha_5d / vol,
             "vol_60d_ann":           vol,
             "ret_20d":               d["ret_20d"],
         })
