@@ -289,9 +289,12 @@ export async function POST(request: NextRequest) {
     ),
   }));
 
+  // onConflict 기준: 실제 UNIQUE 제약과 일치해야 함.
+  // migrate_prophet_rank_nullable.sql에서 (run_date, rank) → (run_date, ticker)로
+  // 교체됐으므로, ticker 기준으로 upsert해야 "no matching ON CONFLICT" 에러를 피한다.
   const { error } = await supabase
     .from("prophet_recommendations")
-    .upsert(rows, { onConflict: "run_date,rank" });
+    .upsert(rows, { onConflict: "run_date,ticker" });
 
   if (error) {
     console.error("[cron/prophet-top10] Supabase upsert error:", error.message);
