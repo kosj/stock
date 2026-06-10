@@ -460,21 +460,20 @@ def predict_alpha(models: dict, latest: pd.DataFrame) -> pd.Series:
 
 def _rec_label(score: float) -> str:
     """
-    risk_adj_score = alpha_5d(fraction) / vol_60d_ann(fraction) 기준 추천 레이블.
+    risk_adj_score = 0.5 × alpha_z + 0.5 × sharpe_z 크로스섹셔널 z-score 블렌드 기준.
+    분포: mean≈0, std≈1 → 임계값을 z-score 스케일로 설정.
 
-    임계값 근거 (vol_60d_ann = 35% 가정):
-      strong_buy : score > 0.15  → alpha_5d > 5.25%
-      buy        : score > 0.06  → alpha_5d > 2.1%
-      hold       : score > -0.02 → 미미한 양/음 알파 (±0.7%)
-      sell       : score > -0.10 → alpha_5d < -3.5%
-      strong_sell: else          → alpha_5d < -5.25%
-
-    기존 임계값(0.80, 0.35)은 연환산 Sharpe 17~40배에 해당 → 사실상 모든 종목이 "hold"
+    비율 근거 (정규분포 가정):
+      strong_buy : z > +1.0  → 상위 ~16%
+      buy        : z > +0.25 → 상위 ~40%  (buy = +0.25 ~ +1.0 구간 ~24%)
+      hold       : z > -0.25 → 중간 ~20%  (hold = -0.25 ~ +0.25 구간)
+      sell       : z > -1.0  → 하위 ~40%  (sell = -1.0 ~ -0.25 구간 ~24%)
+      strong_sell: else      → 하위 ~16%
     """
-    if score > 0.15:   return "strong_buy"
-    if score > 0.06:   return "buy"
-    if score > -0.02:  return "hold"
-    if score > -0.10:  return "sell"
+    if score > 1.0:    return "strong_buy"
+    if score > 0.25:   return "buy"
+    if score > -0.25:  return "hold"
+    if score > -1.0:   return "sell"
     return "strong_sell"
 
 
