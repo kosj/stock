@@ -59,7 +59,7 @@ export function AlgorithmSignalCard({ prophet, loading }: Props) {
         <div className="flex flex-wrap gap-4">
           {ret5d !== null && (
             <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">5일 예측</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">10일 예측수익률</div>
               <div className={`text-lg font-bold tabular-nums ${ret5d >= 0 ? "text-green-400" : "text-red-400"}`}>
                 {ret5d >= 0 ? "+" : ""}{ret5d.toFixed(2)}%
               </div>
@@ -67,7 +67,7 @@ export function AlgorithmSignalCard({ prophet, loading }: Props) {
           )}
           {ret30d !== null && (
             <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">30일 예측 (Base)</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">30일 예측수익률</div>
               <div className={`text-lg font-bold tabular-nums ${ret30d >= 0 ? "text-green-400" : "text-red-400"}`}>
                 {ret30d >= 0 ? "+" : ""}{ret30d.toFixed(2)}%
               </div>
@@ -95,9 +95,9 @@ export function AlgorithmSignalCard({ prophet, loading }: Props) {
 
         {/* 설명 */}
         <p className="text-xs text-muted-foreground/60 leading-relaxed">
-          LinearTrend · Holt DES · MultiEMA · TFT 4종 베이스 모델을 OOF 워크-포워드로 Ridge 메타 학습.
-          TFT(4헤드 어텐션·섹터 컨텍스트)가 중기 패턴 포착, Linear가 단기 모멘텀 담당.
-          StandardScaler 정규화 + 모델 다양성 스코어(상관관계 패널티)로 최종 신호 산출.
+          LightGBM · RandomForest · MLP 베이스 모델을 Walk-Forward OOF로 훈련 후 Ridge 메타 모델로 스태킹.
+          날짜별 크로스섹셔널 랭크 타깃·피처 정규화로 시장 상대 초과수익 예측.
+          유동성 필터(거래대금 50억↑) · 섹터 쏠림 방지(섹터당 최대 5종목) 적용.
         </p>
       </div>
     </div>

@@ -525,7 +525,7 @@ export function ProphetForecastCard({ result, loading }: Props) {
               {/* 통계 그리드 */}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
-                  { label: "7일 예측",    value: `${result.predicted_return_7d  >= 0 ? "+" : ""}${result.predicted_return_7d.toFixed(1)}%`,  color: result.predicted_return_7d  >= 0 ? "text-green-400" : "text-red-400" },
+                  { label: "10일 예측",   value: `${result.predicted_return_7d  >= 0 ? "+" : ""}${result.predicted_return_7d.toFixed(1)}%`,  color: result.predicted_return_7d  >= 0 ? "text-green-400" : "text-red-400" },
                   { label: "30일 예측",   value: `${result.predicted_return_30d >= 0 ? "+" : ""}${result.predicted_return_30d.toFixed(1)}%`, color: result.predicted_return_30d >= 0 ? "text-green-400" : "text-red-400" },
                   { label: "연간 추세",   value: `${result.trend_slope_annual_pct.toFixed(1)}%`, color: trendColor },
                   { label: "모델 적합도", value: `R² ${r2Pct}%`, color: r2Pct >= 60 ? "text-blue-400" : "text-yellow-400" },
