@@ -62,13 +62,23 @@ export interface ProphetScenarios {
 
 /**
  * TFT Layer 1에 전달할 정적 공변량.
- * 섹터·재무지표 → 어텐션 바이어스 + GRN 게이트 강도로 변환.
+ * 섹터·재무지표·뉴스 감성 → 어텐션 바이어스 + GRN 게이트 강도로 변환.
  */
 export interface StaticCovariates {
   sector?: string;
   per?:    number | null;
   pbr?:    number | null;
   roe?:    number | null;
+  /**
+   * 당일 뉴스 감성 점수 ∈ [-1.0(악재), +1.0(호재)].
+   * NewsSentimentService.getSentiment()의 sentimentScore.
+   */
+  sentimentScore?: number | null;
+  /**
+   * 최근 3거래일 감성 이동평균 ∈ [-1.0, +1.0].
+   * 일일 노이즈를 평활한 값으로, 어텐션 바이어스에 우선 사용된다.
+   */
+  sentiment3dMa?: number | null;
 }
 
 export interface ProphetForecastResult {
@@ -113,6 +123,12 @@ const ATR_PCT_CEIL  = 12.0;
 const TFT_HEADS = 4;
 const TFT_WIN   = 20;   // 임베딩 윈도우 (일)
 const TFT_TEMP  = 0.3;  // 소프트맥스 온도 (낮을수록 어텐션 집중)
+
+// 뉴스 감성 → 어텐션 바이어스 결합 가중치.
+// sentiment ∈ [-1,+1]에 곱해 totalBias에 가산 → 최대 ±0.18 기여.
+// 섹터 바이어스(±0.12)·밸류(±0.05)·퀄리티(±0.05)와 동급 영향력을 갖되,
+// 단일 팩터가 어텐션을 독점하지 않도록 0.18로 제한.
+const SENTIMENT_BIAS_WEIGHT = 0.18;
 
 // ── Linear algebra utilities ──────────────────────────────────────────────────
 
@@ -277,6 +293,17 @@ interface StaticContext { bias: number; grnScale: number }
  * Static covariates → 어텐션 바이어스 + GRN 게이트 강도 변환.
  *   bias     : 역사적 상승 패턴 쪽으로 어텐션 가중 (-0.3 ~ +0.3)
  *   grnScale : 예측 수익률 스케일 팩터 (0.7 ~ 1.3)
+ *
+ * 결합 팩터 (모두 totalBias에 가산):
+ *   - sectorBias    : 섹터별 성장 기대 (반도체 +0.12 … 유틸리티 -0.04)
+ *   - valueBias     : PER/PBR 저평가 보너스 / 고평가 페널티
+ *   - qualityBias   : ROE 수익성 보너스 / 적자 페널티
+ *   - sentimentBias : 당일 뉴스 감성 (호재 +/악재 -) — 이벤트 드리븐 신호
+ *
+ * 직관: totalBias가 양(+)이면 TFT 어텐션이 "역사적 상승 패턴"에 더 쏠리고,
+ *       grnScale이 1.0 위로 올라가 예측 수익률 진폭이 확대된다.
+ *       즉, 강세 섹터 + 저평가 + 고ROE + 호재 뉴스가 겹친 종목은
+ *       상방 패턴 쪽으로 어텐션 가중치가 동적으로 유도된다.
  */
 function computeStaticContext(cov: StaticCovariates): StaticContext {
   const sectorBias = SECTOR_BIAS[cov.sector ?? ""] ?? 0;
@@ -301,7 +328,13 @@ function computeStaticContext(cov: StaticCovariates): StaticContext {
     else if (cov.roe < 5)   qualityBias -= 0.02;
   }
 
-  const totalBias = sectorBias + valueBias + qualityBias;
+  // 뉴스 감성 바이어스: 3일 이동평균(노이즈 평활) 우선, 없으면 당일 점수.
+  // [-1,+1] 범위로 클램프한 뒤 가중치(±0.18)를 곱해 totalBias에 가산.
+  const sentRaw  = cov.sentiment3dMa ?? cov.sentimentScore ?? 0;
+  const sentClamped  = Math.max(-1, Math.min(1, sentRaw));
+  const sentimentBias = sentClamped * SENTIMENT_BIAS_WEIGHT;
+
+  const totalBias = sectorBias + valueBias + qualityBias + sentimentBias;
   // sigmoid(totalBias × 5) ∈ [0, 1]; totalBias=0 → 0.5 → grnScale=1.0
   const sigmoid   = 1 / (1 + Math.exp(-totalBias * 5));
   const grnScale  = 0.7 + sigmoid * 0.6; // [0.7, 1.3]
