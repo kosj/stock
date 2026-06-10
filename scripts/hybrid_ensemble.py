@@ -10,12 +10,12 @@ Layer 2 (Meta Model):
   - Ridge Regression with L2 regularisation (prevents overfitting)
 
 Validation : TimeSeriesSplit / Walk-forward (no look-ahead bias enforced)
-Target     : 5-day forward excess return vs KOSPI benchmark (Alpha)
-Score      : expected_alpha / 60d_annualised_volatility  (Risk-Adjusted Sharpe analog)
+Target     : N-day forward excess return vs KOSPI benchmark (Alpha, cross-sectional rank)
+Score      : 0.5 × alpha_zscore + 0.5 × sharpe_zscore  (cross-sectional blend)
 
 Post-processing:
   - Liquidity filter   : 20d average trading value >= 5B KRW
-  - Positive alpha gate: risk_adj_score > SCORE_FLOOR (no negative-alpha stocks in Top 30)
+  - Positive alpha gate: alpha_5d > 0 (no negative-alpha stocks in Top 30)
   - Sector cap         : max 5 tickers per sector in final Top 30
 
 Output: Upserted into Supabase `prophet_recommendations` table.
@@ -37,7 +37,7 @@ from scipy.stats import spearmanr
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import KFold, TimeSeriesSplit, cross_val_predict
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
@@ -182,6 +182,7 @@ FEATURE_COLS = [
     "vol_ratio", "vol_20d", "vol_60d",
     "market_ret_5d", "market_ret_20d",
     "high_52w_pct",         # 52주 고점 대비 위치 (모멘텀·돌파 신호)
+    "momentum_12_1",        # 12개월-1개월 모멘텀 팩터 (연구 기반 알파)
     "sector_rel_ret_5d",    # 동일 섹터 평균 대비 5일 초과수익 (섹터 중립 신호)
     "sector_rel_ret_20d",   # 동일 섹터 평균 대비 20일 초과수익
     "rs_rank_20d",          # 크로스섹셔널 20일 수익률 상대강도 순위 0~1
@@ -279,6 +280,9 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame) -> pd.DataFrame:
     # 52주(252거래일) 고점 대비 현재가 위치 (돌파·조정 국면 식별)
     f["high_52w_pct"] = c / c.rolling(252).max() - 1
 
+    # 12개월-1개월 모멘텀 팩터: 장기 모멘텀에서 단기 반전(reversal) 제거
+    f["momentum_12_1"] = c.pct_change(252).shift(21) - c.pct_change(21)
+
     # 유동성 계산용 (훈련 피처 아님)
     f["trading_value"] = c * vol
 
@@ -362,8 +366,6 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
         # NaN 행 제거 — 테스트셋 (RF는 NaN을 처리하지 못함; OOF 인덱스 분리 관리)
         ok_te = ~np.any(np.isnan(X_te_raw), axis=1)
         X_te  = X_te_raw[ok_te]
-        ok = ~np.isnan(y_tr_raw) & ~np.any(np.isnan(X_tr_raw), axis=1)
-        X_tr, y_tr = X_tr_raw[ok], y_tr_raw[ok]
 
         if len(X_tr) < MIN_TRAIN_ROWS or len(X_te) == 0:
             print(f"  Fold {fold+1}/{CV_SPLITS}: skip (train={len(X_tr)}, test={len(X_te)})")
@@ -387,20 +389,23 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
         print(f"  Fold {fold+1}/{CV_SPLITS}: train={tr.sum():,}행  test={te.sum():,}행")
 
     # ── Ridge 메타 모델 ────────────────────────────────────────────────────────
-    valid   = oof_mask & ~np.isnan(y_all) & ~np.isnan(oof_lgbm)
-    meta_X  = np.column_stack([oof_lgbm[valid], oof_rf[valid], oof_mlp[valid]])
-    meta_y  = y_all[valid]
+    valid  = oof_mask & ~np.isnan(y_all) & ~np.isnan(oof_lgbm) & ~np.isnan(oof_rf) & ~np.isnan(oof_mlp)
+    meta_X = np.column_stack([oof_lgbm[valid], oof_rf[valid], oof_mlp[valid]])
+    meta_y = y_all[valid]
 
     meta = Ridge(alpha=1.0)
     meta.fit(meta_X, meta_y)
 
-    # OOF R² + IC: walk-forward 루프에서 계산된 LightGBM OOF 기반
-    # cross_val_predict + TimeSeriesSplit은 partition이 아니어서 사용 불가
-    # (첫 1/n_splits 샘플이 어떤 test fold에도 속하지 않아 ValueError 발생)
-    valid_oof = oof_mask & ~np.isnan(y_all) & ~np.isnan(oof_lgbm)
-    if valid_oof.sum() > 30:
-        oof_r2 = float(r2_score(y_all[valid_oof], oof_lgbm[valid_oof]))
-        oof_ic = float(spearmanr(oof_lgbm[valid_oof], y_all[valid_oof]).statistic)
+    # OOF R² + IC: 메타 모델(Ridge) 자체를 KFold 5-fold CV로 평가
+    # meta_X는 이미 walk-forward OOF 예측이므로 KFold 추가 CV는 메타 레이어만 측정
+    # → 스태킹 앙상블 전체 품질을 LGBM OOF 단독보다 정확하게 반영
+    if len(meta_X) > 30:
+        _meta_oof = cross_val_predict(
+            Ridge(alpha=1.0), meta_X, meta_y,
+            cv=KFold(n_splits=5, shuffle=False),
+        )
+        oof_r2 = float(r2_score(meta_y, _meta_oof))
+        oof_ic = float(spearmanr(_meta_oof, meta_y).statistic)
     else:
         oof_r2, oof_ic = 0.0, 0.0
 
