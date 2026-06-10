@@ -16,6 +16,7 @@ Score      : 0.5 × alpha_zscore + 0.5 × sharpe_zscore  (cross-sectional blend)
 Post-processing:
   - Liquidity filter   : 20d average trading value >= 5B KRW
   - Positive alpha gate: alpha_5d > 0 (no negative-alpha stocks in Top 30)
+  - News sentiment tilt: cross-sectional sentiment z-score blended into score
   - Sector cap         : max 5 tickers per sector in final Top 30
 
 Output: Upserted into Supabase `prophet_recommendations` table.
@@ -41,6 +42,8 @@ from sklearn.model_selection import KFold, TimeSeriesSplit, cross_val_predict
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
+from news_sentiment import NewsSentimentService
+
 warnings.filterwarnings("ignore")
 
 # ── 환경 변수 ─────────────────────────────────────────────────────────────────
@@ -59,6 +62,14 @@ CV_SPLITS      = 5               # Walk-forward 분할 수
 MIN_OOF_R2     = 0.01            # 메타 모델 최소 OOF R² — 미달 시 경고
 ALPHA30_DECAY  = 0.7             # 30일 외삽 감쇠 계수 — 10d×3스텝: Σ(0.7^k, k=0..2) ≈ 2.19×
 A30_CAP        = 0.60            # 30일 예측 최대 ±60%
+
+# ── 뉴스 감성 ─────────────────────────────────────────────────────────────────
+SENTIMENT_CONCURRENCY = 8        # 감성 배치 동시 실행 상한(Naver/HF rate-limit 회피)
+# 최종 스코어 z-블렌드 가중치: 0.45·alpha_z + 0.45·sharpe_z + 0.10·sentiment_z
+# (감성 z가 전부 0이면 0.45(α+s)가 되어 기존 0.5(α+s)와 순위 동일 → 감성 부재 시 무해)
+W_ALPHA_Z     = 0.45
+W_SHARPE_Z    = 0.45
+W_SENTIMENT_Z = 0.10
 
 # ── 종목 유니버스 ─────────────────────────────────────────────────────────────
 # stock-universe.ts와 동기화 유지
@@ -555,6 +566,17 @@ def upsert_supabase(rows: list, run_date: str) -> None:
 
     # Step 2: 새 행 삽입
     ins_resp = requests.post(base_url, headers=headers, json=rows, timeout=30)
+
+    # 신규 컬럼(excess_return·sentiment_*)이 아직 DB에 없으면 PostgREST가
+    # 스키마 캐시 오류(PGRST204)를 낸다. 이 경우 해당 컬럼만 제거하고 1회
+    # 재시도하여 "컬럼 미생성으로 당일 추천이 통째로 누락"되는 사고를 방지한다.
+    optional_cols = ("excess_return", "sentiment_score", "sentiment_3d_ma")
+    if not ins_resp.ok and any(c in ins_resp.text for c in optional_cols):
+        print(f"  [warn] 신규 컬럼 미존재 추정 → 제거 후 재시도 (원본: {ins_resp.text[:160]})")
+        print(f"  [warn] Supabase 마이그레이션 권장: {', '.join(optional_cols)} 컬럼 추가")
+        stripped = [{k: v for k, v in r.items() if k not in optional_cols} for r in rows]
+        ins_resp = requests.post(base_url, headers=headers, json=stripped, timeout=30)
+
     if not ins_resp.ok:
         print(f"  [error] 삽입 실패 응답 본문: {ins_resp.text[:400]}")
     ins_resp.raise_for_status()
@@ -761,19 +783,35 @@ def main() -> None:
 
     df_all = pd.DataFrame(records)
 
+    # ── 뉴스 감성 분석 (이벤트 드리븐 보조 알파) ─────────────────────────────
+    # 헤드라인 크롤링 → HF Inference API(snunlp/KR-FinBert-SC) → [-1,+1] 점수.
+    # HF 키 미설정 시 전 종목 0.0으로 graceful degrade (순위 영향 없음).
+    sent_svc = NewsSentimentService(SUPABASE_URL, SUPABASE_KEY)
+    sent_map = sent_svc.get_sentiment_batch(
+        df_all["ticker"].tolist(), run_date, concurrency=SENTIMENT_CONCURRENCY,
+    )
+    df_all["sentiment_score"] = df_all["ticker"].map(lambda t: sent_map.get(t, {}).get("score", 0.0))
+    df_all["sentiment_3d_ma"] = df_all["ticker"].map(lambda t: sent_map.get(t, {}).get("ma3", 0.0))
+    _n_ok = sum(1 for v in sent_map.values() if v.get("ok"))
+    print(f"  뉴스 감성:      {_n_ok}/{len(df_all)} 종목 성공 "
+          f"(평균 3d_ma={df_all['sentiment_3d_ma'].mean():+.3f})")
+
     # ── 크로스섹셔널 z-score 혼합 스코어 재계산 ─────────────────────────────
     # 기존: alpha/vol → 저변동성 방어주(통신·금융) 구조적 우선선택 문제
-    # 개선: alpha_z(0.5) + sharpe_z(0.5) 혼합
-    #   - alpha_z:  절대 알파 크기 반영 → 성장주 불이익 해소
-    #   - sharpe_z: 리스크 조정 반영 → 무분별한 고변동성 선택 방지
+    # 개선: alpha_z + sharpe_z + sentiment_z 혼합 (모두 z-공간 → 부호·스케일 안전)
+    #   - alpha_z:     절대 알파 크기 반영 → 성장주 불이익 해소
+    #   - sharpe_z:    리스크 조정 반영 → 무분별한 고변동성 선택 방지
+    #   - sentiment_z: 호재/악재 뉴스를 같은 날 다른 종목 대비 상대평가해 가산
+    #                  (감성 부재 시 std≈0 → 0 → 기존 동작과 동일하게 무해)
     if len(df_all) >= 2:
         raw_sharpe = df_all["alpha_5d"] / df_all["vol_60d_ann"]
         def _cs_zscore(s: pd.Series) -> pd.Series:
             std = float(s.std())
             return (s - s.mean()) / std if std > 1e-8 else pd.Series(0.0, index=s.index)
         df_all["risk_adj_score"] = (
-            0.5 * _cs_zscore(df_all["alpha_5d"]) +
-            0.5 * _cs_zscore(raw_sharpe)
+            W_ALPHA_Z     * _cs_zscore(df_all["alpha_5d"]) +
+            W_SHARPE_Z    * _cs_zscore(raw_sharpe) +
+            W_SENTIMENT_Z * _cs_zscore(df_all["sentiment_3d_ma"])
         )
 
     # 유동성 필터
@@ -864,6 +902,11 @@ def main() -> None:
             "recommendation":       _rec_label(row["risk_adj_score"]),
             "r_squared":            round(oof_r2, 4),
             "trend_direction":      _trend_dir(row["ret_20d"]),
+            # 알파(a30)는 KOSPI 대비 초과수익이므로 excess_return으로 직접 노출.
+            # 음수 알파는 상단 양의 알파 게이트(alpha_5d>0)에서 이미 제거됨.
+            "excess_return":        round(a30 * 100, 2),
+            "sentiment_score":      round(float(row.get("sentiment_score", 0.0)), 4),
+            "sentiment_3d_ma":      round(float(row.get("sentiment_3d_ma", 0.0)), 4),
             "accuracy_json":        json.dumps({
                 "predicted_return_10d":   round(a10 * 100, 2),
                 "atr_pct":                round(atr_pct, 2),
