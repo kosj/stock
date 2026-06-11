@@ -32,12 +32,11 @@ import { mapWithConcurrency, withTimeout } from "./async-pool";
 
 /**
  * Hugging Face Inference API 모델 엔드포인트 베이스.
- * ⚠ HF가 레거시(api-inference)에서 라우터(router.huggingface.co/hf-inference)로
- *   이전 중이므로, 배포 환경에 따라 env HF_INFERENCE_ENDPOINT로 전체 URL을
- *   오버라이드할 수 있게 한다(아래 resolveEndpoint 참조).
- *   라우터 형식 예: https://router.huggingface.co/hf-inference/models/{model}
+ * ⚠ 레거시 api-inference.huggingface.co는 폐기(410/DNS 소멸)되어 라우터로 이전됨.
+ *   형식: https://router.huggingface.co/hf-inference/models/{model}
+ *   배포 환경에 따라 env HF_INFERENCE_ENDPOINT로 전체 URL 오버라이드 가능.
  */
-const HF_API_BASE = "https://api-inference.huggingface.co/models/";
+const HF_API_BASE = "https://router.huggingface.co/hf-inference/models/";
 
 /** 한국어 금융 감성 분류 모델 (긍정/중립/부정 3-class) */
 const DEFAULT_MODEL = "snunlp/KR-FinBert-SC";

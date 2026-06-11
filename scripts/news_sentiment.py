@@ -40,7 +40,11 @@ except ImportError:  # bs4 미설치 시에도 import 자체는 실패하지 않
 
 # ── 설정 상수 ─────────────────────────────────────────────────────────────────
 
-HF_API_BASE   = "https://api-inference.huggingface.co/models/"
+# HF Inference 엔드포인트 베이스.
+# 레거시 api-inference.huggingface.co는 폐기(410/DNS 소멸) → router로 이전됨.
+# 형식: https://router.huggingface.co/hf-inference/models/{model}
+# env HF_INFERENCE_ENDPOINT로 전체 URL 오버라이드 가능(아래 __init__ 참조).
+HF_API_BASE   = "https://router.huggingface.co/hf-inference/models/"
 DEFAULT_MODEL = "snunlp/KR-FinBert-SC"
 
 DESKTOP_UA = (
