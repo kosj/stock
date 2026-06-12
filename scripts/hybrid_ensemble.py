@@ -817,8 +817,14 @@ def main() -> None:
         if _std > 1e-8:
             latest_df[_col] = (latest_df[_col] - _mean) / _std
 
-    latest = latest_df[FEATURE_COLS].dropna()
+    # 견고성: dropna(how="any")는 종목마다 다른 피처 하나만 NaN이어도(예: 상장 이력이
+    # 짧아 momentum_12_1·high_52w_pct 결손) latest 전체를 비워 StandardScaler를 깨뜨린다
+    # (ValueError: Found array with 0 sample(s)). → 전 피처가 NaN인 종목(데이터 결손)만
+    # 제외하고, 잔여 NaN은 0(정규화 후 횡단면 중립)으로 대체해 예측을 견고하게 진행.
+    latest = latest_df[FEATURE_COLS].dropna(how="all").fillna(0.0)
     latest.index.name = "ticker"
+    if latest.empty:
+        sys.exit("최신 피처가 비어 예측 불가 (전 종목 데이터 결손)")
     pred = predict_alpha(models, latest)
 
     # ── 독립 30일 모델 예측 (결함2: 2.19배 외삽 대체) ─────────────────────────
