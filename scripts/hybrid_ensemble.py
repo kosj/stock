@@ -55,7 +55,9 @@ TARGET_DAYS    = 10              # 예측 대상: 10거래일 선행 섹터 중�
 SECTOR_CAP     = 5               # 섹터당 최대 종목 수 (쏠림 방지)
 LIQUIDITY_MIN  = 5_000_000_000   # 20일 평균 거래대금 최소치 (50억 KRW)
 TARGET_CLIP    = 0.40            # 훈련 타깃 클리핑 ±40%
-PRED_CLIP      = 0.20            # 최종 예측 상한 ±20% (섹터 중립 알파는 절대값이 작음)
+# 예측 백분위 → 실제 알파 역변환 밴드 (p5~p95).
+# 일별 극단 분위(p0/p100=±TARGET_CLIP)를 단일 종목에 부여하는 과대추정 방지.
+RANK_RETURN_BAND = (5.0, 95.0)
 MIN_TRAIN_ROWS = 200             # 폴드당 최소 훈련 행 수 (5y 데이터로 기준 상향)
 BENCHMARK_YF   = "^KS11"        # KOSPI 벤치마크
 CV_SPLITS      = 5               # Walk-forward 분할 수
@@ -452,7 +454,16 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def predict_alpha(models: dict, latest: pd.DataFrame) -> pd.Series:
-    """latest: shape (n_tickers, n_features) → 5일 기대 알파 Series"""
+    """최신 피처 → 횡단면 '랭크 점수' 예측 Series (도메인 ≈ -0.5~+0.5).
+
+    반환값은 알파(수익률)가 아니라 타깃과 동일한 횡단면 랭크 점수다.
+    실제 기대수익률 변환은 main()의 _pct_to_return에서 백분위 매핑으로 수행한다.
+
+    주의: 과거 ±0.20 클램프(PRED_CLIP)는 '섹터중립 알파 ±20%' 가정의 잔재였다.
+    랭크-타깃 리팩터 이후 출력은 랭크 점수(±0.5 도메인)이므로 ±0.20 클램프는
+    점수를 과도 압축시켜 하류 역변환의 스프레드를 소실시켰다 → 제거.
+    MLP 외삽 폭주만 방어하는 느슨한 ±0.5 클램프로 대체(어차피 하류에서 횡단면
+    백분위로 재정규화되므로 절대 스케일은 결과에 영향 없음)."""
     X  = latest[FEATURE_COLS].values.astype(np.float32)
     Xs = models["scaler"].transform(X)
     p_lgbm = models["lgbm"].predict(X)
@@ -460,9 +471,8 @@ def predict_alpha(models: dict, latest: pd.DataFrame) -> pd.Series:
     p_mlp  = models["mlp"].predict(Xs)
     meta_X = np.column_stack([p_lgbm, p_rf, p_mlp])
     raw = models["meta"].predict(meta_X)
-    # MLP는 훈련 범위 밖으로 외삽 가능 — ±PRED_CLIP으로 물리적 상한 적용
-    clipped = np.clip(raw, -PRED_CLIP, PRED_CLIP)
-    return pd.Series(clipped, index=latest.index, name="alpha_5d")
+    rank_score = np.clip(raw, -0.5, 0.5)
+    return pd.Series(rank_score, index=latest.index, name="rank_score")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -753,11 +763,21 @@ def main() -> None:
     # ── 6. 리스크 조정 스코어 + 필터링 ───────────────────────────────────────
     print("\n[6/6] 리스크 조정 스코어 산출 → Top 30 선정...")
 
-    def _rank_to_return(rank_score: float) -> float:
-        """랭크 점수(-0.5~+0.5) → 실제 기대 알파(분율) 역변환.
-        훈련 데이터의 경험적 분위수 맵을 사용해 선형 보간."""
-        pct = float(np.clip(rank_score + 0.5, 0.0, 1.0)) * 100.0
+    def _pct_to_return(pct01: float) -> float:
+        """예측 백분위(0~1) → 실제 기대 알파(분율) 역변환.
+        훈련 알파 분포를 RANK_RETURN_BAND(p5~p95)로 선형 보간."""
+        lo, hi = RANK_RETURN_BAND
+        pct = lo + float(np.clip(pct01, 0.0, 1.0)) * (hi - lo)
         return float(np.interp(pct, np.arange(0, 101), raw_alpha_q))
+
+    # ── 결함1 수정: 스프레드 복원 (횡단면 백분위 매핑) ──────────────────────────
+    # Ridge 메타는 MSE 최소화 특성상 예측을 평균(0)으로 강하게 수축(regression to
+    # mean)시킨다. 수축된 절대 점수를 그대로 역변환하면 전 종목이 알파 분포의
+    # 중앙(p≈50)에만 매핑돼 기대수익률이 1~30위 내내 거의 동일해진다.
+    # → 예측의 '순위'는 유효하므로(타깃도 백분위 랭크였음) 횡단면 백분위로 변환해
+    #   전체 분포를 활용한다. 각 종목이 고유 백분위를 가져 스프레드가 복원되고,
+    #   정렬 기준 risk_adj_score는 단조변환이라 순위는 영향받지 않는다.
+    pred_pct = pred.rank(pct=True)   # ∈ (0,1], 종목별 고유 백분위
 
     records = []
     for ticker, rank_score in pred.items():
@@ -766,8 +786,8 @@ def main() -> None:
         d       = per_stock[ticker]
         info    = d["info"]
         vol     = d["vol_60d_ann"]
-        # 랭크 점수 → 실제 기대 수익률(분율)로 역변환
-        alpha_5d = _rank_to_return(float(rank_score))
+        # 예측 백분위 → 실제 기대 수익률(분율)로 역변환 (스프레드 복원)
+        alpha_5d = _pct_to_return(float(pred_pct[ticker]))
         records.append({
             "ticker":                ticker,
             "name":                  info["name"],
