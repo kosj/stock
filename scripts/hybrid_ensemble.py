@@ -11,6 +11,7 @@ Layer 2 (Meta Model):
 
 Validation : TimeSeriesSplit / Walk-forward (no look-ahead bias enforced)
 Target     : N-day forward excess return vs KOSPI benchmark (Alpha, cross-sectional rank)
+Horizons   : 10d primary (full stack, drives ranking) + 30d independent (LightGBM)
 Score      : 0.5 × alpha_zscore + 0.5 × sharpe_zscore  (cross-sectional blend)
 
 Post-processing:
@@ -55,6 +56,8 @@ TARGET_DAYS    = 10              # 예측 대상: 10거래일 선행 섹터 중�
 SECTOR_CAP     = 5               # 섹터당 최대 종목 수 (쏠림 방지)
 LIQUIDITY_MIN  = 5_000_000_000   # 20일 평균 거래대금 최소치 (50억 KRW)
 TARGET_CLIP    = 0.40            # 훈련 타깃 클리핑 ±40%
+TARGET_DAYS_LONG = 30            # 독립 30일 모델 타깃 호라이즌 (결함2: 2.19배 외삽 대체)
+TARGET_CLIP_LONG = 0.60          # 30일 타깃 클리핑 ±60% (10일보다 큰 변동 반영)
 # 예측 백분위 → 실제 알파 역변환 밴드 (p5~p95).
 # 일별 극단 분위(p0/p100=±TARGET_CLIP)를 단일 종목에 부여하는 과대추정 방지.
 RANK_RETURN_BAND = (5.0, 95.0)
@@ -305,6 +308,11 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame) -> pd.DataFrame:
     # ±TARGET_CLIP 클리핑: 에코프로·바이오株 등 급등락 이벤트가 훈련 데이터를 오염하는 것을 방지
     f["target_alpha_5d"] = (fwd_ret - fwd_mret).clip(-TARGET_CLIP, TARGET_CLIP)
 
+    # ── 보조 타깃: 30거래일 선행 초과수익률 (독립 30일 모델용 — 결함2) ─────────
+    fwd_ret_l  = c.pct_change(TARGET_DAYS_LONG).shift(-TARGET_DAYS_LONG)
+    fwd_mret_l = mret.rolling(TARGET_DAYS_LONG).sum().shift(-TARGET_DAYS_LONG)
+    f["target_alpha_30d"] = (fwd_ret_l - fwd_mret_l).clip(-TARGET_CLIP_LONG, TARGET_CLIP_LONG)
+
     return f.dropna(subset=["rsi_14", "vs_ma60", "vol_60d"])
 
 
@@ -473,6 +481,59 @@ def predict_alpha(models: dict, latest: pd.DataFrame) -> pd.Series:
     raw = models["meta"].predict(meta_X)
     rank_score = np.clip(raw, -0.5, 0.5)
     return pd.Series(rank_score, index=latest.index, name="rank_score")
+
+
+def train_predict_alpha_30d(panel: pd.DataFrame, latest: pd.DataFrame) -> dict:
+    """
+    독립 30일 모델 — 별도 30거래일 선행 알파 타깃을 LightGBM 단독으로 학습/예측.
+    반환: {ticker: 기대 30일 알파(분율)}
+
+    결함2 배경:
+      기존 30일은 a30 = 2.19 × a10(10일 알파)의 결정론적 외삽이라 독립 정보가
+      전혀 없었다(횡단면 순위가 10일과 100% 동일). 진짜 30일 타깃 학습으로 대체.
+
+    설계 결정:
+      - CI 비용 절감을 위해 풀 스택(LGBM+RF+MLP+Ridge) 대신 LightGBM 단독 사용.
+        30일은 보조 표시 지표이며 LGBM이 단일 최강 베이스 모델 → 비용/효익 균형.
+      - 결함1과 동일하게 횡단면 백분위 매핑(raw_alpha_q_30d)으로 스프레드 복원.
+      - look-ahead 없음: 타깃이 실현된 과거 (피처, 30일 선행 알파) 쌍으로만 학습
+        (오늘 기준 미래 30일 타깃은 NaN으로 자동 제외).
+    """
+    p30 = panel.dropna(subset=["target_alpha_30d"] + FEATURE_COLS).copy()
+    p30 = p30[p30["target_alpha_30d"].abs() <= TARGET_CLIP_LONG]
+    if len(p30) < MIN_TRAIN_ROWS:
+        raise ValueError(f"30일 훈련 행 부족: {len(p30)} < {MIN_TRAIN_ROWS}")
+
+    # 경험적 30일 알파 분위수 맵 (예측 백분위 → 실제 알파 역변환용)
+    raw_alpha_q_30d = np.percentile(p30["target_alpha_30d"].values, np.arange(0, 101))
+
+    # 랭크 타깃 변환 (날짜별 백분위 - 0.5) — 10일 파이프라인과 동일 방식
+    y30 = p30.groupby(level="date")["target_alpha_30d"].rank(pct=True) - 0.5
+
+    # 크로스섹셔널 피처 정규화 (날짜별 z-score) — latest와 동일 표현 보장
+    X30 = p30[FEATURE_COLS].copy()
+    for _col in FEATURE_COLS:
+        _mu = X30.groupby(level="date")[_col].transform("mean")
+        _sd = X30.groupby(level="date")[_col].transform("std").replace(0, np.nan).fillna(1.0)
+        X30[_col] = (X30[_col] - _mu) / _sd
+    _ok = ~X30.isna().any(axis=1) & ~y30.isna()
+    X30, y30 = X30[_ok], y30[_ok]
+
+    lgbm30 = _make_base_models()[0]               # 동일 LGBM 설정 재사용
+    lgbm30.fit(X30.values.astype(np.float32), y30.values.astype(np.float32))
+
+    # 예측 → 횡단면 백분위 매핑 (결함1과 동일한 스프레드 복원)
+    pred30 = pd.Series(
+        lgbm30.predict(latest[FEATURE_COLS].values.astype(np.float32)),
+        index=latest.index,
+    )
+    pct30  = pred30.rank(pct=True)
+    lo, hi = RANK_RETURN_BAND
+    grid   = np.arange(0, 101)
+    return {
+        t: float(np.interp(lo + float(np.clip(pct30[t], 0.0, 1.0)) * (hi - lo), grid, raw_alpha_q_30d))
+        for t in latest.index
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -760,6 +821,15 @@ def main() -> None:
     latest.index.name = "ticker"
     pred = predict_alpha(models, latest)
 
+    # ── 독립 30일 모델 예측 (결함2: 2.19배 외삽 대체) ─────────────────────────
+    # 실패 시 alpha30_map=None → rows 빌딩에서 10일 알파 감쇠 외삽으로 graceful degrade.
+    try:
+        alpha30_map = train_predict_alpha_30d(panel, latest)
+        print(f"  30일 독립 모델: {len(alpha30_map)}종목 예측 완료")
+    except Exception as _e30:
+        alpha30_map = None
+        print(f"  [warn] 30일 독립 모델 실패 → 10일 외삽 폴백: {_e30}")
+
     # ── 6. 리스크 조정 스코어 + 필터링 ───────────────────────────────────────
     print("\n[6/6] 리스크 조정 스코어 산출 → Top 30 선정...")
 
@@ -895,9 +965,12 @@ def main() -> None:
 
         d      = per_stock[ticker]
         a10    = row["alpha_5d"]            # 컬럼명은 alpha_5d 유지, 실제는 10일 섹터중립 알파
-        # 10d → 30d 외삽: 감쇠 3스텝 (10×3=30일), Σ(0.7^k, k=0..2) ≈ 2.19×
-        a30_raw = a10 * sum(ALPHA30_DECAY ** k for k in range(3))
-        a30  = float(np.clip(a30_raw, -A30_CAP, A30_CAP))
+        # 30일: 독립 모델 예측 우선, 실패 시 10일 알파의 감쇠 외삽으로 폴백
+        if alpha30_map is not None and ticker in alpha30_map:
+            a30 = float(np.clip(alpha30_map[ticker], -A30_CAP, A30_CAP))
+        else:
+            a30_raw = a10 * sum(ALPHA30_DECAY ** k for k in range(3))  # Σ(0.7^k,k=0..2)≈2.19×
+            a30 = float(np.clip(a30_raw, -A30_CAP, A30_CAP))
         vol  = row["vol_60d_ann"]
         bull = a30 + vol * 0.4
         bear = a30 - vol * 0.4
