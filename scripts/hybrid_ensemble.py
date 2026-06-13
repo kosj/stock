@@ -51,6 +51,12 @@ try:
 except Exception:
     _krx = None
 
+# ⚠ KRX(data.krx.co.kr)는 GitHub Actions 등 클라우드/해외 IP를 차단(빈 응답 → JSON
+# 파싱오류)한다. 따라서 pykrx 수급·밸류 조회는 기본 비활성화하고, KR 접속이 가능한
+# 환경(로컬/KR 리전 등)에서만 ENABLE_PYKRX=1 로 켠다. 비활성 시 수급·밸류는 0(중립).
+PYKRX_ENABLED = (_krx is not None) and \
+    os.environ.get("ENABLE_PYKRX", "0").lower() in ("1", "true", "yes")
+
 from news_sentiment import NewsSentimentService
 
 warnings.filterwarnings("ignore")
@@ -802,8 +808,9 @@ def main() -> None:
     funda_ok  = 0
     pykrx_budget_hit = False
     _phase_start = time.monotonic()
-    if _krx is None:
-        print("  [info] pykrx 미설치 → 수급·밸류 피처 비활성화(0 중립)")
+    if not PYKRX_ENABLED:
+        print("  [info] pykrx 비활성(ENABLE_PYKRX 미설정/미설치) → 수급·밸류 중립(0). "
+              "KRX는 클라우드 IP 차단으로 CI에서 미동작.")
 
     for s in UNIVERSE:
         yf_code = to_yf(s["ticker"], s["market"])
@@ -814,12 +821,12 @@ def main() -> None:
 
         # 시간 예산 초과 시 pykrx 호출 중단 → 잔여 종목 수급·밸류는 중립(0)으로 degrade.
         # (yfinance·학습 시간 확보, CI timeout 폭주 방지). 경고는 1회만.
-        if _krx is not None and not pykrx_budget_hit and \
+        if PYKRX_ENABLED and not pykrx_budget_hit and \
                 (time.monotonic() - _phase_start) > PYKRX_BUDGET_SEC:
             pykrx_budget_hit = True
             print(f"  [warn] pykrx 시간 예산({PYKRX_BUDGET_SEC}s) 초과 → 잔여 종목 수급·밸류 중립")
 
-        use_pykrx = _krx is not None and not pykrx_budget_hit
+        use_pykrx = PYKRX_ENABLED and not pykrx_budget_hit
         flows = fetch_investor_flows(s["ticker"], flow_from, flow_to) if use_pykrx else pd.DataFrame()
         if not flows.empty:
             flow_ok += 1
