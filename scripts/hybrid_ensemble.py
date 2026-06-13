@@ -77,7 +77,7 @@ W_SHARPE_Z    = 0.45
 W_SENTIMENT_Z = 0.10
 
 # ── 종목 유니버스 ─────────────────────────────────────────────────────────────
-# stock-universe.ts와 동기화 유지
+# 종목 유니버스 단일 정의 (TS stock-universe.ts는 죽은 코드로 제거됨 — 여기가 유일 소스)
 UNIVERSE = [
     # 반도체
     dict(ticker="005930", name="삼성전자",             sector="반도체",  market="KOSPI"),
