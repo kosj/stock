@@ -23,6 +23,7 @@ ML 잡(hybrid_ensemble.py, CI)은 이 테이블만 읽으므로 KRX 차단의 �
 
 import argparse
 import os
+import sys
 import time
 from datetime import date, timedelta
 
@@ -31,6 +32,12 @@ import requests
 from pykrx import stock
 
 from universe import UNIVERSE
+
+# Windows 콘솔(cp932 등)에서 한글 출력이 UnicodeEncodeError로 죽지 않도록 UTF-8 강제.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
