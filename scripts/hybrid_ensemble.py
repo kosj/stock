@@ -910,20 +910,25 @@ def main() -> None:
     df_liq = df_all[df_all["avg_trading_value_20d"] >= LIQUIDITY_MIN].copy()
     print(f"  유동성 필터:    {len(df_all)} → {len(df_liq)} 종목 (50억 KRW)")
 
-    # ── 양의 알파 게이트: 절대 alpha_5d < 0 종목 차단 ──────────────────────────
-    # z-score 기반 score를 쓰더라도 절대 알파가 음수인 종목은 제외.
-    # (z-score 정규화 시 음수 알파 종목도 양의 z-score를 받을 수 있어 별도 게이트 필요)
-    df_pos = df_liq[df_liq["alpha_5d"] > 0].copy()
-    print(f"  양의 알파 필터: {len(df_liq)} → {len(df_pos)} 종목 (alpha_5d > 0)")
+    # ── 선정: risk_adj_score 상위 (횡단면 long-only 랭킹) ──────────────────────
+    # [구]절대 alpha_5d>0 게이트 제거: 유니버스 알파 분포가 median-음수(KOSPI 대비
+    # 평균 하회, 예: p50≈-0.8%)라, 예측이 중앙에 뭉치는 약예측·약세 구간에서 절대
+    # 양수 요구 시 추천이 0으로 전멸한다(설계 결함). 횡단면 랭킹 전략이므로
+    # risk_adj_score 상위 30으로 선정(상위 = 상대 best). 시장 타이밍(현금 보유)은
+    # 별도 오버레이 영역이며, 약세는 점수·기대수익률에 그대로 반영된다.
+    _pos = int((df_liq["alpha_5d"] > 0).sum())
+    _nuniq = int(df_liq["alpha_5d"].nunique())
+    print(f"  예측 알파: 양수 {_pos}/{len(df_liq)}종목 | 고유값 {_nuniq}개 "
+          f"| 범위 {df_liq['alpha_5d'].min()*100:+.2f}~{df_liq['alpha_5d'].max()*100:+.2f}%")
+    if _nuniq <= 1:
+        print("  ⚠ 예측이 거의 동일(저신뢰) — 차별화 약함. 상위 선정은 진행하되 신뢰도 낮음.")
 
-    if df_pos.empty:
-        print("\n  ⚠ 양의 알파 예측 종목 없음 — 당일 추천 생략")
-        print("  → 모델이 전 종목에 대해 음의 초과수익률 예측 중.")
-        print("  → 시장 전반적 하락 국면 또는 모델 재훈련 필요.")
+    if df_liq.empty:
+        print("\n  ⚠ 유동성 통과 종목 없음 — 당일 추천 생략")
         return
 
-    # 리스크 조정 스코어 내림차순 정렬
-    df_sorted = df_pos.sort_values("risk_adj_score", ascending=False).reset_index(drop=True)
+    # 리스크 조정 스코어 내림차순 정렬 (상위 = 횡단면 상대 best)
+    df_sorted = df_liq.sort_values("risk_adj_score", ascending=False).reset_index(drop=True)
 
     # 섹터 쏠림 방지: 동일 섹터 최대 5종목
     df_top = _apply_sector_cap(df_sorted, cap=SECTOR_CAP)
@@ -932,7 +937,7 @@ def main() -> None:
     # ── 결과 출력 ─────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")
     print(f"  최종 Top {len(df_top)} 추천 종목   "
-          f"(OOF R²={models['oof_r2']:.4f} | 양의알파풀={len(df_pos)}종목)")
+          f"(OOF R²={models['oof_r2']:.4f} | 양의예측 {_pos}종목)")
     print(f"{'='*64}")
     disp = df_top[["ticker", "name", "sector", "alpha_5d", "risk_adj_score"]].copy()
     disp.index = disp.index + 1
