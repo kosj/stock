@@ -14,6 +14,10 @@ ML 잡(hybrid_ensemble.py, CI)은 이 테이블만 읽으므로 KRX 차단의 �
   python scripts/krx_cache.py --days 30     # 최근 N일
 
 환경변수: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+          KRX_ID, KRX_PW  ← 필수! 2024-12 KRX 데이터시스템이 회원제로 개편되어
+                            데이터 조회에 로그인이 필요하다. data.krx.co.kr
+                            (KRX 데이터 마켓플레이스) 가입 후 계정으로 설정.
+                            미설정 시 pykrx가 빈 응답을 받아 전 종목 0행이 된다.
 의존성:   pip install -r scripts/requirements-krx.txt   (pykrx, pandas, requests)
 
 권장 스케줄: 평일 장마감 후(예: 16:10 KST) 증분 실행
@@ -128,6 +132,11 @@ def main() -> None:
     ap.add_argument("--backfill", action="store_true", help=f"{BACKFILL_YEARS}년 전체 적재(최초 1회)")
     ap.add_argument("--days", type=int, default=None, help="최근 N일 적재")
     args = ap.parse_args()
+
+    # KRX 회원제 개편(2024-12)으로 로그인 필수. 미설정 시 pykrx가 빈 응답을 받는다.
+    if not (os.environ.get("KRX_ID") and os.environ.get("KRX_PW")):
+        print("[krx_cache] ⚠ KRX_ID/KRX_PW 미설정 — KRX 데이터 마켓플레이스(data.krx.co.kr) "
+              "가입 후 환경변수 설정이 필요합니다. 미설정 시 전 종목 0행(빈 응답).")
 
     todate = date.today()
     if args.backfill:
