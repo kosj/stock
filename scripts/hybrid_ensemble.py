@@ -41,8 +41,6 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold, TimeSeriesSplit, cross_val_predict
-from sklearn.neural_network import MLPRegressor
-from sklearn.preprocessing import StandardScaler
 
 # 수급·밸류는 Supabase krx_daily 캐시에서 읽는다(KR 접속 환경의 krx_cache.py가 적재).
 # KRX는 클라우드 IP를 차단하므로 ML 잡(CI)은 pykrx를 직접 호출하지 않는다.
@@ -314,13 +312,9 @@ def _make_base_models():
         min_samples_leaf=10,                    # 리프 최소 샘플 상향 (5→10)
         max_features=0.6, random_state=42, n_jobs=-1,
     )
-    mlp = MLPRegressor(
-        hidden_layer_sizes=(64, 32), activation="relu", solver="adam",
-        max_iter=500, random_state=42, learning_rate_init=0.001,
-        early_stopping=True, validation_fraction=0.1, n_iter_no_change=25,
-        alpha=0.01,                             # L2 정규화 추가
-    )
-    return lgbm, rf, mlp
+    # MLP 제거(P1): latest OOD에서 ±1e13 폭주(P0 원인) + 메타 기여 거의 0(coef≈0.005).
+    # LGBM·RF 2종으로 단순화 → 폭주 위험 제거, 입력 스케일링(StandardScaler) 불필요.
+    return lgbm, rf
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -345,11 +339,9 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     n = len(panel)
     oof_lgbm = np.full(n, np.nan)
     oof_rf   = np.full(n, np.nan)
-    oof_mlp  = np.full(n, np.nan)
     oof_mask = np.zeros(n, dtype=bool)
 
-    scaler = StandardScaler()
-    tscv   = TimeSeriesSplit(n_splits=CV_SPLITS, gap=TARGET_DAYS)
+    tscv = TimeSeriesSplit(n_splits=CV_SPLITS, gap=TARGET_DAYS)
 
     for fold, (tr_di, te_di) in enumerate(tscv.split(np.arange(len(dates)))):
         # 날짜 값 매칭은 datetime64 vs Timestamp 타입 차로 np.isin이 numpy 버전에 따라
@@ -372,27 +364,22 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
             print(f"  Fold {fold+1}/{CV_SPLITS}: skip (train={len(X_tr)}, test={len(X_te)})")
             continue
 
-        X_tr_s = scaler.fit_transform(X_tr)
-        X_te_s = scaler.transform(X_te)
-
-        lgbm, rf, mlp = _make_base_models()
+        lgbm, rf = _make_base_models()
         lgbm.fit(X_tr, y_tr)
         rf.fit(X_tr, y_tr)
-        mlp.fit(X_tr_s, y_tr)
 
         # te 마스크 내 NaN-없는 행에만 OOF 기록 (인덱스 정합성 유지)
         te_idx = np.where(te)[0][ok_te]
-        # 베이스 예측 클립[-0.5,0.5] — MLP 폭주 방어(predict_alpha와 동일, 메타 입력 분포 일치)
-        oof_lgbm[te_idx] = np.clip(lgbm.predict(X_te),   -0.5, 0.5)
-        oof_rf[te_idx]   = np.clip(rf.predict(X_te),     -0.5, 0.5)
-        oof_mlp[te_idx]  = np.clip(mlp.predict(X_te_s),  -0.5, 0.5)
+        # 베이스 예측 클립[-0.5,0.5] (트리 외삽 방어, 메타 입력 분포 일치)
+        oof_lgbm[te_idx] = np.clip(lgbm.predict(X_te), -0.5, 0.5)
+        oof_rf[te_idx]   = np.clip(rf.predict(X_te),   -0.5, 0.5)
         oof_mask[te_idx] = True
 
         print(f"  Fold {fold+1}/{CV_SPLITS}: train={tr.sum():,}행  test={te.sum():,}행")
 
     # ── Ridge 메타 모델 ────────────────────────────────────────────────────────
-    valid  = oof_mask & ~np.isnan(y_all) & ~np.isnan(oof_lgbm) & ~np.isnan(oof_rf) & ~np.isnan(oof_mlp)
-    meta_X = np.column_stack([oof_lgbm[valid], oof_rf[valid], oof_mlp[valid]])
+    valid  = oof_mask & ~np.isnan(y_all) & ~np.isnan(oof_lgbm) & ~np.isnan(oof_rf)
+    meta_X = np.column_stack([oof_lgbm[valid], oof_rf[valid]])
     meta_y = y_all[valid]
 
     meta = Ridge(alpha=1.0)
@@ -425,16 +412,13 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     ok_all   = ~np.isnan(y_all) & ~np.any(np.isnan(X_all), axis=1)
     X_full   = X_all[ok_all]
     y_full   = y_all[ok_all]
-    X_full_s = scaler.fit_transform(X_full)
-
-    lgbm_f, rf_f, mlp_f = _make_base_models()
+    lgbm_f, rf_f = _make_base_models()
     lgbm_f.fit(X_full, y_full)
     rf_f.fit(X_full, y_full)
-    mlp_f.fit(X_full_s, y_full)
 
     return dict(
-        lgbm=lgbm_f, rf=rf_f, mlp=mlp_f,
-        meta=meta, scaler=scaler, oof_r2=oof_r2, oof_ic=oof_ic,
+        lgbm=lgbm_f, rf=rf_f,
+        meta=meta, oof_r2=oof_r2, oof_ic=oof_ic,
     )
 
 
@@ -448,21 +432,13 @@ def predict_alpha(models: dict, latest: pd.DataFrame) -> pd.Series:
     반환값은 알파(수익률)가 아니라 타깃과 동일한 횡단면 랭크 점수다.
     실제 기대수익률 변환은 main()의 _pct_to_return에서 백분위 매핑으로 수행한다.
 
-    주의: 과거 ±0.20 클램프(PRED_CLIP)는 '섹터중립 알파 ±20%' 가정의 잔재였다.
-    랭크-타깃 리팩터 이후 출력은 랭크 점수(±0.5 도메인)이므로 ±0.20 클램프는
-    점수를 과도 압축시켜 하류 역변환의 스프레드를 소실시켰다 → 제거.
-    MLP 외삽 폭주만 방어하는 느슨한 ±0.5 클램프로 대체(어차피 하류에서 횡단면
-    백분위로 재정규화되므로 절대 스케일은 결과에 영향 없음)."""
+    베이스 예측(LGBM·RF)은 [-0.5,0.5]로 클립(트리 외삽·이상치 방어). 랭크 점수는 이
+    범위를 벗어날 수 없어 정상 예측엔 무손실이며, 하류에서 횡단면 백분위로 재정규화된다.
+    (MLP는 P1에서 제거 — OOD 폭주 위험 + 메타 기여 미미.)"""
     X  = latest[FEATURE_COLS].values.astype(np.float32)
-    Xs = models["scaler"].transform(X)
-    # 베이스 예측을 타깃 도메인[-0.5,0.5]으로 클립.
-    # MLP(MLPRegressor)가 OOD 입력에서 ±1e13 수준으로 폭주(extrapolation explosion)하면
-    # 메타·최종 클립이 포화되어 전 종목이 동일값(±0.5)이 되는 P0 버그가 발생한다.
-    # 랭크 점수는 [-0.5,0.5]를 벗어날 수 없으므로 이 클립은 정상 예측엔 무손실, 폭주만 차단.
-    p_lgbm = np.clip(models["lgbm"].predict(X),  -0.5, 0.5)
-    p_rf   = np.clip(models["rf"].predict(X),    -0.5, 0.5)
-    p_mlp  = np.clip(models["mlp"].predict(Xs),  -0.5, 0.5)
-    meta_X = np.column_stack([p_lgbm, p_rf, p_mlp])
+    p_lgbm = np.clip(models["lgbm"].predict(X), -0.5, 0.5)
+    p_rf   = np.clip(models["rf"].predict(X),   -0.5, 0.5)
+    meta_X = np.column_stack([p_lgbm, p_rf])
     raw = models["meta"].predict(meta_X)
     rank_score = np.clip(raw, -0.5, 0.5)
     return pd.Series(rank_score, index=latest.index, name="rank_score")
@@ -824,8 +800,8 @@ def main() -> None:
             latest_df[_col] = (latest_df[_col] - _mean) / _std
 
     # 견고성: dropna(how="any")는 종목마다 다른 피처 하나만 NaN이어도(예: 상장 이력이
-    # 짧아 momentum_12_1·high_52w_pct 결손) latest 전체를 비워 StandardScaler를 깨뜨린다
-    # (ValueError: Found array with 0 sample(s)). → 전 피처가 NaN인 종목(데이터 결손)만
+    # 짧아 momentum_12_1·high_52w_pct 결손) latest 전체를 비워 예측을 깨뜨린다
+    # (빈 입력 → 모델 predict 실패). → 전 피처가 NaN인 종목(데이터 결손)만
     # 제외하고, 잔여 NaN은 0(정규화 후 횡단면 중립)으로 대체해 예측을 견고하게 진행.
     latest = latest_df[FEATURE_COLS].dropna(how="all").fillna(0.0)
     latest.index.name = "ticker"
