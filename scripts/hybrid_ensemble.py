@@ -25,6 +25,7 @@ Output: Upserted into Supabase `prophet_recommendations` table.
 
 import json
 import os
+import socket
 import sys
 import time
 import warnings
@@ -54,6 +55,10 @@ from news_sentiment import NewsSentimentService
 
 warnings.filterwarnings("ignore")
 
+# 모든 네트워크 호출(소켓) 전역 타임아웃 — 단일 pykrx/yfinance 호출이 무한 hang하여
+# CI 잡이 취소(timeout)되는 것을 방지하는 backstop. requests의 명시 timeout은 이를 override함.
+socket.setdefaulttimeout(20)
+
 # ── 환경 변수 ─────────────────────────────────────────────────────────────────
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -68,6 +73,9 @@ TARGET_CLIP_LONG = 0.60          # 30일 타깃 클리핑 ±60% (10일보다 큰
 # 예측 백분위 → 실제 알파 역변환 밴드 (p5~p95).
 # 일별 극단 분위(p0/p100=±TARGET_CLIP)를 단일 종목에 부여하는 과대추정 방지.
 RANK_RETURN_BAND = (5.0, 95.0)
+# pykrx(수급·밸류) 조회 단계 시간 예산(초). 초과 시 잔여 종목은 중립으로 건너뜀 →
+# CI timeout 폭주 방지(yfinance·학습·감성 시간 확보). pykrx 응답이 빠르면 전 종목 커버.
+PYKRX_BUDGET_SEC = 480
 MIN_TRAIN_ROWS = 200             # 폴드당 최소 훈련 행 수 (5y 데이터로 기준 상향)
 BENCHMARK_YF   = "^KS11"        # KOSPI 벤치마크
 CV_SPLITS      = 5               # Walk-forward 분할 수
@@ -792,6 +800,8 @@ def main() -> None:
     flow_from = (date.today() - timedelta(days=5 * 365 + 10)).strftime("%Y%m%d")
     flow_ok   = 0
     funda_ok  = 0
+    pykrx_budget_hit = False
+    _phase_start = time.monotonic()
     if _krx is None:
         print("  [info] pykrx 미설치 → 수급·밸류 피처 비활성화(0 중립)")
 
@@ -802,14 +812,20 @@ def main() -> None:
             print(f"  skip {s['ticker']} {s['name']}: 데이터 부족")
             continue
 
-        flows = fetch_investor_flows(s["ticker"], flow_from, flow_to)
+        # 시간 예산 초과 시 pykrx 호출 중단 → 잔여 종목 수급·밸류는 중립(0)으로 degrade.
+        # (yfinance·학습 시간 확보, CI timeout 폭주 방지). 경고는 1회만.
+        if _krx is not None and not pykrx_budget_hit and \
+                (time.monotonic() - _phase_start) > PYKRX_BUDGET_SEC:
+            pykrx_budget_hit = True
+            print(f"  [warn] pykrx 시간 예산({PYKRX_BUDGET_SEC}s) 초과 → 잔여 종목 수급·밸류 중립")
+
+        use_pykrx = _krx is not None and not pykrx_budget_hit
+        flows = fetch_investor_flows(s["ticker"], flow_from, flow_to) if use_pykrx else pd.DataFrame()
         if not flows.empty:
             flow_ok += 1
-        funda = fetch_fundamentals(s["ticker"], flow_from, flow_to)
+        funda = fetch_fundamentals(s["ticker"], flow_from, flow_to) if use_pykrx else pd.DataFrame()
         if not funda.empty:
             funda_ok += 1
-        if _krx is not None:
-            time.sleep(0.15)   # KRX rate-limit 회피용 소폭 스로틀(종목당 1회)
 
         feats = make_features(df, mkt_df, flows, funda)
         if len(feats) < 80:
