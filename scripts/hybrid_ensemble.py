@@ -337,7 +337,7 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
       - 진짜 OOF R²: 메타 모델 자체도 3-fold CV로 평가 (in-sample R² 방지)
     """
     dates     = panel.index.get_level_values("date").unique().sort_values()
-    row_dates = panel.index.get_level_values("date").to_numpy()
+    row_dates = panel.index.get_level_values("date")   # DatetimeIndex 유지(.isin 견고 매칭)
 
     X_all = panel[FEATURE_COLS].values.astype(np.float32)
     y_all = panel["target_alpha_5d"].values.astype(np.float32)
@@ -352,10 +352,10 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     tscv   = TimeSeriesSplit(n_splits=CV_SPLITS, gap=TARGET_DAYS)
 
     for fold, (tr_di, te_di) in enumerate(tscv.split(np.arange(len(dates)))):
-        tr_dates = set(dates[tr_di])
-        te_dates = set(dates[te_di])
-        tr = np.isin(row_dates, list(tr_dates))
-        te = np.isin(row_dates, list(te_dates))
+        # 날짜 값 매칭은 datetime64 vs Timestamp 타입 차로 np.isin이 numpy 버전에 따라
+        # 전부 False가 될 수 있음(폴드 0행 → 메타 학습 붕괴). pandas .isin으로 견고화.
+        tr = row_dates.isin(dates[tr_di])   # Index.isin -> numpy bool 배열
+        te = row_dates.isin(dates[te_di])
 
         X_tr_raw, y_tr_raw = X_all[tr], y_all[tr]
         X_te_raw = X_all[te]
@@ -382,9 +382,10 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
 
         # te 마스크 내 NaN-없는 행에만 OOF 기록 (인덱스 정합성 유지)
         te_idx = np.where(te)[0][ok_te]
-        oof_lgbm[te_idx] = lgbm.predict(X_te)
-        oof_rf[te_idx]   = rf.predict(X_te)
-        oof_mlp[te_idx]  = mlp.predict(X_te_s)
+        # 베이스 예측 클립[-0.5,0.5] — MLP 폭주 방어(predict_alpha와 동일, 메타 입력 분포 일치)
+        oof_lgbm[te_idx] = np.clip(lgbm.predict(X_te),   -0.5, 0.5)
+        oof_rf[te_idx]   = np.clip(rf.predict(X_te),     -0.5, 0.5)
+        oof_mlp[te_idx]  = np.clip(mlp.predict(X_te_s),  -0.5, 0.5)
         oof_mask[te_idx] = True
 
         print(f"  Fold {fold+1}/{CV_SPLITS}: train={tr.sum():,}행  test={te.sum():,}행")
@@ -454,9 +455,13 @@ def predict_alpha(models: dict, latest: pd.DataFrame) -> pd.Series:
     백분위로 재정규화되므로 절대 스케일은 결과에 영향 없음)."""
     X  = latest[FEATURE_COLS].values.astype(np.float32)
     Xs = models["scaler"].transform(X)
-    p_lgbm = models["lgbm"].predict(X)
-    p_rf   = models["rf"].predict(X)
-    p_mlp  = models["mlp"].predict(Xs)
+    # 베이스 예측을 타깃 도메인[-0.5,0.5]으로 클립.
+    # MLP(MLPRegressor)가 OOD 입력에서 ±1e13 수준으로 폭주(extrapolation explosion)하면
+    # 메타·최종 클립이 포화되어 전 종목이 동일값(±0.5)이 되는 P0 버그가 발생한다.
+    # 랭크 점수는 [-0.5,0.5]를 벗어날 수 없으므로 이 클립은 정상 예측엔 무손실, 폭주만 차단.
+    p_lgbm = np.clip(models["lgbm"].predict(X),  -0.5, 0.5)
+    p_rf   = np.clip(models["rf"].predict(X),    -0.5, 0.5)
+    p_mlp  = np.clip(models["mlp"].predict(Xs),  -0.5, 0.5)
     meta_X = np.column_stack([p_lgbm, p_rf, p_mlp])
     raw = models["meta"].predict(meta_X)
     rank_score = np.clip(raw, -0.5, 0.5)
@@ -639,9 +644,14 @@ def upsert_supabase(rows: list, run_date: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    import argparse
+    _ap = argparse.ArgumentParser()
+    _ap.add_argument("--dry-run", action="store_true", help="Supabase 저장 생략(로컬 진단용)")
+    dry_run = _ap.parse_args().dry_run
+
     run_date = date.today().isoformat()
     print(f"\n{'='*64}")
-    print(f"  Hybrid Stacking Ensemble  {run_date}")
+    print(f"  Hybrid Stacking Ensemble  {run_date}{'  [DRY-RUN]' if dry_run else ''}")
     print(f"{'='*64}\n")
 
     # ── 1. KOSPI 벤치마크 ─────────────────────────────────────────────────────
@@ -822,6 +832,12 @@ def main() -> None:
     if latest.empty:
         sys.exit("최신 피처가 비어 예측 불가 (전 종목 데이터 결손)")
     pred = predict_alpha(models, latest)
+
+    # [P0 진단] 예측 붕괴(전 종목 동일) 원인 국소화: latest 행 동일 여부 vs 모델 상수출력
+    _ndup = latest.drop_duplicates().shape[0]
+    print(f"  [진단] latest: {latest.shape[0]}행, 고유행={_ndup}, 피처별고유값합={int(latest.nunique().sum())}")
+    print(f"  [진단] pred: 고유값={pred.nunique()}, std={float(pred.std()):.6g}, "
+          f"min={float(pred.min()):.4g}, max={float(pred.max()):.4g}")
 
     # ── 독립 30일 모델 예측 (결함2: 2.19배 외삽 대체) ─────────────────────────
     # 실패 시 alpha30_map=None → rows 빌딩에서 10일 알파 감쇠 외삽으로 graceful degrade.
@@ -1017,8 +1033,11 @@ def main() -> None:
             }),
         })
 
-    upsert_supabase(rows, run_date)
-    print(f"\n완료: {run_date}  전체 {len(rows)} 종목 저장 (Top30: {len(top_tickers)})\n")
+    if dry_run:
+        print(f"\n[dry-run] Supabase 저장 생략. 산출 {len(rows)}행 (Top30: {len(top_tickers)})\n")
+    else:
+        upsert_supabase(rows, run_date)
+        print(f"\n완료: {run_date}  전체 {len(rows)} 종목 저장 (Top30: {len(top_tickers)})\n")
 
 
 if __name__ == "__main__":
