@@ -28,7 +28,7 @@ import os
 import sys
 import time
 import warnings
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -42,6 +42,13 @@ from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold, TimeSeriesSplit, cross_val_predict
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
+
+# pykrx: 투자자별 순매수(수급) 히스토리. 선택적 의존성 —
+# 미설치/조회 실패 시 수급 피처는 0(중립)으로 graceful degrade(파이프라인 비중단).
+try:
+    from pykrx import stock as _krx
+except Exception:
+    _krx = None
 
 from news_sentiment import NewsSentimentService
 
@@ -202,6 +209,10 @@ FEATURE_COLS = [
     "sector_rel_ret_5d",    # 동일 섹터 평균 대비 5일 초과수익 (섹터 중립 신호)
     "sector_rel_ret_20d",   # 동일 섹터 평균 대비 20일 초과수익
     "rs_rank_20d",          # 크로스섹셔널 20일 수익률 상대강도 순위 0~1
+    "foreign_net_5d",       # 외국인 5일 순매수금액 / 거래대금 비율 (수급)
+    "foreign_net_20d",      # 외국인 20일 순매수 비율
+    "inst_net_5d",          # 기관 5일 순매수 비율
+    "inst_net_20d",         # 기관 20일 순매수 비율
 ]
 
 
@@ -258,10 +269,43 @@ def _bb_pct(prices: pd.Series, n: int = 20) -> pd.Series:
 # 피처 엔지니어링 — look-ahead bias 없음
 # ─────────────────────────────────────────────────────────────────────────────
 
-def make_features(df: pd.DataFrame, mkt: pd.DataFrame) -> pd.DataFrame:
+def fetch_investor_flows(ticker: str, fromdate: str, todate: str) -> pd.DataFrame:
+    """
+    pykrx로 종목별 투자자 순매수 '금액'(원) 시계열 조회 (수급 피처용).
+
+    반환: DataFrame(index=DatetimeIndex, columns=[foreign_net, inst_net]).
+    pykrx 미설치/조회 실패/컬럼 불일치 시 빈 DataFrame → 호출측에서 0(중립) degrade.
+    컬럼명은 배포본에 따라 다를 수 있어 '외국인'/'기관' 부분일치로 탐지한다.
+    look-ahead 없음: d일 순매수는 d일 장마감 후 공시되며, 배치는 마감 후 실행.
+    """
+    if _krx is None:
+        return pd.DataFrame()
+    for attempt in range(2):
+        try:
+            df = _krx.get_market_trading_value_by_date(fromdate, todate, ticker)
+            if df is None or len(df) == 0:
+                return pd.DataFrame()
+            fcol = next((col for col in df.columns if "외국인" in str(col)), None)
+            icol = next((col for col in df.columns if "기관" in str(col)), None)
+            if fcol is None or icol is None:
+                return pd.DataFrame()
+            out = df[[fcol, icol]].copy()
+            out.columns = ["foreign_net", "inst_net"]
+            out.index = pd.to_datetime(out.index)
+            out = out[~out.index.duplicated(keep="last")]
+            return out.astype(float)
+        except Exception:
+            if attempt == 0:
+                time.sleep(1.0)
+    return pd.DataFrame()
+
+
+def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
+                  flows: "pd.DataFrame | None" = None) -> pd.DataFrame:
     """
     날짜 d의 피처는 d 이전 데이터만 참조.
     target_alpha_5d 는 훈련 레이블용 (d+1 ~ d+5 참조) — 예측 시 사용 안 함.
+    flows: pykrx 순매수금액 시계열(없으면 수급 피처는 0 중립으로 degrade).
     """
     c   = df["Close"]
     vol = df["Volume"]
@@ -301,6 +345,26 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame) -> pd.DataFrame:
 
     # 유동성 계산용 (훈련 피처 아님)
     f["trading_value"] = c * vol
+
+    # ── 수급 피처: 외국인/기관 순매수금액 ÷ 거래대금 (5d·20d 비율) ──────────────
+    # 순매수금액(원)을 같은 기간 거래대금으로 나눠 종목 간 비교 가능한 [-1,1] 비율로
+    # 정규화. KR 시장에서 외국인·기관 수급은 가장 강력한 단기 알파 신호 중 하나.
+    # flows 미제공/결손 시 0(중립). 날짜 정렬은 문자열 키(YYYYMMDD)로 tz 무관 처리.
+    tv = f["trading_value"]
+    if flows is not None and not flows.empty:
+        _fk   = flows.index.strftime("%Y%m%d")
+        _fmap = pd.Series(flows["foreign_net"].values, index=_fk)
+        _imap = pd.Series(flows["inst_net"].values,    index=_fk)
+        _ck   = c.index.strftime("%Y%m%d")
+        fn  = pd.Series(_fmap.reindex(_ck).fillna(0.0).values, index=c.index)
+        inn = pd.Series(_imap.reindex(_ck).fillna(0.0).values, index=c.index)
+    else:
+        fn  = pd.Series(0.0, index=c.index)
+        inn = pd.Series(0.0, index=c.index)
+    for w in (5, 20):
+        _denom = tv.rolling(w).sum().replace(0, np.nan)
+        f[f"foreign_net_{w}d"] = (fn.rolling(w).sum()  / _denom).clip(-1, 1)
+        f[f"inst_net_{w}d"]    = (inn.rolling(w).sum() / _denom).clip(-1, 1)
 
     # ── 타깃: 5거래일 선행 초과수익률 ─────────────────────────────────────────
     fwd_ret  = c.pct_change(TARGET_DAYS).shift(-TARGET_DAYS)
@@ -670,9 +734,16 @@ def main() -> None:
     if mkt_df.empty:
         sys.exit("KOSPI 데이터 조회 실패")
 
-    # ── 2. 종목 OHLCV + 피처 엔지니어링 ──────────────────────────────────────
+    # ── 2. 종목 OHLCV + 수급 + 피처 엔지니어링 ───────────────────────────────
     print("\n[2/6] 종목 데이터 조회 및 피처 엔지니어링...")
     per_stock: dict = {}
+
+    # 수급(pykrx) 조회 범위 5년 — YYYYMMDD. pykrx 미설치 시 즉시 빈 DF 반환.
+    flow_to   = date.today().strftime("%Y%m%d")
+    flow_from = (date.today() - timedelta(days=5 * 365 + 10)).strftime("%Y%m%d")
+    flow_ok   = 0
+    if _krx is None:
+        print("  [info] pykrx 미설치 → 수급 피처 비활성화(0 중립)")
 
     for s in UNIVERSE:
         yf_code = to_yf(s["ticker"], s["market"])
@@ -681,7 +752,12 @@ def main() -> None:
             print(f"  skip {s['ticker']} {s['name']}: 데이터 부족")
             continue
 
-        feats = make_features(df, mkt_df)
+        flows = fetch_investor_flows(s["ticker"], flow_from, flow_to)
+        if not flows.empty:
+            flow_ok += 1
+            time.sleep(0.15)   # KRX rate-limit 회피용 소폭 스로틀
+
+        feats = make_features(df, mkt_df, flows)
         if len(feats) < 80:
             print(f"  skip {s['ticker']} {s['name']}: 피처 부족 ({len(feats)}행)")
             continue
@@ -706,6 +782,8 @@ def main() -> None:
     if not per_stock:
         sys.exit("처리 가능한 종목 없음")
     print(f"\n  → {len(per_stock)}/{len(UNIVERSE)} 종목 준비 완료")
+    print(f"  → 수급(pykrx) 히스토리 확보: {flow_ok}/{len(per_stock)}종목 "
+          f"{'(0이면 수급 피처 전부 중립)' if flow_ok == 0 else ''}")
 
     # ── 3. 패널 데이터셋 구성 ─────────────────────────────────────────────────
     print("\n[3/6] 패널 데이터셋 구성...")
