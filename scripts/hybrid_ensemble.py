@@ -213,6 +213,8 @@ FEATURE_COLS = [
     "foreign_net_20d",      # 외국인 20일 순매수 비율
     "inst_net_5d",          # 기관 5일 순매수 비율
     "inst_net_20d",         # 기관 20일 순매수 비율
+    "earnings_yield",       # 1/PER 이익수익률 (밸류: 높을수록 저평가)
+    "book_yield",           # 1/PBR 장부수익률 (밸류)
 ]
 
 
@@ -300,12 +302,42 @@ def fetch_investor_flows(ticker: str, fromdate: str, todate: str) -> pd.DataFram
     return pd.DataFrame()
 
 
+def fetch_fundamentals(ticker: str, fromdate: str, todate: str) -> pd.DataFrame:
+    """
+    pykrx로 종목별 일별 PER/PBR 조회 (밸류 팩터 피처용).
+    반환: DataFrame(index=DatetimeIndex, columns=[per, pbr]). 실패 시 빈 DataFrame.
+    pykrx 미설치/실패/컬럼 불일치 시 빈 DF → 호출측에서 0(중립) degrade.
+    """
+    if _krx is None:
+        return pd.DataFrame()
+    for attempt in range(2):
+        try:
+            df = _krx.get_market_fundamental_by_date(fromdate, todate, ticker)
+            if df is None or len(df) == 0:
+                return pd.DataFrame()
+            pcol = next((col for col in df.columns if str(col).upper() == "PER"), None)
+            bcol = next((col for col in df.columns if str(col).upper() == "PBR"), None)
+            if pcol is None or bcol is None:
+                return pd.DataFrame()
+            out = df[[pcol, bcol]].copy()
+            out.columns = ["per", "pbr"]
+            out.index = pd.to_datetime(out.index)
+            out = out[~out.index.duplicated(keep="last")]
+            return out.astype(float)
+        except Exception:
+            if attempt == 0:
+                time.sleep(1.0)
+    return pd.DataFrame()
+
+
 def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
-                  flows: "pd.DataFrame | None" = None) -> pd.DataFrame:
+                  flows: "pd.DataFrame | None" = None,
+                  funda: "pd.DataFrame | None" = None) -> pd.DataFrame:
     """
     날짜 d의 피처는 d 이전 데이터만 참조.
     target_alpha_5d 는 훈련 레이블용 (d+1 ~ d+5 참조) — 예측 시 사용 안 함.
     flows: pykrx 순매수금액 시계열(없으면 수급 피처는 0 중립으로 degrade).
+    funda: pykrx PER/PBR 시계열(없으면 밸류 피처는 0 중립으로 degrade).
     """
     c   = df["Close"]
     vol = df["Volume"]
@@ -365,6 +397,23 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
         _denom = tv.rolling(w).sum().replace(0, np.nan)
         f[f"foreign_net_{w}d"] = (fn.rolling(w).sum()  / _denom).clip(-1, 1)
         f[f"inst_net_{w}d"]    = (inn.rolling(w).sum() / _denom).clip(-1, 1)
+
+    # ── 밸류 피처: 이익수익률(1/PER)·장부수익률(1/PBR) ─────────────────────────
+    # 낮은 PER/PBR = 저평가(value factor). 역수로 변환해 '높을수록 저평가'로 정렬하고,
+    # 횡단면 z-score(main)에서 '동일 시점 동종 대비 저평가' 신호로 정규화된다.
+    # 적자(PER≤0)·결손은 0(중립). funda 미제공 시 전부 0 → degrade.
+    if funda is not None and not funda.empty:
+        _vk   = funda.index.strftime("%Y%m%d")
+        _pmap = pd.Series(funda["per"].values, index=_vk)
+        _bmap = pd.Series(funda["pbr"].values, index=_vk)
+        _ck2  = c.index.strftime("%Y%m%d")
+        per = pd.Series(_pmap.reindex(_ck2).values, index=c.index).ffill()
+        pbr = pd.Series(_bmap.reindex(_ck2).values, index=c.index).ffill()
+    else:
+        per = pd.Series(np.nan, index=c.index)
+        pbr = pd.Series(np.nan, index=c.index)
+    f["earnings_yield"] = (1.0 / per).where(per > 0, 0.0)
+    f["book_yield"]     = (1.0 / pbr).where(pbr > 0, 0.0)
 
     # ── 타깃: 5거래일 선행 초과수익률 ─────────────────────────────────────────
     fwd_ret  = c.pct_change(TARGET_DAYS).shift(-TARGET_DAYS)
@@ -742,8 +791,9 @@ def main() -> None:
     flow_to   = date.today().strftime("%Y%m%d")
     flow_from = (date.today() - timedelta(days=5 * 365 + 10)).strftime("%Y%m%d")
     flow_ok   = 0
+    funda_ok  = 0
     if _krx is None:
-        print("  [info] pykrx 미설치 → 수급 피처 비활성화(0 중립)")
+        print("  [info] pykrx 미설치 → 수급·밸류 피처 비활성화(0 중립)")
 
     for s in UNIVERSE:
         yf_code = to_yf(s["ticker"], s["market"])
@@ -755,9 +805,13 @@ def main() -> None:
         flows = fetch_investor_flows(s["ticker"], flow_from, flow_to)
         if not flows.empty:
             flow_ok += 1
-            time.sleep(0.15)   # KRX rate-limit 회피용 소폭 스로틀
+        funda = fetch_fundamentals(s["ticker"], flow_from, flow_to)
+        if not funda.empty:
+            funda_ok += 1
+        if _krx is not None:
+            time.sleep(0.15)   # KRX rate-limit 회피용 소폭 스로틀(종목당 1회)
 
-        feats = make_features(df, mkt_df, flows)
+        feats = make_features(df, mkt_df, flows, funda)
         if len(feats) < 80:
             print(f"  skip {s['ticker']} {s['name']}: 피처 부족 ({len(feats)}행)")
             continue
@@ -782,8 +836,9 @@ def main() -> None:
     if not per_stock:
         sys.exit("처리 가능한 종목 없음")
     print(f"\n  → {len(per_stock)}/{len(UNIVERSE)} 종목 준비 완료")
-    print(f"  → 수급(pykrx) 히스토리 확보: {flow_ok}/{len(per_stock)}종목 "
-          f"{'(0이면 수급 피처 전부 중립)' if flow_ok == 0 else ''}")
+    print(f"  → 수급(pykrx): {flow_ok}/{len(per_stock)}종목 | "
+          f"밸류(PER/PBR): {funda_ok}/{len(per_stock)}종목 "
+          f"{'(0이면 해당 피처 중립)' if (flow_ok == 0 or funda_ok == 0) else ''}")
 
     # ── 3. 패널 데이터셋 구성 ─────────────────────────────────────────────────
     print("\n[3/6] 패널 데이터셋 구성...")
