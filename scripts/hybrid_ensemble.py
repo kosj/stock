@@ -29,7 +29,7 @@ import socket
 import sys
 import time
 import warnings
-from datetime import date, timedelta
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -44,19 +44,8 @@ from sklearn.model_selection import KFold, TimeSeriesSplit, cross_val_predict
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
-# pykrx: 투자자별 순매수(수급) 히스토리. 선택적 의존성 —
-# 미설치/조회 실패 시 수급 피처는 0(중립)으로 graceful degrade(파이프라인 비중단).
-try:
-    from pykrx import stock as _krx
-except Exception:
-    _krx = None
-
-# ⚠ KRX(data.krx.co.kr)는 GitHub Actions 등 클라우드/해외 IP를 차단(빈 응답 → JSON
-# 파싱오류)한다. 따라서 pykrx 수급·밸류 조회는 기본 비활성화하고, KR 접속이 가능한
-# 환경(로컬/KR 리전 등)에서만 ENABLE_PYKRX=1 로 켠다. 비활성 시 수급·밸류는 0(중립).
-PYKRX_ENABLED = (_krx is not None) and \
-    os.environ.get("ENABLE_PYKRX", "0").lower() in ("1", "true", "yes")
-
+# 수급·밸류는 Supabase krx_daily 캐시에서 읽는다(KR 접속 환경의 krx_cache.py가 적재).
+# KRX는 클라우드 IP를 차단하므로 ML 잡(CI)은 pykrx를 직접 호출하지 않는다.
 from news_sentiment import NewsSentimentService
 
 warnings.filterwarnings("ignore")
@@ -79,9 +68,6 @@ TARGET_CLIP_LONG = 0.60          # 30일 타깃 클리핑 ±60% (10일보다 큰
 # 예측 백분위 → 실제 알파 역변환 밴드 (p5~p95).
 # 일별 극단 분위(p0/p100=±TARGET_CLIP)를 단일 종목에 부여하는 과대추정 방지.
 RANK_RETURN_BAND = (5.0, 95.0)
-# pykrx(수급·밸류) 조회 단계 시간 예산(초). 초과 시 잔여 종목은 중립으로 건너뜀 →
-# CI timeout 폭주 방지(yfinance·학습·감성 시간 확보). pykrx 응답이 빠르면 전 종목 커버.
-PYKRX_BUDGET_SEC = 480
 MIN_TRAIN_ROWS = 200             # 폴드당 최소 훈련 행 수 (5y 데이터로 기준 상향)
 BENCHMARK_YF   = "^KS11"        # KOSPI 벤치마크
 CV_SPLITS      = 5               # Walk-forward 분할 수
@@ -98,117 +84,8 @@ W_SHARPE_Z    = 0.45
 W_SENTIMENT_Z = 0.10
 
 # ── 종목 유니버스 ─────────────────────────────────────────────────────────────
-# 종목 유니버스 단일 정의 (TS stock-universe.ts는 죽은 코드로 제거됨 — 여기가 유일 소스)
-UNIVERSE = [
-    # 반도체
-    dict(ticker="005930", name="삼성전자",             sector="반도체",  market="KOSPI"),
-    dict(ticker="000660", name="SK하이닉스",           sector="반도체",  market="KOSPI"),
-    dict(ticker="042700", name="한미반도체",           sector="반도체",  market="KOSDAQ"),
-    dict(ticker="240810", name="원익IPS",              sector="반도체",  market="KOSDAQ"),
-    dict(ticker="009150", name="삼성전기",             sector="반도체",  market="KOSPI"),
-    dict(ticker="003550", name="LG",                   sector="반도체",  market="KOSPI"),
-    dict(ticker="018260", name="삼성에스디에스",       sector="반도체",  market="KOSPI"),
-    # 2차전지
-    dict(ticker="373220", name="LG에너지솔루션",       sector="2차전지", market="KOSPI"),
-    dict(ticker="051910", name="LG화학",               sector="2차전지", market="KOSPI"),
-    dict(ticker="003670", name="포스코퓨처엠",         sector="2차전지", market="KOSPI"),
-    dict(ticker="247540", name="에코프로비엠",         sector="2차전지", market="KOSDAQ"),
-    dict(ticker="086520", name="에코프로",             sector="2차전지", market="KOSDAQ"),
-    dict(ticker="006400", name="삼성SDI",              sector="2차전지", market="KOSPI"),
-    dict(ticker="096530", name="씨에스윈드",           sector="2차전지", market="KOSPI"),
-    # 자동차
-    dict(ticker="005380", name="현대차",               sector="자동차",  market="KOSPI"),
-    dict(ticker="000270", name="기아",                 sector="자동차",  market="KOSPI"),
-    dict(ticker="012330", name="현대모비스",           sector="자동차",  market="KOSPI"),
-    dict(ticker="204320", name="HL만도",               sector="자동차",  market="KOSPI"),
-    dict(ticker="161390", name="한국타이어앤테크놀로지", sector="자동차", market="KOSPI"),
-    # IT/플랫폼
-    dict(ticker="035420", name="NAVER",                sector="IT",      market="KOSPI"),
-    dict(ticker="035720", name="카카오",               sector="IT",      market="KOSPI"),
-    dict(ticker="323410", name="카카오뱅크",           sector="IT",      market="KOSPI"),
-    dict(ticker="066570", name="LG전자",               sector="IT",      market="KOSPI"),
-    dict(ticker="034730", name="SK",                   sector="IT",      market="KOSPI"),
-    # 게임
-    dict(ticker="036570", name="NC소프트",             sector="게임",    market="KOSDAQ"),
-    dict(ticker="259960", name="크래프톤",             sector="게임",    market="KOSPI"),
-    dict(ticker="263750", name="펄어비스",             sector="게임",    market="KOSDAQ"),
-    dict(ticker="293490", name="카카오게임즈",         sector="게임",    market="KOSDAQ"),
-    dict(ticker="251270", name="넷마블",               sector="게임",    market="KOSPI"),
-    # 엔터
-    dict(ticker="041510", name="에스엠",               sector="엔터",    market="KOSDAQ"),
-    dict(ticker="035900", name="JYP Ent.",             sector="엔터",    market="KOSDAQ"),
-    dict(ticker="122870", name="와이지엔터테인먼트",   sector="엔터",    market="KOSDAQ"),
-    dict(ticker="352820", name="하이브",               sector="엔터",    market="KOSPI"),
-    # 바이오/제약
-    dict(ticker="207940", name="삼성바이오로직스",     sector="바이오",  market="KOSPI"),
-    dict(ticker="068270", name="셀트리온",             sector="바이오",  market="KOSPI"),
-    dict(ticker="128940", name="한미약품",             sector="바이오",  market="KOSDAQ"),
-    dict(ticker="145020", name="휴젤",                 sector="바이오",  market="KOSDAQ"),
-    dict(ticker="326030", name="SK바이오팜",           sector="바이오",  market="KOSPI"),
-    dict(ticker="000100", name="유한양행",             sector="바이오",  market="KOSPI"),
-    dict(ticker="302440", name="SK바이오사이언스",     sector="바이오",  market="KOSPI"),
-    # 금융
-    dict(ticker="105560", name="KB금융",               sector="금융",    market="KOSPI"),
-    dict(ticker="055550", name="신한지주",             sector="금융",    market="KOSPI"),
-    dict(ticker="086790", name="하나금융지주",         sector="금융",    market="KOSPI"),
-    dict(ticker="032830", name="삼성생명",             sector="금융",    market="KOSPI"),
-    dict(ticker="316140", name="우리금융지주",         sector="금융",    market="KOSPI"),
-    dict(ticker="000810", name="삼성화재",             sector="금융",    market="KOSPI"),
-    dict(ticker="005830", name="DB손해보험",           sector="금융",    market="KOSPI"),
-    dict(ticker="175330", name="JB금융지주",           sector="금융",    market="KOSPI"),
-    dict(ticker="138930", name="BNK금융지주",          sector="금융",    market="KOSPI"),
-    dict(ticker="024110", name="기업은행",             sector="금융",    market="KOSPI"),
-    # 소재
-    dict(ticker="005490", name="POSCO홀딩스",          sector="소재",    market="KOSPI"),
-    dict(ticker="010130", name="고려아연",             sector="소재",    market="KOSPI"),
-    dict(ticker="004020", name="현대제철",             sector="소재",    market="KOSPI"),
-    dict(ticker="001430", name="세아베스틸지주",       sector="소재",    market="KOSPI"),
-    # 에너지/화학
-    dict(ticker="096770", name="SK이노베이션",         sector="에너지",  market="KOSPI"),
-    dict(ticker="010950", name="S-Oil",                sector="에너지",  market="KOSPI"),
-    dict(ticker="011170", name="롯데케미칼",           sector="화학",    market="KOSPI"),
-    dict(ticker="009830", name="한화솔루션",           sector="화학",    market="KOSPI"),
-    dict(ticker="015760", name="한국전력",             sector="유틸리티", market="KOSPI"),
-    dict(ticker="034020", name="두산에너빌리티",       sector="유틸리티", market="KOSPI"),
-    # 방산
-    dict(ticker="012450", name="한화에어로스페이스",   sector="방산",    market="KOSPI"),
-    dict(ticker="047810", name="한국항공우주",         sector="방산",    market="KOSPI"),
-    dict(ticker="064350", name="현대로템",             sector="방산",    market="KOSPI"),
-    dict(ticker="000880", name="한화",                 sector="방산",    market="KOSPI"),
-    dict(ticker="042660", name="한화오션",             sector="방산",    market="KOSPI"),
-    # 조선/중공업
-    dict(ticker="009540", name="HD한국조선해양",       sector="조선",    market="KOSPI"),
-    dict(ticker="267250", name="HD현대",               sector="조선",    market="KOSPI"),
-    dict(ticker="329180", name="HD현대중공업",         sector="조선",    market="KOSPI"),
-    dict(ticker="010140", name="삼성중공업",           sector="조선",    market="KOSPI"),
-    # 건설
-    dict(ticker="028260", name="삼성물산",             sector="건설",    market="KOSPI"),
-    dict(ticker="000720", name="현대건설",             sector="건설",    market="KOSPI"),
-    dict(ticker="047040", name="대우건설",             sector="건설",    market="KOSPI"),
-    dict(ticker="000210", name="DL이앤씨",             sector="건설",    market="KOSPI"),
-    # 유통/소비재
-    dict(ticker="139480", name="이마트",               sector="유통",    market="KOSPI"),
-    dict(ticker="282330", name="BGF리테일",            sector="유통",    market="KOSPI"),
-    dict(ticker="004170", name="신세계",               sector="유통",    market="KOSPI"),
-    dict(ticker="069960", name="현대백화점",           sector="유통",    market="KOSPI"),
-    dict(ticker="023530", name="롯데쇼핑",             sector="유통",    market="KOSPI"),
-    dict(ticker="271560", name="오리온",               sector="소비재",  market="KOSPI"),
-    dict(ticker="097950", name="CJ제일제당",           sector="소비재",  market="KOSPI"),
-    # 통신
-    dict(ticker="017670", name="SK텔레콤",             sector="통신",    market="KOSPI"),
-    dict(ticker="030200", name="KT",                   sector="통신",    market="KOSPI"),
-    dict(ticker="032640", name="LG유플러스",           sector="통신",    market="KOSPI"),
-    # 해운/물류
-    dict(ticker="011200", name="HMM",                  sector="해운",    market="KOSPI"),
-    dict(ticker="000120", name="CJ대한통운",           sector="물류",    market="KOSPI"),
-    dict(ticker="003490", name="대한항공",             sector="물류",    market="KOSPI"),
-    dict(ticker="004960", name="한샘",                 sector="물류",    market="KOSPI"),
-    # 소부장
-    dict(ticker="357780", name="솔브레인",             sector="소부장",  market="KOSDAQ"),
-    dict(ticker="166090", name="하나머티리얼즈",       sector="소부장",  market="KOSDAQ"),
-    dict(ticker="036830", name="솔브레인홀딩스",       sector="소부장",  market="KOSDAQ"),
-    dict(ticker="336370", name="솔루스첨단소재",       sector="소부장",  market="KOSDAQ"),
-]
+# 단일 소스 universe.py에서 로드 (krx_cache.py와 공유 — 종목 수정은 거기 한 곳만).
+from universe import UNIVERSE
 
 # 훈련·예측에 사용할 피처 컬럼 목록
 FEATURE_COLS = [
@@ -285,63 +162,39 @@ def _bb_pct(prices: pd.Series, n: int = 20) -> pd.Series:
 # 피처 엔지니어링 — look-ahead bias 없음
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_investor_flows(ticker: str, fromdate: str, todate: str) -> pd.DataFrame:
+def fetch_krx_cache(ticker: str) -> pd.DataFrame:
     """
-    pykrx로 종목별 투자자 순매수 '금액'(원) 시계열 조회 (수급 피처용).
+    Supabase krx_daily 테이블에서 종목 수급·밸류 시계열 조회 (KR 캐시 파이프라인).
 
-    반환: DataFrame(index=DatetimeIndex, columns=[foreign_net, inst_net]).
-    pykrx 미설치/조회 실패/컬럼 불일치 시 빈 DataFrame → 호출측에서 0(중립) degrade.
-    컬럼명은 배포본에 따라 다를 수 있어 '외국인'/'기관' 부분일치로 탐지한다.
-    look-ahead 없음: d일 순매수는 d일 장마감 후 공시되며, 배치는 마감 후 실행.
+    KRX는 클라우드 IP를 차단하므로 ML 잡(CI)은 pykrx를 직접 호출하지 않고,
+    KR 접속 환경의 krx_cache.py가 적재해 둔 이 테이블을 읽는다.
+    반환: DataFrame(index=DatetimeIndex, columns=[foreign_net, inst_net, per, pbr]).
+    테이블 부재/빈 데이터/오류 시 빈 DataFrame → 호출측에서 0(중립) degrade.
     """
-    if _krx is None:
+    try:
+        url = (f"{SUPABASE_URL}/rest/v1/krx_daily"
+               f"?ticker=eq.{ticker}"
+               f"&select=date,foreign_net,inst_net,per,pbr"
+               f"&order=date.asc&limit=3000")
+        r = requests.get(url, headers={
+            "apikey":        SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }, timeout=15)
+        if not r.ok:
+            return pd.DataFrame()
+        rows = r.json()
+        if not rows:
+            return pd.DataFrame()
+        out = pd.DataFrame(rows)
+        out["date"] = pd.to_datetime(out["date"])
+        out = out.set_index("date").sort_index()
+        out = out[~out.index.duplicated(keep="last")]
+        for col in ("foreign_net", "inst_net", "per", "pbr"):
+            if col not in out.columns:
+                out[col] = 0.0
+        return out[["foreign_net", "inst_net", "per", "pbr"]].astype(float)
+    except Exception:
         return pd.DataFrame()
-    for attempt in range(2):
-        try:
-            df = _krx.get_market_trading_value_by_date(fromdate, todate, ticker)
-            if df is None or len(df) == 0:
-                return pd.DataFrame()
-            fcol = next((col for col in df.columns if "외국인" in str(col)), None)
-            icol = next((col for col in df.columns if "기관" in str(col)), None)
-            if fcol is None or icol is None:
-                return pd.DataFrame()
-            out = df[[fcol, icol]].copy()
-            out.columns = ["foreign_net", "inst_net"]
-            out.index = pd.to_datetime(out.index)
-            out = out[~out.index.duplicated(keep="last")]
-            return out.astype(float)
-        except Exception:
-            if attempt == 0:
-                time.sleep(1.0)
-    return pd.DataFrame()
-
-
-def fetch_fundamentals(ticker: str, fromdate: str, todate: str) -> pd.DataFrame:
-    """
-    pykrx로 종목별 일별 PER/PBR 조회 (밸류 팩터 피처용).
-    반환: DataFrame(index=DatetimeIndex, columns=[per, pbr]). 실패 시 빈 DataFrame.
-    pykrx 미설치/실패/컬럼 불일치 시 빈 DF → 호출측에서 0(중립) degrade.
-    """
-    if _krx is None:
-        return pd.DataFrame()
-    for attempt in range(2):
-        try:
-            df = _krx.get_market_fundamental_by_date(fromdate, todate, ticker)
-            if df is None or len(df) == 0:
-                return pd.DataFrame()
-            pcol = next((col for col in df.columns if str(col).upper() == "PER"), None)
-            bcol = next((col for col in df.columns if str(col).upper() == "PBR"), None)
-            if pcol is None or bcol is None:
-                return pd.DataFrame()
-            out = df[[pcol, bcol]].copy()
-            out.columns = ["per", "pbr"]
-            out.index = pd.to_datetime(out.index)
-            out = out[~out.index.duplicated(keep="last")]
-            return out.astype(float)
-        except Exception:
-            if attempt == 0:
-                time.sleep(1.0)
-    return pd.DataFrame()
 
 
 def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
@@ -801,16 +654,10 @@ def main() -> None:
     print("\n[2/6] 종목 데이터 조회 및 피처 엔지니어링...")
     per_stock: dict = {}
 
-    # 수급(pykrx) 조회 범위 5년 — YYYYMMDD. pykrx 미설치 시 즉시 빈 DF 반환.
-    flow_to   = date.today().strftime("%Y%m%d")
-    flow_from = (date.today() - timedelta(days=5 * 365 + 10)).strftime("%Y%m%d")
-    flow_ok   = 0
-    funda_ok  = 0
-    pykrx_budget_hit = False
-    _phase_start = time.monotonic()
-    if not PYKRX_ENABLED:
-        print("  [info] pykrx 비활성(ENABLE_PYKRX 미설정/미설치) → 수급·밸류 중립(0). "
-              "KRX는 클라우드 IP 차단으로 CI에서 미동작.")
+    # 수급·밸류는 Supabase krx_daily 캐시(krx_cache.py가 KR에서 적재)에서 읽는다.
+    # KRX 클라우드 IP 차단 우회 — CI는 pykrx 미접속, 캐시 조회만(빠름). 비어 있으면 중립.
+    flow_ok  = 0
+    funda_ok = 0
 
     for s in UNIVERSE:
         yf_code = to_yf(s["ticker"], s["market"])
@@ -819,18 +666,11 @@ def main() -> None:
             print(f"  skip {s['ticker']} {s['name']}: 데이터 부족")
             continue
 
-        # 시간 예산 초과 시 pykrx 호출 중단 → 잔여 종목 수급·밸류는 중립(0)으로 degrade.
-        # (yfinance·학습 시간 확보, CI timeout 폭주 방지). 경고는 1회만.
-        if PYKRX_ENABLED and not pykrx_budget_hit and \
-                (time.monotonic() - _phase_start) > PYKRX_BUDGET_SEC:
-            pykrx_budget_hit = True
-            print(f"  [warn] pykrx 시간 예산({PYKRX_BUDGET_SEC}s) 초과 → 잔여 종목 수급·밸류 중립")
-
-        use_pykrx = PYKRX_ENABLED and not pykrx_budget_hit
-        flows = fetch_investor_flows(s["ticker"], flow_from, flow_to) if use_pykrx else pd.DataFrame()
+        krx   = fetch_krx_cache(s["ticker"])   # Supabase 캐시 (없으면 빈 DF → 중립)
+        flows = krx[["foreign_net", "inst_net"]] if not krx.empty else pd.DataFrame()
+        funda = krx[["per", "pbr"]]             if not krx.empty else pd.DataFrame()
         if not flows.empty:
             flow_ok += 1
-        funda = fetch_fundamentals(s["ticker"], flow_from, flow_to) if use_pykrx else pd.DataFrame()
         if not funda.empty:
             funda_ok += 1
 
@@ -859,9 +699,9 @@ def main() -> None:
     if not per_stock:
         sys.exit("처리 가능한 종목 없음")
     print(f"\n  → {len(per_stock)}/{len(UNIVERSE)} 종목 준비 완료")
-    print(f"  → 수급(pykrx): {flow_ok}/{len(per_stock)}종목 | "
-          f"밸류(PER/PBR): {funda_ok}/{len(per_stock)}종목 "
-          f"{'(0이면 해당 피처 중립)' if (flow_ok == 0 or funda_ok == 0) else ''}")
+    print(f"  → 수급(캐시): {flow_ok}/{len(per_stock)}종목 | "
+          f"밸류(캐시): {funda_ok}/{len(per_stock)}종목 "
+          f"{'(0이면 krx_daily 캐시 미적재 → 중립)' if (flow_ok == 0 or funda_ok == 0) else ''}")
 
     # ── 3. 패널 데이터셋 구성 ─────────────────────────────────────────────────
     print("\n[3/6] 패널 데이터셋 구성...")

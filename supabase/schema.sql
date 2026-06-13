@@ -450,3 +450,21 @@ CREATE TABLE IF NOT EXISTS etf_daily_prices (
 CREATE INDEX IF NOT EXISTS idx_etf_prices_etf_date ON etf_daily_prices(etf_id, date DESC);
 ALTER TABLE etf_daily_prices DISABLE ROW LEVEL SECURITY;
 
+-- ============================================================
+-- KRX 수급·밸류 캐시 (krx_cache.py가 KR에서 적재 → hybrid_ensemble.py가 읽음)
+-- KRX는 클라우드 IP를 차단하므로 ML 잡(CI)은 직접 조회 대신 이 캐시를 읽는다.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS krx_daily (
+  date        DATE   NOT NULL,
+  ticker      TEXT   NOT NULL,
+  foreign_net FLOAT8,                       -- 외국인 순매수 금액(원)
+  inst_net    FLOAT8,                       -- 기관 순매수 금액(원)
+  per         FLOAT8,
+  pbr         FLOAT8,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (date, ticker)                -- on_conflict=date,ticker upsert 지원
+);
+-- 종목별 시계열 조회(ticker=eq + order by date) 최적화
+CREATE INDEX IF NOT EXISTS idx_krx_daily_ticker_date ON krx_daily(ticker, date);
+ALTER TABLE krx_daily DISABLE ROW LEVEL SECURITY;
+

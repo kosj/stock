@@ -1,0 +1,5 @@
+# krx_cache.py (KR 수급·밸류 적재기) 전용 의존성 — KR 접속 환경에서 설치.
+# ML 잡(hybrid_ensemble.py, CI)은 pykrx가 필요 없으므로 requirements.txt와 분리한다.
+pykrx>=1.0.45
+pandas>=2.2.0
+requests>=2.31.0
