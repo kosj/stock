@@ -50,3 +50,6 @@ logs/
 .DS_Store
 desktop.ini
 package-lock.json
+
+# 로컬 시크릿 포함 (krx_cache 실행용 — KRX/Supabase 자격증명이 주석에 들어감)
+scripts/krx_daily.bat
