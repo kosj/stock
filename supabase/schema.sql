@@ -91,11 +91,15 @@ CREATE TABLE IF NOT EXISTS mock_accounts (
   user_id              UUID         NOT NULL UNIQUE,
   cash                 FLOAT        NOT NULL DEFAULT 10000000,  -- 초기 자금 1000만원
   auto_trade_capital   FLOAT,       -- 자동매매 투입 자본금 (NULL = 전체 현금 사용)
+  -- 계정별 거래 모드 (모의/실전 개인화). 'real'은 실전 어댑터(Phase 2) 연결 후 사용.
+  trading_mode         TEXT         NOT NULL DEFAULT 'mock'
+                         CHECK (trading_mode IN ('mock', 'real')),
   created_at           TIMESTAMPTZ  DEFAULT NOW(),
   updated_at           TIMESTAMPTZ  DEFAULT NOW()
 );
 -- 기존 테이블에 컬럼 추가 (이미 생성된 경우)
 ALTER TABLE mock_accounts ADD COLUMN IF NOT EXISTS auto_trade_capital FLOAT;
+ALTER TABLE mock_accounts ADD COLUMN IF NOT EXISTS trading_mode TEXT NOT NULL DEFAULT 'mock';
 
 -- 모의 보유 포지션
 CREATE TABLE IF NOT EXISTS mock_positions (
@@ -120,10 +124,16 @@ CREATE TABLE IF NOT EXISTS mock_trades (
   quantity     INTEGER      NOT NULL,
   price        FLOAT        NOT NULL,
   total_amount FLOAT        NOT NULL,
+  -- 멱등성 키 (자동매매). 수동 거래는 NULL. 동일 (user_id, client_order_id) 재요청 차단.
+  client_order_id TEXT,
   created_at   TIMESTAMPTZ  DEFAULT NOW()
 );
+ALTER TABLE mock_trades ADD COLUMN IF NOT EXISTS client_order_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_mock_trades_user    ON mock_trades(user_id);
 CREATE INDEX IF NOT EXISTS idx_mock_trades_created ON mock_trades(created_at);
+-- 멱등성 보장: client_order_id가 있는 행만 (user_id, client_order_id) 유일
+CREATE UNIQUE INDEX IF NOT EXISTS uq_mock_trades_client_order
+  ON mock_trades(user_id, client_order_id) WHERE client_order_id IS NOT NULL;
 
 -- ============================================================
 -- RPC 함수 — 소유권 검증 + DML을 단일 왕복으로 처리
@@ -220,12 +230,17 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- RPC:  getQuote(1) + rpc(2) = 2 왕복
 -- ============================================================
 
+-- 멱등 버전(6-arg)으로 교체하기 위해 기존 5-arg 시그니처를 먼저 제거
+DROP FUNCTION IF EXISTS execute_mock_buy(uuid, character varying, character varying, integer, double precision);
+DROP FUNCTION IF EXISTS execute_mock_sell(uuid, character varying, character varying, integer, double precision);
+
 CREATE OR REPLACE FUNCTION execute_mock_buy(
   p_user_id  UUID,
   p_ticker   VARCHAR,
   p_name     VARCHAR,
   p_quantity INTEGER,
-  p_price    FLOAT
+  p_price    FLOAT,
+  p_client_order_id TEXT DEFAULT NULL   -- 멱등성 키 (NULL = 수동거래, 멱등성 미적용)
 ) RETURNS JSONB AS $$
 DECLARE
   v_total    FLOAT;
@@ -235,7 +250,19 @@ DECLARE
   v_new_qty  INTEGER;
   v_new_avg  FLOAT;
   v_new_cash FLOAT;
+  v_dup      mock_trades%ROWTYPE;
 BEGIN
+  -- 멱등성: 동일 client_order_id 기존 체결이 있으면 재실행 없이 기존 결과 반환
+  IF p_client_order_id IS NOT NULL THEN
+    SELECT * INTO v_dup FROM mock_trades
+    WHERE user_id = p_user_id AND client_order_id = p_client_order_id
+    LIMIT 1;
+    IF FOUND THEN
+      RETURN jsonb_build_object('ok', true, 'duplicate', true,
+        'price', v_dup.price, 'total_amount', v_dup.total_amount);
+    END IF;
+  END IF;
+
   v_total := ROUND(p_price * p_quantity * 100) / 100;
 
   -- 계좌 잠금 + 현금 확인 (없으면 자동 생성)
@@ -268,12 +295,12 @@ BEGIN
   v_new_cash := v_cash - v_total;
   UPDATE mock_accounts SET cash = v_new_cash, updated_at = NOW() WHERE user_id = p_user_id;
 
-  -- 거래 기록
-  INSERT INTO mock_trades(user_id, ticker, name, trade_type, quantity, price, total_amount)
-  VALUES(p_user_id, p_ticker, p_name, 'BUY', p_quantity, p_price, v_total);
+  -- 거래 기록 (멱등성 키 포함)
+  INSERT INTO mock_trades(user_id, ticker, name, trade_type, quantity, price, total_amount, client_order_id)
+  VALUES(p_user_id, p_ticker, p_name, 'BUY', p_quantity, p_price, v_total, p_client_order_id);
 
   RETURN jsonb_build_object(
-    'ok', true, 'price', p_price, 'total_amount', v_total, 'new_cash', ROUND(v_new_cash)
+    'ok', true, 'duplicate', false, 'price', p_price, 'total_amount', v_total, 'new_cash', ROUND(v_new_cash)
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -284,7 +311,8 @@ CREATE OR REPLACE FUNCTION execute_mock_sell(
   p_ticker   VARCHAR,
   p_name     VARCHAR,
   p_quantity INTEGER,
-  p_price    FLOAT
+  p_price    FLOAT,
+  p_client_order_id TEXT DEFAULT NULL   -- 멱등성 키 (NULL = 수동거래, 멱등성 미적용)
 ) RETURNS JSONB AS $$
 DECLARE
   v_total    FLOAT;
@@ -292,7 +320,19 @@ DECLARE
   v_new_qty  INTEGER;
   v_cash     FLOAT;
   v_new_cash FLOAT;
+  v_dup      mock_trades%ROWTYPE;
 BEGIN
+  -- 멱등성: 동일 client_order_id 기존 체결이 있으면 재실행 없이 기존 결과 반환
+  IF p_client_order_id IS NOT NULL THEN
+    SELECT * INTO v_dup FROM mock_trades
+    WHERE user_id = p_user_id AND client_order_id = p_client_order_id
+    LIMIT 1;
+    IF FOUND THEN
+      RETURN jsonb_build_object('ok', true, 'duplicate', true,
+        'price', v_dup.price, 'total_amount', v_dup.total_amount);
+    END IF;
+  END IF;
+
   v_total := ROUND(p_price * p_quantity * 100) / 100;
 
   -- 보유 수량 확인 (잠금)
@@ -321,12 +361,12 @@ BEGIN
   v_new_cash := COALESCE(v_cash, 0) + v_total;
   UPDATE mock_accounts SET cash = v_new_cash, updated_at = NOW() WHERE user_id = p_user_id;
 
-  -- 거래 기록
-  INSERT INTO mock_trades(user_id, ticker, name, trade_type, quantity, price, total_amount)
-  VALUES(p_user_id, p_ticker, p_name, 'SELL', p_quantity, p_price, v_total);
+  -- 거래 기록 (멱등성 키 포함)
+  INSERT INTO mock_trades(user_id, ticker, name, trade_type, quantity, price, total_amount, client_order_id)
+  VALUES(p_user_id, p_ticker, p_name, 'SELL', p_quantity, p_price, v_total, p_client_order_id);
 
   RETURN jsonb_build_object(
-    'ok', true, 'price', p_price, 'total_amount', v_total, 'new_cash', ROUND(v_new_cash)
+    'ok', true, 'duplicate', false, 'price', p_price, 'total_amount', v_total, 'new_cash', ROUND(v_new_cash)
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

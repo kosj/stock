@@ -4,11 +4,17 @@
  * GitHub Actions에서 매일 16:00 KST (07:00 UTC) 호출.
  * mock_accounts가 있는 모든 사용자에 대해 자동매매 실행.
  * 인증: Authorization: Bearer <CRON_SECRET>
+ *
+ * 전략: TradingEngineService (Top30 기반 Sell First → Buy Next) — 수동 실행과 동일 엔진.
+ *   매도: 손절(-5%) / 익절(+10%) / 랭크아웃(Top30 미포함)
+ *   매수: Top30 rank 순, 최대 5종목, 균등 비중
+ * 브로커: 계정별 모드(모의/실전)에 따라 getBrokerForUser가 선택 — 계정 기준 개인화.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { runAutoTrade } from "@/lib/server/auto-trade-engine";
+import { TradingEngineService } from "@/lib/server/trading-engine-service";
+import { getBrokerForUser } from "@/lib/server/broker-factory";
 
 export const dynamic    = "force-dynamic";
 export const maxDuration = 60;
@@ -31,9 +37,13 @@ export async function POST(request: NextRequest) {
 
   const results: { user_id: string; result: object }[] = [];
 
-  // 사용자별 자동매매는 독립 계좌이므로 병렬 실행 가능
+  // 사용자별 자동매매는 독립 계좌이므로 병렬 실행 가능.
+  // 계정별 브로커(모의/실전)를 팩토리로 주입 → 단일 엔진이 올바른 시장에 주문.
   const settled = await Promise.allSettled(
-    accounts.map(({ user_id }) => runAutoTrade(user_id))
+    accounts.map(async ({ user_id }) => {
+      const broker = await getBrokerForUser(user_id);
+      return new TradingEngineService(broker).executeTrading(user_id);
+    })
   );
 
   for (let i = 0; i < accounts.length; i++) {

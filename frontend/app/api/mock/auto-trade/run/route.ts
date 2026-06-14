@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { TradingEngineService } from "@/lib/server/trading-engine-service";
+import { getBrokerForUser } from "@/lib/server/broker-factory";
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 45;
@@ -19,7 +20,8 @@ export async function POST() {
   const { data: { user } } = await client.auth.getUser();
   if (!user) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const engine = new TradingEngineService();
-  const result = await engine.executeTrading(user.id);
+  // 계정별 모드(모의/실전)에 맞는 브로커 주입 — Cron 경로와 동일 엔진/동일 정합
+  const broker = await getBrokerForUser(user.id);
+  const result = await new TradingEngineService(broker).executeTrading(user.id);
   return NextResponse.json(result);
 }

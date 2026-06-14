@@ -1,6 +1,6 @@
 /**
  * TFT (Technical Factor Trading) 분석 — 서버 공용 모듈
- * app/api/analysis/tft/route.ts 와 lib/server/auto-trade-engine.ts 양쪽에서 사용
+ * app/api/analysis/tft/route.ts 에서 사용 (종목 기술 신호 분석/표시용)
  */
 
 import { getChart } from "@/lib/server/yahoo-finance";
