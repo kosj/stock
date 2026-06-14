@@ -428,7 +428,7 @@ ALTER TABLE quote_cache DISABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS prophet_recommendations (
   id                   BIGSERIAL    PRIMARY KEY,
   run_date             DATE         NOT NULL,
-  rank                 INTEGER,                 -- NULL = 유니버스 전체 저장 종목 (Top30 외)
+  rank                 INTEGER,                 -- NULL = 유니버스 전체 저장 종목 (Top20 외)
   ticker               VARCHAR(20)  NOT NULL,
   name                 VARCHAR(100),
   market               VARCHAR(20),

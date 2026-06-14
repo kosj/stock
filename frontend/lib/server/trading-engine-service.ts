@@ -1,13 +1,13 @@
 /**
- * TradingEngineService — Top 30 기반 자동매매 엔진 (포트 주입형)
+ * TradingEngineService — Top 20 기반 자동매매 엔진 (포트 주입형)
  *
  * 전략: Sell First → Buy Next
  *   매도 조건 (3가지 중 하나라도 해당):
  *     1. 손절(Stop-loss):  수익률 ≤ -5%
  *     2. 익절(Take-profit): 수익률 ≥ +10%
- *     3. 랭크아웃:          오늘의 Top 30 리스트에 미포함
+ *     3. 랭크아웃:          오늘의 Top 20 리스트에 미포함
  *   매수 조건:
- *     - Top 30 리스트에서 rank 순으로, 미보유 종목만 빈 슬롯(최대 5개)까지 균등 비중 매수
+ *     - Top 20 리스트에서 rank 순으로, 미보유 종목만 빈 슬롯(최대 5개)까지 균등 비중 매수
  *
  * 아키텍처: 헥사고날. 엔진은 포트(BrokerPort/MarketDataPort/RecommendationPort/ClockPort)에만
  * 의존하며, 구현체는 생성자로 주입된다. 브로커는 계정별(모의/실전)로 주입되어
@@ -116,18 +116,18 @@ export class TradingEngineService {
       const runDate = this.clock.tradingDateKst();
 
       // ── Step 1: 사전 데이터 병렬 수집 ────────────────────────────────────
-      const [top30, account, holdings] = await Promise.all([
-        this.recommendations.getTopRecommendations(30),
+      const [top20, account, holdings] = await Promise.all([
+        this.recommendations.getTopRecommendations(20),
         this.broker.getBalance(),
         this.broker.getPositions(),
       ]);
 
-      if (!top30.length) {
-        console.warn("[TradingEngine] Top30 추천 데이터 없음 — 종료");
+      if (!top20.length) {
+        console.warn("[TradingEngine] Top20 추천 데이터 없음 — 종료");
         return { tickers_analyzed: 0, trades_buy: 0, trades_sell: 0, skipped: 0, details: [] };
       }
 
-      const top30Set = new Set(top30.map((r) => r.ticker));
+      const top20Set = new Set(top20.map((r) => r.ticker));
 
       // 가용 예수금: auto_trade_capital 설정 시 min(현금, 설정자본), 아니면 전체 현금
       let availableCash =
@@ -136,12 +136,12 @@ export class TradingEngineService {
           : account.cash;
 
       console.log(
-        `[TradingEngine] Top30=${top30.length}종목, 보유=${holdings.length}종목, ` +
+        `[TradingEngine] Top20=${top20.length}종목, 보유=${holdings.length}종목, ` +
         `가용예수금=${availableCash.toLocaleString()}원`,
       );
 
       // ── Step 2: 매도 먼저 (Sell First) ───────────────────────────────────
-      const sellResult = await this.executeSells(userId, runDate, holdings, top30Set, details);
+      const sellResult = await this.executeSells(userId, runDate, holdings, top20Set, details);
       trades_sell   = sellResult.sellCount;
       skipped      += sellResult.skipCount;
       availableCash += sellResult.cashRecovered;
@@ -153,7 +153,7 @@ export class TradingEngineService {
 
       // ── Step 3: 매수 (Buy Next) — 매도 후 최신 보유 재조회 ───────────────
       const holdingsAfterSell = await this.broker.getPositions();
-      const buyResult = await this.executeBuys(userId, runDate, top30, holdingsAfterSell, availableCash, details);
+      const buyResult = await this.executeBuys(userId, runDate, top20, holdingsAfterSell, availableCash, details);
       trades_buy = buyResult.buyCount;
       skipped   += buyResult.skipCount;
 
@@ -162,7 +162,7 @@ export class TradingEngineService {
       // ── Step 4: 로그 기록 ─────────────────────────────────────────────────
       const tickers_analyzed = new Set([
         ...holdings.map((h) => h.ticker),
-        ...top30.map((r) => r.ticker),
+        ...top20.map((r) => r.ticker),
       ]).size;
 
       await supabase.from("mock_auto_trade_logs").insert({
@@ -201,7 +201,7 @@ export class TradingEngineService {
     userId:   string,
     runDate:  string,
     holdings: BrokerPosition[],
-    top30Set: Set<string>,
+    top20Set: Set<string>,
     details:  TradeDetail[],
   ): Promise<{ sellCount: number; skipCount: number; cashRecovered: number }> {
     let sellCount     = 0;
@@ -211,13 +211,13 @@ export class TradingEngineService {
     for (const h of holdings) {
       const isStopLoss   = h.pnlPct <= STOP_LOSS_PCT;
       const isTakeProfit = h.pnlPct >= TAKE_PROFIT_PCT;
-      const isRankOut    = !top30Set.has(h.ticker);
+      const isRankOut    = !top20Set.has(h.ticker);
 
       if (!isStopLoss && !isTakeProfit && !isRankOut) {
         skipCount++;
         details.push({
           ticker: h.ticker, name: h.name, action: "SKIP",
-          reason: `보유 유지 (수익률 ${h.pnlPct >= 0 ? "+" : ""}${h.pnlPct.toFixed(2)}%, Top30 포함)`,
+          reason: `보유 유지 (수익률 ${h.pnlPct >= 0 ? "+" : ""}${h.pnlPct.toFixed(2)}%, Top20 포함)`,
         });
         continue;
       }
@@ -225,7 +225,7 @@ export class TradingEngineService {
       const reasons: string[] = [];
       if (isStopLoss)   reasons.push(`손절 ${h.pnlPct.toFixed(2)}% (기준: ${STOP_LOSS_PCT}%)`);
       if (isTakeProfit) reasons.push(`익절 +${h.pnlPct.toFixed(2)}% (기준: +${TAKE_PROFIT_PCT}%)`);
-      if (isRankOut)    reasons.push("랭크아웃 — Top30 미포함");
+      if (isRankOut)    reasons.push("랭크아웃 — Top20 미포함");
       const reason = reasons.join(" + ");
 
       try {
@@ -269,7 +269,7 @@ export class TradingEngineService {
   private async executeBuys(
     userId:            string,
     runDate:           string,
-    top30:             Recommendation[],
+    top20:             Recommendation[],
     holdingsAfterSell: BrokerPosition[],
     availableCash:     number,
     details:           TradeDetail[],
@@ -294,7 +294,7 @@ export class TradingEngineService {
 
     let boughtCount = 0;
 
-    for (const rec of top30) {
+    for (const rec of top20) {
       if (boughtCount >= openSlots) break;
       if (currentHeld.has(rec.ticker)) continue;
 

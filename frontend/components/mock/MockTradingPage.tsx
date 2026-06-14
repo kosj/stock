@@ -121,7 +121,7 @@ export function MockTradingPage() {
 
   async function handleAutoTrade() {
     setAutoRunning(true);
-    const toastId = toast.loading("자동매매 실행 중… (Top30 Sell-First → Buy-Next)");
+    const toastId = toast.loading("자동매매 실행 중… (Top20 Sell-First → Buy-Next)");
     try {
       const result = await api.mock.autoTrade() as any;
       await Promise.all([mutateAccount(), mutateTrades(), mutateAutoLogs()]);
@@ -319,7 +319,7 @@ export function MockTradingPage() {
           <div className="flex items-center gap-2">
             <Bot size={16} className="text-blue-400" />
             <CardTitle>자동매매</CardTitle>
-            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Top30 · 최대 5종목</span>
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Top20 · 최대 5종목</span>
           </div>
           <Button
             size="sm"
@@ -336,8 +336,8 @@ export function MockTradingPage() {
         {/* 전략 설명 */}
         <div className="px-5 pb-4 space-y-3">
           <div className="text-xs text-muted-foreground space-y-1 bg-muted/40 rounded-lg px-3 py-2.5">
-            <div><span className="text-green-400 font-medium">매수 조건:</span> 오늘의 Top 30 추천 종목 — rank 순으로 빈 슬롯만큼 균등 비중 매수</div>
-            <div><span className="text-red-400 font-medium">매도 조건:</span> 손절 −5% 이하 · 익절 +10% 이상 · 랭크아웃(Top30 미포함) → 전량 청산</div>
+            <div><span className="text-green-400 font-medium">매수 조건:</span> 오늘의 Top 20 추천 종목 — rank 순으로 빈 슬롯만큼 균등 비중 매수</div>
+            <div><span className="text-red-400 font-medium">매도 조건:</span> 손절 −5% 이하 · 익절 +10% 이상 · 랭크아웃(Top20 미포함) → 전량 청산</div>
             <div><span className="text-blue-400 font-medium">포지션:</span> 최대 5종목, 가용 예수금을 슬롯 수로 균등 분배</div>
           </div>
 

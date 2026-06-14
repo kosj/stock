@@ -23,7 +23,7 @@ interface RecRow {
 }
 
 export class SupabaseRecommendationAdapter implements RecommendationPort {
-  async getTopRecommendations(limit = 30): Promise<Recommendation[]> {
+  async getTopRecommendations(limit = 20): Promise<Recommendation[]> {
     // 1단계: 가장 최신 분석 날짜
     const { data: latest } = await supabase
       .from("prophet_recommendations")

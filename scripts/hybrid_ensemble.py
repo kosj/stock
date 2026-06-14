@@ -16,9 +16,9 @@ Score      : 0.5 × alpha_zscore + 0.5 × sharpe_zscore  (cross-sectional blend)
 
 Post-processing:
   - Liquidity filter   : 20d average trading value >= 5B KRW
-  - Positive alpha gate: alpha_5d > 0 (no negative-alpha stocks in Top 30)
+  - Positive alpha gate: alpha_5d > 0 (no negative-alpha stocks in Top 20)
   - News sentiment tilt: cross-sectional sentiment z-score blended into score
-  - Sector cap         : max 5 tickers per sector in final Top 30
+  - Sector cap         : max 5 tickers per sector in final Top 20
 
 Output: Upserted into Supabase `prophet_recommendations` table.
 """
@@ -59,6 +59,7 @@ SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 # ── 하이퍼파라미터 ─────────────────────────────────────────────────────────────
 TARGET_DAYS    = 10              # 예측 대상: 10거래일 선행 섹터 중립 알파 (5→10: SNR 개선)
 SECTOR_CAP     = 5               # 섹터당 최대 종목 수 (쏠림 방지)
+TOP_N          = 20              # 최종 추천 종목 수 (Top-N)
 LIQUIDITY_MIN  = 5_000_000_000   # 20일 평균 거래대금 최소치 (50억 KRW)
 TARGET_CLIP    = 0.40            # 훈련 타깃 클리핑 ±40%
 TARGET_DAYS_LONG = 30            # 독립 30일 모델 타깃 호라이즌 (결함2: 2.19배 외삽 대체)
@@ -825,7 +826,7 @@ def main() -> None:
         print(f"  [warn] 30일 독립 모델 실패 → 10일 외삽 폴백: {_e30}")
 
     # ── 6. 리스크 조정 스코어 + 필터링 ───────────────────────────────────────
-    print("\n[6/6] 리스크 조정 스코어 산출 → Top 30 선정...")
+    print(f"\n[6/6] 리스크 조정 스코어 산출 → Top {TOP_N} 선정...")
 
     def _pct_to_return(pct01: float) -> float:
         """예측 백분위(0~1) → 실제 기대 알파(분율) 역변환.
@@ -906,7 +907,7 @@ def main() -> None:
     # [구]절대 alpha_5d>0 게이트 제거: 유니버스 알파 분포가 median-음수(KOSPI 대비
     # 평균 하회, 예: p50≈-0.8%)라, 예측이 중앙에 뭉치는 약예측·약세 구간에서 절대
     # 양수 요구 시 추천이 0으로 전멸한다(설계 결함). 횡단면 랭킹 전략이므로
-    # risk_adj_score 상위 30으로 선정(상위 = 상대 best). 시장 타이밍(현금 보유)은
+    # risk_adj_score 상위 20으로 선정(상위 = 상대 best). 시장 타이밍(현금 보유)은
     # 별도 오버레이 영역이며, 약세는 점수·기대수익률에 그대로 반영된다.
     _pos = int((df_liq["alpha_5d"] > 0).sum())
     _nuniq = int(df_liq["alpha_5d"].nunique())
@@ -924,7 +925,7 @@ def main() -> None:
 
     # 섹터 쏠림 방지: 동일 섹터 최대 5종목
     df_top = _apply_sector_cap(df_sorted, cap=SECTOR_CAP)
-    df_top = df_top.head(30).reset_index(drop=True)
+    df_top = df_top.head(TOP_N).reset_index(drop=True)
 
     # ── 결과 출력 ─────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")
@@ -947,7 +948,7 @@ def main() -> None:
     label_counts = df_top["risk_adj_score"].map(_rec_label).value_counts()
     print(f"\n  추천 분포: {dict(label_counts)}")
 
-    # ── Supabase 저장 (전체 유니버스 — Top30 여부는 accuracy_json.is_top 플래그) ──
+    # ── Supabase 저장 (전체 유니버스 — Top20 여부는 accuracy_json.is_top 플래그) ──
     oof_r2     = models["oof_r2"]
     top_tickers = set(df_top["ticker"].tolist())
     # df_top은 enumerate 기반 순위 → ticker → rank 매핑
@@ -1010,10 +1011,10 @@ def main() -> None:
         })
 
     if dry_run:
-        print(f"\n[dry-run] Supabase 저장 생략. 산출 {len(rows)}행 (Top30: {len(top_tickers)})\n")
+        print(f"\n[dry-run] Supabase 저장 생략. 산출 {len(rows)}행 (Top{TOP_N}: {len(top_tickers)})\n")
     else:
         upsert_supabase(rows, run_date)
-        print(f"\n완료: {run_date}  전체 {len(rows)} 종목 저장 (Top30: {len(top_tickers)})\n")
+        print(f"\n완료: {run_date}  전체 {len(rows)} 종목 저장 (Top{TOP_N}: {len(top_tickers)})\n")
 
 
 if __name__ == "__main__":

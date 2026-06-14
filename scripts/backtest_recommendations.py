@@ -13,8 +13,8 @@ Supabase `prophet_recommendations`(과거 추천) × 실현 수익률(yfinance)�
   - 누적       : run_date별 Top-N 평균 알파의 합(겹침 무시한 단순 합산, 추세 확인용)
 
 사용:
-  python scripts/backtest_recommendations.py            # 10일 호라이즌, Top30
-  python scripts/backtest_recommendations.py --horizon 30 --topn 20
+  python scripts/backtest_recommendations.py            # 10일 호라이즌, Top20
+  python scripts/backtest_recommendations.py --horizon 30 --topn 10
 환경변수: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 의존성: pandas, numpy, scipy, yfinance, requests (scripts/requirements.txt)
 
@@ -77,7 +77,7 @@ def realized_alpha(close: pd.Series, mkt: pd.Series, d0: pd.Timestamp, horizon: 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--horizon", type=int, default=10, help="실현 호라이즌(거래일)")
-    ap.add_argument("--topn", type=int, default=30, help="Top-N 포트폴리오 크기")
+    ap.add_argument("--topn", type=int, default=20, help="Top-N 포트폴리오 크기")
     ap.add_argument("--pred-col", default="predicted_return_7d",
                     help="예측 칼럼(기본 predicted_return_7d=10일 알파)")
     args = ap.parse_args()

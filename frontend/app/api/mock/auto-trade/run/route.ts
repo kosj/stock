@@ -2,9 +2,9 @@
  * POST /api/mock/auto-trade/run
  * UI에서 수동으로 자동매매를 실행 — 현재 로그인 사용자만 대상
  *
- * 전략: TradingEngineService (Top 30 기반 Sell First → Buy Next)
- *   매도: 손절(-5%) / 익절(+10%) / 랭크아웃(Top30 미포함)
- *   매수: Top30 rank 순, 최대 5종목, 균등 비중
+ * 전략: TradingEngineService (Top 20 기반 Sell First → Buy Next)
+ *   매도: 손절(-5%) / 익절(+10%) / 랭크아웃(Top20 미포함)
+ *   매수: Top20 rank 순, 최대 5종목, 균등 비중
  */
 
 import { NextResponse } from "next/server";

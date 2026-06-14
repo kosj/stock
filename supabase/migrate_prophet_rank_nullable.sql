@@ -1,6 +1,6 @@
 -- Migration: prophet_recommendations.rank → nullable + UNIQUE 제약 교체
 -- 실행 방법: Supabase Dashboard > SQL Editor 에 붙여넣고 Run
--- 목적: Python 앙상블이 Top30 외 유니버스 전체(51종목)를 저장할 수 있도록
+-- 목적: Python 앙상블이 Top20 외 유니버스 전체(51종목)를 저장할 수 있도록
 --       rank 컬럼의 NOT NULL 제약 제거 + UNIQUE 기준을 (run_date, ticker)로 교체
 
 -- 1. rank NOT NULL 제약 제거
