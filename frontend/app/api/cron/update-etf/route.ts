@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { fetchTodayPrice } from "@/lib/server/etf-price-fetcher";
+import { fetchRecentCloses } from "@/lib/server/etf-price-fetcher";
 
 export const dynamic     = "force-dynamic";
 // Vercel Pro: 여러 ETF 순차 조회 시간 보장. Hobby 플랜은 10s 제한에 주의.
@@ -48,23 +48,31 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 3. 종가 수집 (병렬) ─────────────────────────────────────────────────
-    // Promise.allSettled: 일부 종목 API 오류가 전체 배치를 중단시키지 않도록
+    // Promise.allSettled: 일부 종목 API 오류가 전체 배치를 중단시키지 않도록.
+    // 당일 1건만 적재하면 etf_daily_prices에 히스토리가 쌓이기 전까지 섹터
+    // 1개월(20영업일) 수익률이 "1일 수익률"로 degrade되므로, 최근 구간(3개월
+    // ≈ 60영업일)을 통째로 백필한다. upsert가 (etf_id, date) 멱등이라 매 실행
+    // 재적재해도 중복 없이 안전하며, cron 첫 가동 즉시 20일+ 윈도우가 채워진다.
     const results = await Promise.allSettled(
       etfs.map(async (etf) => {
-        const price = await fetchTodayPrice(etf.ticker);
-        if (price === null) throw new Error(`${etf.ticker} 종가 조회 실패`);
-        return { etf_id: etf.id, date: today, close_price: price };
+        const closes = await fetchRecentCloses(etf.ticker);
+        if (closes.length === 0) throw new Error(`${etf.ticker} 종가 조회 실패`);
+        return closes.map((c) => ({
+          etf_id:      etf.id,
+          date:        c.date,
+          close_price: c.close,
+        }));
       })
     );
 
     // ── 4. 성공한 종목만 Upsert ──────────────────────────────────────────────
     // onConflict: etf_id+date → 동일 날짜 재실행 시 가격 갱신(update)으로 처리
     // ignoreDuplicates: false → 중복 시 close_price를 최신값으로 덮어쓰기
-    const rows = results
-      .filter((r): r is PromiseFulfilledResult<{ etf_id: number; date: string; close_price: number }> =>
+    const okResults = results.filter(
+      (r): r is PromiseFulfilledResult<{ etf_id: number; date: string; close_price: number }[]> =>
         r.status === "fulfilled"
-      )
-      .map((r) => r.value);
+    );
+    const rows = okResults.flatMap((r) => r.value);
 
     const failed = results
       .filter((r) => r.status === "rejected")
@@ -83,11 +91,13 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 5. 결과 반환 ────────────────────────────────────────────────────────
+    // updated: 수집 성공 ETF 수 / rowsUpserted: 백필 포함 실제 upsert된 행 수
     return NextResponse.json({
-      date:    today,
-      total:   etfs.length,
-      updated: rows.length,
-      failed:  failed.length,
+      date:        today,
+      total:       etfs.length,
+      updated:     okResults.length,
+      rowsUpserted: rows.length,
+      failed:      failed.length,
       failedDetails: failed,
       upsertError,
     });
