@@ -1,40 +1,59 @@
 /**
- * ETF 당일 종가 수집 모듈
+ * ETF 종가 수집 모듈
  *
- * 현재: Yahoo Finance(getChart) 기반 가상 구현
- * 교체 방법: 이 파일의 fetchTodayPrice() 내부만 증권사 API 호출로 교체
+ * 현재: Yahoo Finance(getChart) 기반 구현
+ * 교체 방법: 이 파일의 fetch 함수 내부만 증권사 API 호출로 교체
  *           → Cron Job(update-etf/route.ts)은 수정 불필요
  *
  * 반환값:
- *   number  - 정상 종가
- *   null    - 데이터 없음 / 오류 (Cron이 해당 종목 skip)
+ *   fetchTodayPrice    number | null   - 당일 종가(없으면 null)
+ *   fetchRecentCloses  {date, close}[] - 최근 영업일별 종가(없으면 [])
  */
 
 import { getChart } from "./yahoo-finance";
 
+export interface DailyClose {
+  date:  string;   // "YYYY-MM-DD"
+  close: number;
+}
+
 /**
- * 특정 종목의 오늘자 종가를 가져온다.
+ * 특정 종목의 최근 영업일별 종가를 가져온다.
+ *
+ * 섹터 1개월(20영업일) 수익률 계산에는 20일+ 히스토리가 필요하므로,
+ * 당일 1건만 적재하면 데이터가 쌓이기 전까지 "1일 수익률"로 degrade된다.
+ * 따라서 매 수집 시 최근 구간(기본 3개월 ≈ 60영업일)을 통째로 가져와
+ * etf_daily_prices에 백필(upsert)한다. upsert는 (etf_id, date) 멱등이라 안전.
+ *
+ * @param ticker  종목 코드 (예: "091160")
+ * @param period  조회 구간 (getChart 지원: "5d","1m","3m","6m","1y" ...)
+ * @returns       날짜 오름차순 종가 배열 또는 []
+ */
+export async function fetchRecentCloses(
+  ticker: string,
+  period = "3m",
+): Promise<DailyClose[]> {
+  try {
+    const candles = await getChart(ticker, period);
+    if (!candles || candles.length === 0) return [];
+
+    return candles
+      .filter((c) => c.close != null && c.time)
+      .map((c) => ({ date: c.time.slice(0, 10), close: c.close }));
+  } catch (err) {
+    console.error(`[fetchRecentCloses] ${ticker} 오류:`, err);
+    return [];
+  }
+}
+
+/**
+ * 특정 종목의 당일(최근 거래일) 종가를 가져온다.
  *
  * @param ticker  종목 코드 (예: "091160")
  * @returns       종가(원) 또는 null
  */
 export async function fetchTodayPrice(ticker: string): Promise<number | null> {
-  try {
-    // ── Yahoo Finance로 최근 5일 캔들 조회 ───────────────────────────────────
-    // "5d" range로 최소 데이터만 가져와 비용(latency) 절감
-    // 실제 증권사 API 연결 시 이 블록을 교체:
-    //   예) KIS: const res = await fetch(`https://openapi.koreainvestment.com/...`)
-    //   예) eBest: const res = await axios.post('https://openapi.ebestsec.co.kr/...')
-    const candles = await getChart(ticker, "5d");
-
-    if (!candles || candles.length === 0) return null;
-
-    // 가장 최근 거래일 종가
-    const latest = candles[candles.length - 1];
-    return latest.close ?? null;
-
-  } catch (err) {
-    console.error(`[fetchTodayPrice] ${ticker} 오류:`, err);
-    return null;
-  }
+  const closes = await fetchRecentCloses(ticker, "5d");
+  if (closes.length === 0) return null;
+  return closes[closes.length - 1].close ?? null;
 }
