@@ -75,7 +75,7 @@ ALPHA30_DECAY  = 0.7             # 30일 외삽 감쇠 계수 — 10d×3스텝: 
 A30_CAP        = 0.60            # 30일 예측 최대 ±60%
 
 # ── 뉴스 감성 ─────────────────────────────────────────────────────────────────
-SENTIMENT_CONCURRENCY = 8        # 감성 배치 동시 실행 상한(Naver/HF rate-limit 회피)
+SENTIMENT_CONCURRENCY = 4        # 감성 배치 동시 실행 상한(Naver/HF rate-limit·콜드스타트 부하 회피)
 # 최종 스코어 z-블렌드 가중치: 0.45·alpha_z + 0.45·sharpe_z + 0.10·sentiment_z
 # (감성 z가 전부 0이면 0.45(α+s)가 되어 기존 0.5(α+s)와 순위 동일 → 감성 부재 시 무해)
 W_ALPHA_Z     = 0.45

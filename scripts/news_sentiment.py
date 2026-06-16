@@ -54,9 +54,16 @@ DESKTOP_UA = (
 
 MAX_HEADLINES  = 12      # 종목당 분석 헤드라인 수(HF 비용·지연 제어)
 CRAWL_TIMEOUT  = 5       # 크롤링 타임아웃(초)
-HF_TIMEOUT     = 8       # HF 추론 타임아웃(초)
-HF_RETRIES     = 2       # 503(모델 로딩) 등 재시도 횟수
-MA_WINDOW      = 3       # sentiment_3d_ma 윈도우(당일 포함 거래일)
+# HF 추론 타임아웃: (connect, read) 튜플.
+# read를 충분히 길게(25s) 잡는 이유 — wait_for_model=True로 서버가 모델 콜드스타트
+# (로딩)을 기다리는 동안 응답을 보류하므로, 8s 같은 짧은 read timeout은 로딩 완료
+# 전에 클라이언트가 먼저 끊어 ReadTimeout을 유발한다(router.huggingface.co Read
+# timed out 의 근본 원인). connect는 빠른 실패를 위해 짧게 유지.
+HF_CONNECT_TIMEOUT = 5
+HF_READ_TIMEOUT    = 25
+HF_TIMEOUT         = (HF_CONNECT_TIMEOUT, HF_READ_TIMEOUT)
+HF_RETRIES         = 2   # 503(모델 로딩)/타임아웃 등 재시도 횟수
+MA_WINDOW          = 3   # sentiment_3d_ma 윈도우(당일 포함 거래일)
 
 
 # ── 극성 라벨 → 부호 매핑 ──────────────────────────────────────────────────────
@@ -176,7 +183,13 @@ class NewsSentimentService:
                     continue
                 r.raise_for_status()
                 return self._normalize(r.json(), len(headlines))
-            except Exception as exc:  # noqa: BLE001 — 마지막 시도까지 재시도
+            except requests.exceptions.Timeout as exc:
+                # 콜드스타트로 read timeout 시: 지수 백오프 후 재시도(다음 시도엔
+                # 모델이 warm 되어 있을 가능성 ↑). connect/read 양쪽 모두 포괄.
+                last_err = exc
+                if attempt < HF_RETRIES:
+                    time.sleep(2.0 * (2 ** attempt))  # 2s, 4s
+            except Exception as exc:  # noqa: BLE001 — 그 외 오류도 마지막 시도까지 재시도
                 last_err = exc
                 if attempt < HF_RETRIES:
                     time.sleep(0.8 * (attempt + 1))
