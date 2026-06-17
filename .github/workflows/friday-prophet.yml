@@ -1,9 +1,11 @@
 name: "Hybrid Stacking Ensemble Daily"
 
-# 매일 16:00 KST (07:00 UTC) — 한국장 마감(15:30) 후 30분
+# 매일 16:12 KST (07:12 UTC) — 한국장 마감(15:30) 후, krx-cache(06:40 UTC) 이후.
+# 분을 정시(:00)에서 떼는 이유: GitHub Actions schedule 이벤트는 매 정시에 부하가
+# 몰려 수 시간씩 지연/드롭된다(공식 문서 권고). 정시를 피하면 지연이 크게 줄어든다.
 on:
   schedule:
-    - cron: "0 7 * * *"
+    - cron: "12 7 * * *"
   workflow_dispatch:          # GitHub Actions UI에서 수동 실행 가능
 
 jobs:
