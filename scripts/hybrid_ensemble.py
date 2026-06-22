@@ -18,7 +18,6 @@ Post-processing:
   - Liquidity filter   : 20d average trading value >= 5B KRW
   - Positive alpha gate: alpha_5d > 0 (no negative-alpha stocks in Top 20)
   - News sentiment tilt: cross-sectional sentiment z-score blended into score
-  - Sector cap         : max 5 tickers per sector in final Top 20
 
 Output: Upserted into Supabase `prophet_recommendations` table.
 """
@@ -58,7 +57,6 @@ SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 # ── 하이퍼파라미터 ─────────────────────────────────────────────────────────────
 TARGET_DAYS    = 10              # 예측 대상: 10거래일 선행 섹터 중립 알파 (5→10: SNR 개선)
-SECTOR_CAP     = 5               # 섹터당 최대 종목 수 (쏠림 방지)
 TOP_N          = 20              # 최종 추천 종목 수 (Top-N)
 LIQUIDITY_MIN  = 5_000_000_000   # 20일 평균 거래대금 최소치 (50억 KRW)
 TARGET_CLIP    = 0.40            # 훈련 타깃 클리핑 ±40%
@@ -555,18 +553,6 @@ def _calc_trend_slope_annual_pct(df: pd.DataFrame, days: int = 60) -> float:
         return 0.0
 
 
-def _apply_sector_cap(df: pd.DataFrame, cap: int) -> pd.DataFrame:
-    """섹터별 상위 cap개 초과 종목을 차순위로 교체 (순서 유지)"""
-    counts: dict = {}
-    rows = []
-    for _, r in df.iterrows():
-        s = r["sector"]
-        if counts.get(s, 0) < cap:
-            rows.append(r)
-            counts[s] = counts.get(s, 0) + 1
-    return pd.DataFrame(rows).reset_index(drop=True)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Supabase 저장
 # ─────────────────────────────────────────────────────────────────────────────
@@ -923,9 +909,8 @@ def main() -> None:
     # 리스크 조정 스코어 내림차순 정렬 (상위 = 횡단면 상대 best)
     df_sorted = df_liq.sort_values("risk_adj_score", ascending=False).reset_index(drop=True)
 
-    # 섹터 쏠림 방지: 동일 섹터 최대 5종목
-    df_top = _apply_sector_cap(df_sorted, cap=SECTOR_CAP)
-    df_top = df_top.head(TOP_N).reset_index(drop=True)
+    # 섹터 쏠림 제한 없이 스코어 상위 Top-N 그대로 선정
+    df_top = df_sorted.head(TOP_N).reset_index(drop=True)
 
     # ── 결과 출력 ─────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")
