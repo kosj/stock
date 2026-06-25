@@ -12,7 +12,7 @@ Layer 2 (Meta Model):
 Validation : TimeSeriesSplit / Walk-forward (no look-ahead bias enforced)
 Target     : N-day forward excess return vs KOSPI benchmark (Alpha, cross-sectional rank)
 Horizons   : 10d primary (full stack, drives ranking) + 30d independent (LightGBM)
-Score      : 0.5 × alpha_zscore + 0.5 × sharpe_zscore  (cross-sectional blend)
+Score      : 0.65 × alpha_z + 0.25 × sharpe_z + 0.10 × sentiment_z  (cross-sectional blend)
 
 Post-processing:
   - Liquidity filter   : 20d average trading value >= 5B KRW
