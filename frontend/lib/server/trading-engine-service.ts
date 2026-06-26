@@ -1,13 +1,17 @@
 /**
  * TradingEngineService — Top 20 기반 자동매매 엔진 (포트 주입형)
  *
- * 전략: Sell First → Buy Next
- *   매도 조건 (3가지 중 하나라도 해당):
- *     1. 손절(Stop-loss):  수익률 ≤ -5%
- *     2. 익절(Take-profit): 수익률 ≥ +10%
- *     3. 랭크아웃:          오늘의 Top 20 리스트에 미포함
- *   매수 조건:
- *     - Top 20 리스트에서 rank 순으로, 미보유 종목만 빈 슬롯(최대 5개)까지 균등 비중 매수
+ * 전략: 목표 포트폴리오 리밸런싱(선언형) — Sell First → Buy Next
+ *   히스테리시스 밴드로 경계 떨림을 막고, 승자는 랭크가 유지되는 한 계속 보유한다.
+ *   청산(매도) 조건 (둘 중 하나):
+ *     1. 손절(Stop-loss): 수익률 ≤ -5% (하방 리스크 가드)
+ *     2. 랭크아웃:         오늘 Top20 미포함 OR 현재 랭크 > 15 (청산 밴드)
+ *     ※ 고정 익절(+10%) 폐지 — 랭크 안에 있는 한 승자를 계속 보유(let winners run).
+ *   신규 진입(매수) 조건:
+ *     - 오늘 Top20 중 rank ≤ 5(진입 밴드) & 미보유 & "당일 청산하지 않은" 종목만
+ *     - 빈 슬롯(최대 5종목)까지 rank 순 균등 비중 매수
+ *   → 보유 종목이 목표에도 있으면 건드리지 않으므로 "같은 날 팔고 되사기"가 사라진다.
+ *     6~15위 밴드의 보유 종목은 유지하되 신규 진입은 5위 이내로 제한해 회전율을 낮춘다.
  *
  * 아키텍처: 헥사고날. 엔진은 포트(BrokerPort/MarketDataPort/RecommendationPort/ClockPort)에만
  * 의존하며, 구현체는 생성자로 주입된다. 브로커는 계정별(모의/실전)로 주입되어
@@ -30,12 +34,18 @@ import type { OrderResult, OrderSide } from "@/lib/core/domain/order";
 
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
-/** 최대 동시 보유 종목 수 */
+/** 최대 동시 보유 종목 수 (목표 포트폴리오 크기) */
 const MAX_HOLDINGS = 5;
-/** 손절 기준 수익률 (%) */
+/** 손절 기준 수익률 (%) — 하방 리스크 가드 */
 const STOP_LOSS_PCT = -5;
-/** 익절 기준 수익률 (%) */
-const TAKE_PROFIT_PCT = 10;
+/** 신규 진입 밴드: 이 순위 이내(상위) 종목만 새로 매수 */
+const ENTRY_RANK_MAX = 5;
+/**
+ * 청산 밴드: 보유 종목의 현재 순위가 이 값을 초과하면 랭크아웃으로 청산.
+ * ENTRY_RANK_MAX(5) < EXIT_RANK_MAX(15)의 간극이 히스테리시스로 작동 —
+ * 6~15위에서 오르내리는 종목을 매일 사고팔지 않게 한다.
+ */
+const EXIT_RANK_MAX = 15;
 
 // ── 출력 타입 (UI 계약 — 변경 금지) ──────────────────────────────────────────
 
@@ -127,7 +137,8 @@ export class TradingEngineService {
         return { tickers_analyzed: 0, trades_buy: 0, trades_sell: 0, skipped: 0, details: [] };
       }
 
-      const top20Set = new Set(top20.map((r) => r.ticker));
+      // 티커 → 현재 순위 맵 (청산 밴드 판정용; 미포함 = Top20 밖)
+      const rankByTicker = new Map<string, number>(top20.map((r) => [r.ticker, r.rank]));
 
       // 가용 예수금: auto_trade_capital 설정 시 min(현금, 설정자본), 아니면 전체 현금
       let availableCash =
@@ -141,7 +152,7 @@ export class TradingEngineService {
       );
 
       // ── Step 2: 매도 먼저 (Sell First) ───────────────────────────────────
-      const sellResult = await this.executeSells(userId, runDate, holdings, top20Set, details);
+      const sellResult = await this.executeSells(userId, runDate, holdings, rankByTicker, details);
       trades_sell   = sellResult.sellCount;
       skipped      += sellResult.skipCount;
       availableCash += sellResult.cashRecovered;
@@ -153,7 +164,9 @@ export class TradingEngineService {
 
       // ── Step 3: 매수 (Buy Next) — 매도 후 최신 보유 재조회 ───────────────
       const holdingsAfterSell = await this.broker.getPositions();
-      const buyResult = await this.executeBuys(userId, runDate, top20, holdingsAfterSell, availableCash, details);
+      const buyResult = await this.executeBuys(
+        userId, runDate, top20, holdingsAfterSell, sellResult.soldTickers, availableCash, details,
+      );
       trades_buy = buyResult.buyCount;
       skipped   += buyResult.skipCount;
 
@@ -198,34 +211,40 @@ export class TradingEngineService {
   // ── 프라이빗: 매도 로직 ───────────────────────────────────────────────────
 
   private async executeSells(
-    userId:   string,
-    runDate:  string,
-    holdings: BrokerPosition[],
-    top20Set: Set<string>,
-    details:  TradeDetail[],
-  ): Promise<{ sellCount: number; skipCount: number; cashRecovered: number }> {
+    userId:       string,
+    runDate:      string,
+    holdings:     BrokerPosition[],
+    rankByTicker: Map<string, number>,
+    details:      TradeDetail[],
+  ): Promise<{ sellCount: number; skipCount: number; cashRecovered: number; soldTickers: Set<string> }> {
     let sellCount     = 0;
     let skipCount     = 0;
     let cashRecovered = 0;
+    const soldTickers = new Set<string>();
 
     for (const h of holdings) {
-      const isStopLoss   = h.pnlPct <= STOP_LOSS_PCT;
-      const isTakeProfit = h.pnlPct >= TAKE_PROFIT_PCT;
-      const isRankOut    = !top20Set.has(h.ticker);
+      const rank       = rankByTicker.get(h.ticker);    // undefined = Top20 미포함
+      const isStopLoss = h.pnlPct <= STOP_LOSS_PCT;
+      const isRankOut  = rank === undefined || rank > EXIT_RANK_MAX;
 
-      if (!isStopLoss && !isTakeProfit && !isRankOut) {
+      // 승자 유지(let winners run): 손절도 아니고 청산 밴드(≤15위) 안이면 보유 유지.
+      // 고정 익절을 두지 않으므로 수익 종목도 랭크가 살아있는 한 계속 들고 간다.
+      if (!isStopLoss && !isRankOut) {
         skipCount++;
         details.push({
           ticker: h.ticker, name: h.name, action: "SKIP",
-          reason: `보유 유지 (수익률 ${h.pnlPct >= 0 ? "+" : ""}${h.pnlPct.toFixed(2)}%, Top20 포함)`,
+          reason: `보유 유지 (수익률 ${h.pnlPct >= 0 ? "+" : ""}${h.pnlPct.toFixed(2)}%, 현재 Top${rank})`,
         });
         continue;
       }
 
       const reasons: string[] = [];
-      if (isStopLoss)   reasons.push(`손절 ${h.pnlPct.toFixed(2)}% (기준: ${STOP_LOSS_PCT}%)`);
-      if (isTakeProfit) reasons.push(`익절 +${h.pnlPct.toFixed(2)}% (기준: +${TAKE_PROFIT_PCT}%)`);
-      if (isRankOut)    reasons.push("랭크아웃 — Top20 미포함");
+      if (isStopLoss) reasons.push(`손절 ${h.pnlPct.toFixed(2)}% (기준: ${STOP_LOSS_PCT}%)`);
+      if (isRankOut)  reasons.push(
+        rank === undefined
+          ? "랭크아웃 — Top20 미포함"
+          : `랭크 하락 — 현재 Top${rank} (청산기준 >${EXIT_RANK_MAX}위)`,
+      );
       const reason = reasons.join(" + ");
 
       try {
@@ -241,6 +260,7 @@ export class TradingEngineService {
 
         if (result.status === "FILLED") {
           sellCount++;
+          soldTickers.add(h.ticker);   // 당일 청산 종목 → 매수 단계 되사기 차단
           // 멱등 중복이면 현금은 이미 이전 실행에 반영됨 → 예산 이중 계상 방지
           if (!result.duplicate) cashRecovered += result.filledAmount;
           details.push({
@@ -261,7 +281,7 @@ export class TradingEngineService {
       }
     }
 
-    return { sellCount, skipCount, cashRecovered };
+    return { sellCount, skipCount, cashRecovered, soldTickers };
   }
 
   // ── 프라이빗: 매수 로직 ───────────────────────────────────────────────────
@@ -271,6 +291,7 @@ export class TradingEngineService {
     runDate:           string,
     top20:             Recommendation[],
     holdingsAfterSell: BrokerPosition[],
+    soldThisRun:       Set<string>,
     availableCash:     number,
     details:           TradeDetail[],
   ): Promise<{ buyCount: number; skipCount: number }> {
@@ -296,7 +317,18 @@ export class TradingEngineService {
 
     for (const rec of top20) {
       if (boughtCount >= openSlots) break;
+      // 신규 진입 밴드: 상위 ENTRY_RANK_MAX위 이내 종목만 새로 매수 (히스테리시스)
+      if (rec.rank > ENTRY_RANK_MAX) continue;
       if (currentHeld.has(rec.ticker)) continue;
+      // 당일 청산(손절·랭크아웃)한 종목은 같은 날 되사지 않는다 — churn 방지
+      if (soldThisRun.has(rec.ticker)) {
+        skipCount++;
+        details.push({
+          ticker: rec.ticker, name: rec.name, action: "SKIP",
+          reason: `당일 청산 종목 — 되사기 방지 (현재 Top${rec.rank})`,
+        });
+        continue;
+      }
 
       // 현재가 조회 (시장가 사이징 — 예수금 초과 방지)
       let currentPrice: number;
