@@ -343,7 +343,7 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     oof_lgbm = np.full(n, np.nan)
     oof_rf   = np.full(n, np.nan)
     oof_mask = np.zeros(n, dtype=bool)
-    last_fold = None   # FEATURE_REPORT용: 마지막 폴드의 (모델, 테스트 블록) 보관
+    report_folds = []   # FEATURE_REPORT용: 각 폴드의 (모델, 테스트 블록) 보관
 
     # gap=TARGET_DAYS는 "날짜" 단위(아래 split이 고유 날짜 배열 위에서 돌기 때문).
     # 훈련 마지막 날짜의 10일 선행 라벨이 테스트 구간과 겹치지 않도록 purge한다.
@@ -381,7 +381,7 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
         oof_lgbm[te_idx] = np.clip(lgbm.predict(X_te), -0.5, 0.5)
         oof_rf[te_idx]   = np.clip(rf.predict(X_te),   -0.5, 0.5)
         oof_mask[te_idx] = True
-        last_fold = {"lgbm": lgbm, "X_te": X_te, "te_idx": te_idx}
+        report_folds.append({"lgbm": lgbm, "X_te": X_te, "te_idx": te_idx})
 
         print(f"  Fold {fold+1}/{CV_SPLITS}: train={tr.sum():,}행  test={te.sum():,}행")
 
@@ -427,8 +427,8 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
         print(f"  → 신호 신뢰도 낮음. 결과를 참고 자료로만 활용 권장.")
 
     # ── 피처 순열 중요도 리포트 (env FEATURE_REPORT=1일 때만 — CI 기본 비활성) ──
-    if os.environ.get("FEATURE_REPORT") == "1" and last_fold is not None:
-        _feature_report(last_fold, row_dates, y_all)
+    if os.environ.get("FEATURE_REPORT") == "1" and report_folds:
+        _feature_report(report_folds, row_dates, y_all)
 
     # ── 전체 데이터로 Base 모델 재훈련 (최종 예측용) ─────────────────────────
     ok_all   = ~np.isnan(y_all) & ~np.any(np.isnan(X_all), axis=1)
@@ -448,41 +448,57 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     )
 
 
-def _feature_report(fold: dict, row_dates, y_all, n_repeats: int = 5) -> None:
+def _feature_report(folds: list, row_dates, y_all, n_repeats: int = 3) -> None:
     """
-    마지막 walk-forward 폴드의 테스트 블록에서 LGBM 순열 중요도를 산출한다.
-    중요도 = 해당 피처 열을 섞었을 때 "일별 크로스섹셔널 IC"가 얼마나 떨어지는가(ΔIC).
-    누수 없음: 그 폴드 훈련분으로 학습된 모델을 그 폴드 테스트 구간에서만 평가.
+    전체 walk-forward 폴드에서 LGBM 순열 중요도를 집계한다.
+    중요도 = 피처 열을 섞었을 때 "일별 크로스섹셔널 IC" 하락(ΔIC)의 폴드 평균.
+    단일 폴드 결과는 국면 의존적이고 상관 피처끼리 credit이 분산되므로,
+    폴드별 ΔIC>0 개수(pos)를 함께 보고해 제거 판단의 안정성을 높인다.
+    누수 없음: 각 폴드 모델을 그 폴드 테스트 구간에서만 평가.
     비용 때문에 env FEATURE_REPORT=1 일 때만 실행(일간 CI 기본 비활성).
     Phase 1에서는 리포트만 — 실제 피처 제거는 이 표를 근거로 별도 결정한다.
     """
-    lgbm, X_te, te_idx = fold["lgbm"], fold["X_te"], fold["te_idx"]
-    d_te = row_dates[te_idx]
-    y_te = y_all[te_idx]
-    ok = np.isfinite(y_te)
-    X_te, d_te, y_te = X_te[ok], d_te[ok], y_te[ok]
-    if len(y_te) < 100:
-        print("  [FEATURE_REPORT] 테스트 블록 표본 부족 — 생략")
+    rng = np.random.default_rng(42)
+    per_fold: list[dict] = []
+    bases: list[float] = []
+
+    for fold in folds:
+        lgbm, X_te, te_idx = fold["lgbm"], fold["X_te"], fold["te_idx"]
+        d_te = row_dates[te_idx]
+        y_te = y_all[te_idx]
+        ok = np.isfinite(y_te)
+        X_te, d_te, y_te = X_te[ok], d_te[ok], y_te[ok]
+        if len(y_te) < 100:
+            continue
+        base = daily_ic_stats(d_te, lgbm.predict(X_te), y_te, nw_lag=TARGET_DAYS)["ic_mean"]
+        bases.append(float(base))
+        drops: dict[str, float] = {}
+        for j, name in enumerate(FEATURE_COLS):
+            ds = []
+            for _ in range(n_repeats):
+                Xp = X_te.copy()
+                rng.shuffle(Xp[:, j])
+                ic = daily_ic_stats(d_te, lgbm.predict(Xp), y_te, nw_lag=TARGET_DAYS)["ic_mean"]
+                ds.append(base - ic)
+            drops[name] = float(np.mean(ds))
+        per_fold.append(drops)
+
+    if not per_fold:
+        print("  [FEATURE_REPORT] 평가 가능한 폴드 없음 — 생략")
         return
 
-    base = daily_ic_stats(d_te, lgbm.predict(X_te), y_te, nw_lag=TARGET_DAYS)["ic_mean"]
-    rng = np.random.default_rng(42)
     rows = []
-    for j, name in enumerate(FEATURE_COLS):
-        drops = []
-        for _ in range(n_repeats):
-            Xp = X_te.copy()
-            rng.shuffle(Xp[:, j])
-            ic = daily_ic_stats(d_te, lgbm.predict(Xp), y_te, nw_lag=TARGET_DAYS)["ic_mean"]
-            drops.append(base - ic)
-        rows.append((name, float(np.mean(drops))))
+    for name in FEATURE_COLS:
+        vals = [f[name] for f in per_fold]
+        rows.append((name, float(np.mean(vals)), sum(v > 0 for v in vals), len(vals)))
     rows.sort(key=lambda r: r[1], reverse=True)
 
-    print(f"\n  [FEATURE_REPORT] 순열 중요도 — 마지막 폴드, 기준 일별IC={base:+.4f}")
-    print(f"  (ΔIC>0 = 제거 시 IC 하락 = 기여 피처 / ΔIC≤0 = 노이즈 후보)")
-    for name, d in rows:
-        marker = "  " if d > 0 else "✂ "
-        print(f"    {marker}{name:22s} ΔIC={d:+.5f}")
+    print(f"\n  [FEATURE_REPORT] 순열 중요도 — {len(per_fold)}개 폴드 집계 "
+          f"(폴드별 기준 일별IC: {', '.join(f'{b:+.3f}' for b in bases)})")
+    print(f"  (ΔIC = 폴드 평균, pos = ΔIC>0 폴드 수. 평균≤0이고 pos가 과반 미만이면 제거 후보 ✂)")
+    for name, m, pos, ntot in rows:
+        marker = "✂ " if (m <= 0 and pos <= ntot // 2) else "  "
+        print(f"    {marker}{name:22s} ΔIC={m:+.5f}  pos={pos}/{ntot}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
