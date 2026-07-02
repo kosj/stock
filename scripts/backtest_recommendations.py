@@ -219,7 +219,18 @@ def main() -> None:
         diag_hits.append(float((reals_a[order] > 0).mean()))
 
     if not ic_rows:
-        sys.exit("실현 수익률 매칭 부족 — 호라이즌 경과한 run_date가 더 필요")
+        # 호라이즌이 아직 경과하지 않은 상태는 도구 오류가 아니라 데이터 누적 대기.
+        # 스케줄 잡이 실패로 표시되지 않도록 정보 출력 후 정상 종료(exit 0)한다.
+        print("실현 수익률 매칭 부족 — 호라이즌 경과한 run_date가 더 필요 (누적 대기, 정상 종료)")
+        if args.json:
+            with open(args.json, "w", encoding="utf-8") as f:
+                json.dump({"params": {"horizon": args.horizon, "topn": args.topn,
+                                      "lag": args.lag, "pred_col": args.pred_col},
+                           "n_run_dates_evaluated": 0,
+                           "note": "호라이즌 미경과 — 추천 누적 후 재측정"},
+                          f, ensure_ascii=False, indent=2)
+            print(f"[backtest] JSON 저장: {args.json}")
+        return
 
     ic_dates = [t[0] for t in ic_rows]
     ic_preds = [t[1] for t in ic_rows]

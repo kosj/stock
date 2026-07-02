@@ -70,7 +70,9 @@ def daily_ic_stats(dates, pred, y, min_names: int = 5, nw_lag: int = 10) -> dict
     for d, g in df.groupby("date", sort=True):
         if len(g) < min_names:
             continue
-        # 상수 벡터(전부 동일 값)면 spearmanr가 NaN — 그대로 걸러진다
+        # 상수 벡터(전부 동일 값)면 상관이 정의되지 않음 — 경고 없이 해당일 제외
+        if g["pred"].nunique() < 2 or g["y"].nunique() < 2:
+            continue
         ic = spearmanr(g["pred"].values, g["y"].values).statistic
         if np.isfinite(ic):
             ics.append((d, float(ic)))
