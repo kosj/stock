@@ -845,10 +845,15 @@ def main() -> None:
 
     # cross-sectional 피처(sector_rel, rs_rank)는 d["feats"]에 없으므로 별도 계산
     _CS_FEATS = {"sector_rel_ret_5d", "sector_rel_ret_20d", "rs_rank_20d"}
+    # 파생 원천 컬럼(ret_5d, ret_20d)은 FEATURE_COLS에서 제외됐어도 latest_df에
+    # 반드시 포함해야 한다(아래 sector_rel/rs_rank 계산이 원천으로 사용).
+    # 모델 입력은 predict에서 latest[FEATURE_COLS]만 쓰므로 여분 컬럼은 무해하다.
+    _CS_SOURCES  = ["ret_5d", "ret_20d"]
     _local_fcols = [f for f in FEATURE_COLS if f not in _CS_FEATS]
+    _pull_cols   = _local_fcols + [c for c in _CS_SOURCES if c not in _local_fcols]
 
     latest_df = pd.DataFrame(
-        {t: d["feats"][_local_fcols].iloc[-1] for t, d in per_stock.items()}
+        {t: d["feats"][_pull_cols].iloc[-1] for t, d in per_stock.items()}
     ).T
 
     # 섹터 상대 피처 (최신 날짜 기준 크로스섹셔널)
