@@ -7,6 +7,10 @@ on:
   schedule:
     - cron: "12 7 * * *"
   workflow_dispatch:          # GitHub Actions UI에서 수동 실행 가능
+    inputs:
+      feature_report:
+        description: "1=피처 순열 중요도 리포트 출력 (마지막 폴드 ΔIC)"
+        default: "0"
 
 jobs:
   run-ensemble:
@@ -33,5 +37,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           # 뉴스 감성 분석용 (미설정 시 감성=중립으로 graceful degrade)
           HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+          # 수동 실행에서만 피처 리포트 활성화 가능 (schedule에선 inputs가 비어 '0')
+          FEATURE_REPORT: ${{ inputs.feature_report || '0' }}
           PYTHONUNBUFFERED: "1"      # stdout 실시간 스트리밍 (취소 시 로그 유실 방지)
         run: python -u scripts/hybrid_ensemble.py
