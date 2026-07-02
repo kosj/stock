@@ -89,19 +89,22 @@ W_SENTIMENT_Z = 0.10
 from universe import UNIVERSE
 
 # 훈련·예측에 사용할 피처 컬럼 목록
+# Phase 1 순열 중요도(5폴드 ΔIC 집계, 2026-07-02 FEATURE_REPORT)에서 평균 음수이고
+# 양수 폴드 ≤1/5로 판정된 6개(ret_5d, ret_10d, ret_20d, alpha_5d, vol_ratio,
+# foreign_net_5d)는 모델 입력에서 제외. 단, make_features의 해당 컬럼 계산은 유지
+# (sector_rel_*, rs_rank_20d 파생과 per_stock 메타가 원천으로 계속 사용).
 FEATURE_COLS = [
-    "ret_1d", "ret_2d", "ret_3d", "ret_5d", "ret_10d", "ret_20d", "ret_60d",
-    "alpha_1d", "alpha_5d", "alpha_20d",
+    "ret_1d", "ret_2d", "ret_3d", "ret_60d",
+    "alpha_1d", "alpha_20d",
     "rsi_14", "macd_hist", "bb_pct",
     "vs_ma5", "vs_ma20", "vs_ma60",
-    "vol_ratio", "vol_20d", "vol_60d",
+    "vol_20d", "vol_60d",
     "market_ret_5d", "market_ret_20d",
     "high_52w_pct",         # 52주 고점 대비 위치 (모멘텀·돌파 신호)
     "momentum_12_1",        # 12개월-1개월 모멘텀 팩터 (연구 기반 알파)
     "sector_rel_ret_5d",    # 동일 섹터 평균 대비 5일 초과수익 (섹터 중립 신호)
     "sector_rel_ret_20d",   # 동일 섹터 평균 대비 20일 초과수익
     "rs_rank_20d",          # 크로스섹셔널 20일 수익률 상대강도 순위 0~1
-    "foreign_net_5d",       # 외국인 5일 순매수금액 / 거래대금 비율 (수급)
     "foreign_net_20d",      # 외국인 20일 순매수 비율
     "inst_net_5d",          # 기관 5일 순매수 비율
     "inst_net_20d",         # 기관 20일 순매수 비율
