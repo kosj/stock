@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Briefcase, TrendingUp,
   Globe, BarChart2, Bell, Building2, Settings, Star,
-  Menu, X, LogOut, Shield, Sparkles, Gamepad2, BookOpen,
+  Menu, X, LogOut, Shield, Sparkles, Gamepad2, BookOpen, PiggyBank,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -14,6 +14,7 @@ const NAV = [
   { href: "/",              label: "대시보드",     icon: LayoutDashboard },
   { href: "/portfolio",     label: "포트폴리오",    icon: Briefcase },
   { href: "/recommendations", label: "추천 종목",  icon: Sparkles },
+  { href: "/pension",       label: "연금·절세계좌", icon: PiggyBank },
   { href: "/watchlist",     label: "관심 종목",     icon: Star },
   { href: "/market",        label: "시세 분석",     icon: TrendingUp },
   { href: "/mock",          label: "모의 투자",     icon: Gamepad2 },
@@ -25,8 +26,10 @@ const NAV = [
   { href: "/settings",      label: "API 설정",      icon: Settings },
 ];
 
-const BOTTOM_NAV = NAV.slice(0, 4);
-const MORE_NAV   = NAV.slice(4);
+// 모바일 하단바에 고정할 핵심 4개 탭 (NAV 삽입 순서와 무관하게 유지)
+const BOTTOM_HREFS = ["/", "/portfolio", "/recommendations", "/watchlist"];
+const BOTTOM_NAV = NAV.filter((n) => BOTTOM_HREFS.includes(n.href));
+const MORE_NAV   = NAV.filter((n) => !BOTTOM_HREFS.includes(n.href));
 
 export function Sidebar() {
   const path     = usePathname();
