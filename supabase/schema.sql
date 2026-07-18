@@ -490,6 +490,21 @@ CREATE TABLE IF NOT EXISTS etf_daily_prices (
 CREATE INDEX IF NOT EXISTS idx_etf_prices_etf_date ON etf_daily_prices(etf_id, date DESC);
 ALTER TABLE etf_daily_prices DISABLE ROW LEVEL SECURITY;
 
+-- etf_universe: 국내 상장 ETF 전체 마스터 (수익률 랭킹·연금계좌 적합성 판정용)
+-- 적재: scripts/etf_cache.py (KR 접속 환경, pykrx) — KIS는 대안 소스.
+-- 미적재 시 프런트는 etf-universe.ts의 SEED_ETFS로 폴백한다.
+-- leveraged/inverse 플래그는 퇴직연금·IRP 편입 가능 여부 판정에 쓰인다.
+CREATE TABLE IF NOT EXISTS etf_universe (
+  ticker     TEXT        PRIMARY KEY,        -- 6자리 종목코드
+  name       TEXT        NOT NULL,
+  category   TEXT,                            -- 대표지수/섹터/해외주식/채권/원자재/테마/기타
+  leveraged  BOOLEAN     NOT NULL DEFAULT FALSE,
+  inverse    BOOLEAN     NOT NULL DEFAULT FALSE,
+  overseas   BOOLEAN     NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE etf_universe DISABLE ROW LEVEL SECURITY;
+
 -- ============================================================
 -- KRX 수급·밸류 캐시 (krx_cache.py가 KR에서 적재 → hybrid_ensemble.py가 읽음)
 -- KRX는 클라우드 IP를 차단하므로 ML 잡(CI)은 직접 조회 대신 이 캐시를 읽는다.

@@ -1,0 +1,83 @@
+name: "Recommendation Backtest Baseline"
+
+# Phase 1 측정 인프라: 과거 추천의 실현 성과(IC/Top-N 알파)를 측정해
+# 모델 개선의 판정 기준선을 만든다. 매주 월요일 + 수동 실행.
+# (분을 정시에서 떼는 이유: GitHub Actions 정시 혼잡 지연 회피 — friday-prophet 참고)
+on:
+  schedule:
+    - cron: "23 7 * * 1"       # 월요일 07:23 UTC = 16:23 KST
+  workflow_dispatch:
+    inputs:
+      horizon:
+        description: "실현 호라이즌(거래일)"
+        default: "10"
+      topn:
+        description: "Top-N 크기"
+        default: "20"
+      lag:
+        description: "진입 시차(1=다음날 종가 체결가능 기준, 0=신호 품질)"
+        default: "1"
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      # 10일 호라이즌(주 신호) — 체결 가능 기준(lag=1)과 신호 품질(lag=0) 병기
+      - name: Backtest h=10 (tradable, lag=1)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: >
+          python -u scripts/backtest_recommendations.py
+          --horizon ${{ inputs.horizon || '10' }}
+          --topn ${{ inputs.topn || '20' }}
+          --lag ${{ inputs.lag || '1' }}
+          --json baseline_h10_lag1.json
+
+      - name: Backtest h=10 (signal quality, lag=0)
+        if: ${{ !cancelled() }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: >
+          python -u scripts/backtest_recommendations.py
+          --horizon 10 --topn 20 --lag 0
+          --json baseline_h10_lag0.json
+
+      # 30일 보조 신호 (predicted_return_30d)
+      - name: Backtest h=30 (30d model)
+        if: ${{ !cancelled() }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: >
+          python -u scripts/backtest_recommendations.py
+          --horizon 30 --topn 20 --lag 1
+          --pred-col predicted_return_30d
+          --json baseline_h30_lag1.json
+
+      - name: Upload baseline artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-baseline-${{ github.run_id }}
+          path: baseline_*.json
+          retention-days: 90
