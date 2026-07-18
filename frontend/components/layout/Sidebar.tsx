@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Briefcase, TrendingUp,
   Globe, BarChart2, Bell, Building2, Settings, Star,
   Menu, X, LogOut, Shield, Sparkles, Gamepad2, BookOpen, PiggyBank, Coins,
-} from "lucide-react";    
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
