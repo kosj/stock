@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Target,
+  Clock,
+  TrendingDown,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -29,10 +31,14 @@ import {
   projectGrowth,
   computeTaxBenefit,
   DCA_PLANS,
+  TIMING_BY_ASSET,
+  DIP_LADDER,
+  BUY_CALENDAR,
   type AccountType,
   type RiskProfile,
   type AssetClass,
   type GrowthPoint,
+  type Holding,
 } from "@/lib/pension-portfolios";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,7 +87,7 @@ export function PensionPage() {
         </div>
         <p className="text-sm text-muted-foreground mt-1">
           ISA · 연금저축 · IRP · 퇴직연금(DC)에서 절세 효율을 극대화하는 모델 ETF 포트폴리오와
-          비중, 장기 수익률 시뮬레이션, 적립식(분할매수) 가이드를 제공합니다.
+          비중, 장기 수익률 시뮬레이션, 적립식(분할매수)·매수 타점 가이드를 제공합니다.
         </p>
       </header>
 
@@ -154,6 +160,12 @@ export function PensionPage() {
       <section className="space-y-3">
         <SectionTitle icon={<Calendar size={16} />} title="분할매수(적립식) 가이드" />
         <DcaGuide />
+      </section>
+
+      {/* ── 매수 타점 가이드 ─────────────────────────────────────────────── */}
+      <section className="space-y-3">
+        <SectionTitle icon={<Clock size={16} />} title="매수 타점 가이드" />
+        <TimingGuide holdings={portfolio.holdings} />
       </section>
 
       {/* ── 투자 방법 가이드 ─────────────────────────────────────────────── */}
@@ -752,6 +764,153 @@ function TipCard({ title, points }: { title: string; points: string[] }) {
         ))}
       </ul>
     </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 매수 타점 가이드
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TimingGuide({ holdings }: { holdings: Holding[] }) {
+  // 현재 포트폴리오에 존재하는 자산군만, 비중 큰 순으로
+  const classes = useMemo(() => {
+    const weightByClass = new Map<AssetClass, number>();
+    const etfsByClass = new Map<AssetClass, string[]>();
+    for (const h of holdings) {
+      const etf = ETF_UNIVERSE[h.etf];
+      if (!etf) continue;
+      weightByClass.set(etf.assetClass, (weightByClass.get(etf.assetClass) ?? 0) + h.weight);
+      etfsByClass.set(etf.assetClass, [...(etfsByClass.get(etf.assetClass) ?? []), etf.name]);
+    }
+    return [...weightByClass.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([cls, weight]) => ({ cls, weight, etfs: etfsByClass.get(cls) ?? [] }));
+  }, [holdings]);
+
+  return (
+    <div className="space-y-3">
+      {/* 원칙 */}
+      <Card>
+        <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+          <Clock size={15} className="text-blue-400" />
+          제1 원칙 — 타이밍보다 &lsquo;시장에 머문 시간&rsquo;
+        </h3>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          장기 적립 투자의 기본 타점은 <b className="text-foreground">매월 정해진 날</b>입니다. 바닥을
+          기다리며 정기 매수를 미루는 것이 가장 흔한 실패 패턴으로, 지수 장기 상승분의 상당 부분은
+          소수의 급등일에 집중되기 때문에 시장 밖에서 보내는 시간 자체가 비용입니다. 아래의 추가 매수
+          타점은 <b className="text-foreground">정기 적립을 유지한 상태에서 예비현금으로만</b> 실행하는
+          보조 전략입니다. 특히 연금계좌는 매매 차익에 세금이 붙지 않아(과세이연) 타점이 다소 어긋나도
+          비용이 낮습니다.
+        </p>
+      </Card>
+
+      {/* 자산군별 타점 (현재 선택된 포트폴리오 기준) */}
+      <Card>
+        <h3 className="text-sm font-semibold mb-1">현재 포트폴리오 자산군별 타점</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          위에서 선택한 계좌·위험성향 포트폴리오에 담긴 자산군 기준입니다.
+        </p>
+        <div className="space-y-3">
+          {classes.map(({ cls, weight, etfs }) => (
+            <div
+              key={cls}
+              className="rounded-lg border p-3"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span
+                  className="inline-block w-2 h-2 rounded-full"
+                  style={{ background: ASSET_META[cls].color }}
+                />
+                <span className="text-sm font-semibold">{ASSET_META[cls].label}</span>
+                <Badge variant="blue">{weight}%</Badge>
+                <span className="text-[11px] text-muted-foreground truncate">{etfs.join(" · ")}</span>
+              </div>
+              <div className="grid gap-1.5 sm:grid-cols-3">
+                <TimingCell kind="regular" text={TIMING_BY_ASSET[cls].regular} />
+                <TimingCell kind="addOn" text={TIMING_BY_ASSET[cls].addOn} />
+                <TimingCell kind="avoid" text={TIMING_BY_ASSET[cls].avoid} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* 하락장 단계별 추가매수 트리거 */}
+      <Card>
+        <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
+          <TrendingDown size={15} className="text-red-400" />
+          하락장 추가매수 트리거 (전고점 대비)
+        </h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          주식형 ETF에 적용합니다. &lsquo;예비현금&rsquo;은 월 정기 적립과 별도로 CD금리 ETF 등에 모아둔
+          대기 자금을 말하며, 트리거가 없더라도 정기 적립은 계속합니다.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr
+                className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <th className="py-2 pr-2 font-medium">하락률</th>
+                <th className="py-2 px-2 font-medium">국면</th>
+                <th className="py-2 px-2 font-medium">행동</th>
+                <th className="py-2 pl-2 font-medium hidden sm:table-cell">발생 빈도</th>
+              </tr>
+            </thead>
+            <tbody>
+              {DIP_LADDER.map((s) => (
+                <tr key={s.drop} className="border-b last:border-0" style={{ borderColor: "var(--border)" }}>
+                  <td className="py-2.5 pr-2 tabular-nums font-bold text-red-400">{s.drop}</td>
+                  <td className="py-2.5 px-2 font-medium">{s.label}</td>
+                  <td className="py-2.5 px-2 text-xs text-muted-foreground">{s.action}</td>
+                  <td className="py-2.5 pl-2 text-xs text-muted-foreground hidden sm:table-cell">{s.freq}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-3">
+          ※ 하락률 기준은 추종 지수(예: S&amp;P500)의 전고점 대비 종가 기준. 비율은 예시 프레임이며
+          본인 성향에 맞게 조정하되, <b className="text-foreground">사전에 정한 규칙을 기계적으로 실행</b>하는
+          것이 핵심입니다.
+        </p>
+      </Card>
+
+      {/* 연간 매수 캘린더 */}
+      <Card>
+        <h3 className="text-sm font-semibold mb-3">연간 매수 캘린더</h3>
+        <div className="space-y-2.5">
+          {BUY_CALENDAR.map((c) => (
+            <div key={c.period + c.title} className="flex gap-3">
+              <span className="shrink-0 w-16 text-xs font-semibold text-blue-400 pt-0.5">{c.period}</span>
+              <div>
+                <p className="text-sm font-medium">{c.title}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{c.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+const TIMING_CELL_META = {
+  regular: { label: "정기 타점", cls: "text-blue-400" },
+  addOn: { label: "추가 매수", cls: "text-green-400" },
+  avoid: { label: "피할 것", cls: "text-red-400" },
+} as const;
+
+function TimingCell({ kind, text }: { kind: keyof typeof TIMING_CELL_META; text: string }) {
+  const meta = TIMING_CELL_META[kind];
+  return (
+    <div className="rounded-md bg-muted/30 p-2">
+      <p className={`text-[11px] font-semibold mb-0.5 ${meta.cls}`}>{meta.label}</p>
+      <p className="text-xs text-muted-foreground leading-relaxed">{text}</p>
+    </div>
   );
 }
 
