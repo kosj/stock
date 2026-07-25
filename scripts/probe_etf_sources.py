@@ -62,7 +62,12 @@ def probe(name: str, fn) -> dict:
 def a_naver_etf_list():
     raw = _get("https://finance.naver.com/api/sise/etfItemList.nhn",
                referer="https://finance.naver.com/sise/etf.naver")
-    d = json.loads(raw.decode("utf-8"))
+    # 네이버 금융 응답은 EUC-KR(cp949)이다. utf-8로 읽으면 0xb9에서 깨진다.
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("cp949", errors="replace")
+    d = json.loads(text)
     items = d["result"]["etfItemList"]
     keys = sorted(items[0].keys())
     lev = sum(1 for i in items if "레버리지" in i["itemname"])
