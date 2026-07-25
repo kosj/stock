@@ -10,6 +10,7 @@ on:
     branches: ["claude/**"]
     paths:
       - "scripts/probe_etf_sources.py"
+      - "scripts/verify_etf_universe.mjs"
       - ".github/workflows/probe-etf-sources.yml"
 
 jobs:
@@ -30,3 +31,8 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: python -u scripts/probe_etf_sources.py
+
+      # 프런트(naver-etf.ts)와 동일한 수집·디코딩·분류 절차를 실제 응답으로 검증
+      - name: Verify full ETF universe pipeline
+        if: ${{ !cancelled() }}
+        run: node scripts/verify_etf_universe.mjs
