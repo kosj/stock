@@ -13,10 +13,14 @@ const URL_ETF = "https://finance.naver.com/api/sise/etfItemList.nhn";
 
 function classify(name, tab) {
   const n = name.replace(/\s/g, "").toUpperCase();
+  const leveraged = name.includes("레버리지") || n.includes("2X") || name.includes("2배");
+  const inverse   = name.includes("인버스") || name.includes("곱버스");
+  const longShort = name.includes("롱") && name.includes("숏");
   return {
-    leveraged: name.includes("레버리지") || n.includes("2X") || name.includes("2배"),
-    inverse:   name.includes("인버스") || name.includes("곱버스"),
-    overseas:  tab === 4 || tab === 5,
+    leveraged,
+    inverse,
+    derivative: tab === 3 || longShort || leveraged || inverse,
+    overseas:   tab === 4 || tab === 5,
   };
 }
 
@@ -62,13 +66,24 @@ const hangul = etfs.filter((e) => /[가-힣]/.test(e.name)).length;
 console.log(`[2] 한글 종목명: ${hangul}/${etfs.length} (${((hangul / etfs.length) * 100).toFixed(1)}%)`);
 if (hangul / etfs.length < 0.8) { console.error("FAIL: EUC-KR 디코딩 이상(한글 비율 낮음)"); process.exit(1); }
 
-// 연금/IRP 필터 검증
+// 연금/IRP 필터 검증 — 레버리지·인버스뿐 아니라 파생형(롱숏/국내파생)도 제외돼야 한다
 const lev = etfs.filter((e) => e.leveraged), inv = etfs.filter((e) => e.inverse);
-const pension = etfs.filter((e) => !e.leveraged && !e.inverse);
-console.log(`[3] 레버리지 ${lev.length} / 인버스 ${inv.length} → 연금·IRP 편입가능 ${pension.length}종목`);
+const der = etfs.filter((e) => e.derivative);
+const pension = etfs.filter((e) => !e.leveraged && !e.inverse && !e.derivative);
+console.log(`[3] 레버리지 ${lev.length} / 인버스 ${inv.length} / 파생형 ${der.length}`
+  + ` → 연금·IRP 편입가능 ${pension.length}종목`);
 if (lev.length === 0 || inv.length === 0) { console.error("FAIL: 레버리지/인버스 판정 실패"); process.exit(1); }
-if (pension.some((e) => e.leveraged || e.inverse)) { console.error("FAIL: 필터 누수"); process.exit(1); }
-console.log(`    제외 예시: ${[...lev.slice(0, 2), ...inv.slice(0, 2)].map((e) => e.name).join(" / ")}`);
+if (pension.some((e) => e.leveraged || e.inverse || e.derivative)) {
+  console.error("FAIL: 필터 누수"); process.exit(1);
+}
+// 회귀 방지: 롱숏 파생형이 연금 목록에 절대 남아서는 안 된다
+const leaked = pension.filter((e) => (e.name.includes("롱") && e.name.includes("숏")));
+if (leaked.length > 0) {
+  console.error(`FAIL: 롱숏 파생형이 연금 편입가능에 포함됨 — ${leaked.slice(0, 3).map((e) => e.name).join(", ")}`);
+  process.exit(1);
+}
+console.log(`    제외 예시: ${[...lev.slice(0, 1), ...inv.slice(0, 1),
+  ...der.filter((e) => !e.leveraged && !e.inverse).slice(0, 2)].map((e) => e.name).join(" / ")}`);
 
 // 수익률 커버리지 + 랭킹
 for (const [label, key] of [["1D", "return1D"], ["3M", "return3M"]]) {
@@ -83,10 +98,12 @@ for (const [label, key] of [["1D", "return1D"], ["3M", "return3M"]]) {
   }
 }
 
-// 연금 계좌 기준 3M 랭킹(실제 서비스 시나리오)
+// 연금 계좌 기준 3M 랭킹(실제 서비스 시나리오) — 상위 종목이 실제로 담을 수 있는지 확인
 const pensionRanked = pension.filter((e) => e.return3M != null).sort((a, b) => b.return3M - a.return3M);
-console.log(`[5] 연금·IRP 3M 랭킹 ${pensionRanked.length}종목 — 상위 3: ` +
-  pensionRanked.slice(0, 3).map((e) => `${e.name}(+${e.return3M}%)`).join(", "));
+console.log(`[5] 연금·IRP 3M 랭킹 ${pensionRanked.length}종목 — 상위 5:`);
+for (const e of pensionRanked.slice(0, 5)) {
+  console.log(`      ${e.name} (${e.category}) +${e.return3M}%`);
+}
 
 console.log(`[6] 분류 분포: ${JSON.stringify(
   etfs.reduce((a, e) => ((a[e.category] = (a[e.category] || 0) + 1), a), {}), null, 0)}`);
