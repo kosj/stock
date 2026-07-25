@@ -57,16 +57,32 @@ export interface NaverEtf {
   tradingValue: number;
   leveraged:   boolean;
   inverse:     boolean;
+  /** 파생형(국내파생 탭 또는 롱숏 구조) — 연금·IRP 편입 불가 */
+  derivative:  boolean;
   overseas:    boolean;
 }
 
-/** 명칭 기반 레버리지/인버스 판정 — 연금·IRP 편입 가부의 근거 */
+/**
+ * 연금·IRP 편입 가부 판정 근거가 되는 위험 플래그.
+ *
+ * 레버리지·인버스만으로는 부족하다: "KODEX 200롱코스닥150숏선물"처럼 이름에
+ * 레버리지/인버스가 없는 파생형 롱숏 ETF도 퇴직연금·IRP에는 담을 수 없다.
+ * 네이버가 이미 분류해 둔 국내파생 탭(etfTabCode=3)을 1차 근거로 삼고,
+ * 롱숏 구조를 이름으로 보강한다.
+ *
+ * 주의: 이름의 "선물"만으로 자르지 않는다 — KODEX 골드선물(H) 같은 원자재
+ * ETF(탭 5)는 연금계좌 편입이 가능하므로 과잉 차단이 된다.
+ */
 function classifyName(name: string, tabCode: number) {
   const n = name.replace(/\s/g, "").toUpperCase();
+  const leveraged = name.includes("레버리지") || n.includes("2X") || name.includes("2배");
+  const inverse   = name.includes("인버스") || name.includes("곱버스");
+  const longShort = name.includes("롱") && name.includes("숏");
   return {
-    leveraged: name.includes("레버리지") || n.includes("2X") || name.includes("2배"),
-    inverse:   name.includes("인버스") || name.includes("곱버스"),
-    overseas:  tabCode === 4 || tabCode === 5,
+    leveraged,
+    inverse,
+    derivative: tabCode === 3 || longShort || leveraged || inverse,
+    overseas:   tabCode === 4 || tabCode === 5,
   };
 }
 

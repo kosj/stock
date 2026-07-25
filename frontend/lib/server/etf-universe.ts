@@ -37,6 +37,8 @@ export interface EtfMeta {
   leveraged?: boolean;
   /** 인버스 — 연금/IRP 편입 불가 사유 */
   inverse?:   boolean;
+  /** 파생형(롱숏/국내파생) — 연금/IRP 편입 불가 사유 */
+  derivative?: boolean;
   /** 국내 상장 해외자산 추종(연금/ISA 편입은 가능) */
   overseas?:  boolean;
 }
@@ -54,17 +56,23 @@ export const ACCOUNT_LABEL: Record<AccountType, string> = {
  * (EtfMeta·NaverEtf 등 출처가 다른 타입을 캐스팅 없이 함께 받기 위함)
  */
 export interface EtfRiskFlags {
-  leveraged?: boolean;
-  inverse?:   boolean;
+  leveraged?:  boolean;
+  inverse?:    boolean;
+  /** 파생형(롱숏·국내파생 등). 레버리지/인버스가 아니어도 연금계좌 편입 불가 */
+  derivative?: boolean;
 }
 
 /**
  * 계좌 유형별 ETF 편입 가능 여부.
- * 퇴직연금/IRP는 레버리지·인버스(파생형 위험 ETF) 불가, ISA는 전반 허용.
+ *
+ * 퇴직연금(DC)/IRP는 파생형 위험 ETF를 담을 수 없다. 레버리지·인버스뿐 아니라
+ * "KODEX 200롱코스닥150숏선물" 같은 롱숏 파생형도 포함되므로 derivative까지 본다
+ * (이름에 레버리지/인버스가 없어 이전 필터는 이를 통과시켰다).
+ * ISA는 국내 상장 ETF 전반 편입 가능.
  */
 export function isEligible(etf: EtfRiskFlags, account: AccountType): boolean {
-  if (account === "isa") return true;            // 국내 상장 ETF 전반 가능
-  return !etf.leveraged && !etf.inverse;          // pension/irp: 파생형 위험 ETF 제외
+  if (account === "isa") return true;
+  return !etf.leveraged && !etf.inverse && !etf.derivative;
 }
 
 /** 편입 불가 사유 텍스트(UI 표기용). 가능하면 null. */
@@ -73,6 +81,7 @@ export function ineligibleReason(etf: EtfRiskFlags, account: AccountType): strin
   if (etf.leveraged && etf.inverse) return "레버리지·인버스 파생형 — 연금계좌 편입 불가";
   if (etf.leveraged) return "레버리지 ETF — 연금계좌 편입 불가";
   if (etf.inverse)   return "인버스 ETF — 연금계좌 편입 불가";
+  if (etf.derivative) return "파생형(롱숏/선물) ETF — 연금계좌 편입 불가";
   return "연금계좌 편입 불가";
 }
 
@@ -133,10 +142,11 @@ export async function getEtfUniverse(): Promise<EtfMeta[]> {
     return naver.map((e) => ({
       ticker:    e.ticker,
       name:      e.name,
-      category:  e.category as EtfCategory,
-      leveraged: e.leveraged,
-      inverse:   e.inverse,
-      overseas:  e.overseas,
+      category:   e.category as EtfCategory,
+      leveraged:  e.leveraged,
+      inverse:    e.inverse,
+      derivative: e.derivative,
+      overseas:   e.overseas,
     }));
   }
 
