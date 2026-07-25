@@ -4,6 +4,13 @@ name: "Probe ETF Data Sources"
 # 소스가 무엇인지 실측한다(네이버 vs Yahoo vs KRX). 부작용 없음(읽기 전용).
 on:
   workflow_dispatch:
+  # 기본 브랜치에 병합되기 전에도 검증할 수 있도록 작업 브랜치 push에서 실행.
+  # (workflow_dispatch는 기본 브랜치에 존재해야만 API 트리거가 가능하다.)
+  push:
+    branches: ["claude/**"]
+    paths:
+      - "scripts/probe_etf_sources.py"
+      - ".github/workflows/probe-etf-sources.yml"
 
 jobs:
   probe:
