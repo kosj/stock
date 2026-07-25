@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
 
     // 1) 계좌 편입 가능 ETF 수익률 랭킹 → 상위 N
     const ranking = await getEtfRanking(period, account);
-    const top = ranking.slice(0, limit);
+    const top = ranking.rows.slice(0, limit);
 
     // 2) 각 종목 진입타점 계산(병렬)
     const picks = await Promise.all(
@@ -60,6 +60,10 @@ export async function GET(req: NextRequest) {
         account_label: ACCOUNT_LABEL[account],
         period,
         count: picks.length,
+        universe_total: ranking.total,
+        universe_covered: ranking.covered,
+        source: ranking.source,
+        note: ranking.note ?? null,
         updated_at: new Date().toISOString(),
         disclaimer: "정보 제공용 정량 선별이며 투자 권유가 아닙니다. 투자 책임은 본인에게 있습니다.",
         picks,

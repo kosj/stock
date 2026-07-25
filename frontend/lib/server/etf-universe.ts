@@ -18,9 +18,16 @@
  */
 
 import { supabase } from "./supabase";
+import { fetchNaverEtfList } from "./naver-etf";
 
+/**
+ * ETF 분류.
+ * 앞의 7개는 시드/Supabase 적재분, 뒤의 4개는 네이버 탭 코드에서 오는 라벨이다
+ * (해외주식·원자재·채권·기타는 양쪽이 공유).
+ */
 export type EtfCategory =
-  | "대표지수" | "섹터" | "해외주식" | "채권" | "원자재" | "테마" | "기타";
+  | "대표지수" | "섹터" | "해외주식" | "채권" | "원자재" | "테마" | "기타"
+  | "국내시장지수" | "국내업종테마" | "국내파생";
 
 export interface EtfMeta {
   ticker:     string;
@@ -43,16 +50,25 @@ export const ACCOUNT_LABEL: Record<AccountType, string> = {
 };
 
 /**
+ * 적합성 판정에 실제로 필요한 최소 형태.
+ * (EtfMeta·NaverEtf 등 출처가 다른 타입을 캐스팅 없이 함께 받기 위함)
+ */
+export interface EtfRiskFlags {
+  leveraged?: boolean;
+  inverse?:   boolean;
+}
+
+/**
  * 계좌 유형별 ETF 편입 가능 여부.
  * 퇴직연금/IRP는 레버리지·인버스(파생형 위험 ETF) 불가, ISA는 전반 허용.
  */
-export function isEligible(etf: EtfMeta, account: AccountType): boolean {
+export function isEligible(etf: EtfRiskFlags, account: AccountType): boolean {
   if (account === "isa") return true;            // 국내 상장 ETF 전반 가능
   return !etf.leveraged && !etf.inverse;          // pension/irp: 파생형 위험 ETF 제외
 }
 
 /** 편입 불가 사유 텍스트(UI 표기용). 가능하면 null. */
-export function ineligibleReason(etf: EtfMeta, account: AccountType): string | null {
+export function ineligibleReason(etf: EtfRiskFlags, account: AccountType): string | null {
   if (isEligible(etf, account)) return null;
   if (etf.leveraged && etf.inverse) return "레버리지·인버스 파생형 — 연금계좌 편입 불가";
   if (etf.leveraged) return "레버리지 ETF — 연금계좌 편입 불가";
@@ -104,9 +120,26 @@ interface EtfUniverseRow {
 
 /**
  * 전체 ETF 유니버스 반환.
- * Supabase `etf_universe`(KIS 적재) 우선, 미존재/비어있음/오류 시 SEED_ETFS 폴백.
+ *
+ * 우선순위:
+ *   1) 네이버 ETF 목록 API — 국내 상장 ETF "전체"(약 1,150종목). 단일 요청이며
+ *      클라우드(Vercel/Actions)에서 접근 가능함을 실측 확인했다.
+ *   2) Supabase `etf_universe` — KR 환경에서 적재한 캐시(네이버 장애 시 대비).
+ *   3) SEED_ETFS — 위 둘 다 실패했을 때의 최소 동작 보장.
  */
 export async function getEtfUniverse(): Promise<EtfMeta[]> {
+  const naver = await fetchNaverEtfList();
+  if (naver.length > 0) {
+    return naver.map((e) => ({
+      ticker:    e.ticker,
+      name:      e.name,
+      category:  e.category as EtfCategory,
+      leveraged: e.leveraged,
+      inverse:   e.inverse,
+      overseas:  e.overseas,
+    }));
+  }
+
   try {
     const { data, error } = await supabase
       .from("etf_universe")

@@ -35,8 +35,8 @@ const ENTRY_STATE: Record<string, { label: string; cls: string }> = {
 
 interface EtfRow {
   rank: number; ticker: string; name: string; category: string;
-  price: number; sortReturn: number;
-  returns: Record<Period, number | null>;
+  price: number; sortReturn: number; marketCapEok?: number | null;
+  returns: Partial<Record<Period, number | null>>;
 }
 interface EntryPoint {
   currentPrice: number; entryLow: number | null; entryHigh: number | null;
@@ -48,7 +48,8 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 const won = (v: number | null | undefined) => (v != null ? v.toLocaleString() + "원" : "—");
 
 export function EtfRankingPage() {
-  const [period, setPeriod]   = useState<Period>("1M");
+  // 기본값 3M — 네이버가 3개월 수익률을 직접 제공해 "전체 종목"이 즉시 반영된다.
+  const [period, setPeriod]   = useState<Period>("3M");
   const [account, setAccount] = useState<AccountKey>("all");
 
   const isAccount = account !== "all";
@@ -72,7 +73,8 @@ export function EtfRankingPage() {
         <div>
           <h1 className="text-xl font-bold">ETF 수익률 랭킹</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            국내 상장 ETF · 수익률 내림차순 · 연금/IRP/ISA 편입 가능 종목 선별
+            국내 상장 ETF 전체{rankData?.total ? ` ${rankData.total.toLocaleString()}종목` : ""}
+            {" "}· 수익률 내림차순 · 연금/IRP/ISA 편입 가능 종목 선별
           </p>
         </div>
         <button
@@ -170,8 +172,21 @@ export function EtfRankingPage() {
           <CardTitle className="mb-0 flex items-center gap-1.5">
             <TrendingUp size={15} /> {isAccount ? `${picksData?.account_label ?? account} 편입가능 ` : ""}ETF · {period} 수익률순
           </CardTitle>
-          <span className="text-xs text-muted-foreground">{ranking.length}종목</span>
+          <span className="text-xs text-muted-foreground">
+            {rankData?.total && rankData.covered < rankData.total
+              ? `${rankData.covered.toLocaleString()} / ${rankData.total.toLocaleString()}종목`
+              : `${ranking.length.toLocaleString()}종목`}
+          </span>
         </div>
+
+        {/* 부분 커버리지 안내 — 어떤 구간이 전체 반영인지 사용자가 알 수 있게 */}
+        {rankData?.note && (
+          <div className="flex items-start gap-1.5 px-4 py-2 text-xs text-amber-400/90 border-b"
+               style={{ borderColor: "var(--border)" }}>
+            <Info size={12} className="mt-0.5 shrink-0" />
+            {rankData.note}
+          </div>
+        )}
 
         {isLoading ? (
           <div className="p-4 space-y-2">
@@ -213,7 +228,8 @@ export function EtfRankingPage() {
       </Card>
 
       <p className="text-xs text-muted-foreground/40 text-center pb-2">
-        ETF 목록: KIS/pykrx 적재(미적재 시 대표 ETF 폴백) · 수익률: Yahoo Finance · 투자 손익 보장 불가
+        ETF 목록·1D·3M 수익률: 네이버 금융(상장 전체) · 그 외 구간: Yahoo Finance 일봉 계산 ·
+        투자 손익 보장 불가
       </p>
     </div>
   );

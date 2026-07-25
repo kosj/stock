@@ -28,15 +28,20 @@ export async function GET(req: NextRequest) {
     const accountRaw = sp.get("account") as AccountType | null;
     const account = accountRaw && VALID_ACCOUNTS.includes(accountRaw) ? accountRaw : undefined;
 
-    const rows = await getEtfRanking(period, account);
+    const result = await getEtfRanking(period, account);
 
     return NextResponse.json(
       {
         period,
         account: account ?? null,
-        count: rows.length,
+        count: result.rows.length,
+        // 전체 유니버스 대비 실제 집계 종목 수 — 부분 커버리지를 UI가 표시한다
+        total: result.total,
+        covered: result.covered,
+        source: result.source,
+        note: result.note ?? null,
         updated_at: new Date().toISOString(),
-        ranking: rows,
+        ranking: result.rows,
       },
       { headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=600" } },
     );
