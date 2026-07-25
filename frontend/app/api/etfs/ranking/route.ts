@@ -28,12 +28,16 @@ export async function GET(req: NextRequest) {
     const accountRaw = sp.get("account") as AccountType | null;
     const account = accountRaw && VALID_ACCOUNTS.includes(accountRaw) ? accountRaw : undefined;
 
-    const result = await getEtfRanking(period, account);
+    // asset=safe → 안전자산(채권·현금성·금)만 랭킹
+    const safeOnly = sp.get("asset") === "safe";
+
+    const result = await getEtfRanking(period, account, { safeOnly });
 
     return NextResponse.json(
       {
         period,
         account: account ?? null,
+        asset: safeOnly ? "safe" : "all",
         count: result.rows.length,
         // 전체 유니버스 대비 실제 집계 종목 수 — 부분 커버리지를 UI가 표시한다
         total: result.total,

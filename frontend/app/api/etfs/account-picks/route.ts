@@ -48,7 +48,8 @@ export async function GET(req: NextRequest) {
         let entry = null;
         try {
           const candles = await getChart(row.ticker, "6m");
-          entry = analyzeEntryPoint(row.ticker, candles);
+          // ETF는 바스켓 → 개별주 기준봉 전제의 눌림목 점수를 판정에 쓰지 않는다
+          entry = analyzeEntryPoint(row.ticker, candles, { isBasket: true });
         } catch { /* 진입타점 실패 시 null */ }
         return { ...row, entry };
       }),

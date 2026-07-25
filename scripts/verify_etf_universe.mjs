@@ -108,4 +108,33 @@ for (const e of pensionRanked.slice(0, 5)) {
 console.log(`[6] 분류 분포: ${JSON.stringify(
   etfs.reduce((a, e) => ((a[e.category] = (a[e.category] || 0) + 1), a), {}), null, 0)}`);
 
+// ── 안전자산 분류 검증 (naver-etf.ts classifySafeAsset과 동일 규칙) ─────────
+function classifySafe(name, tab, risky) {
+  if (risky.leveraged || risky.inverse || risky.derivative) return null;
+  const n = name.toUpperCase();
+  if (/머니마켓|MMF|CD금리|CD 금리|KOFR|SOFR|초단기|단기통안|머니풀/.test(name) || /\bCD\b/.test(n)) return "현금성";
+  if (tab === 6 || /채권|국고채|회사채|통안채|크레딧|국채/.test(name)) return "채권";
+  if (/금현물|골드|GOLD/.test(n) || /금\s*선물/.test(name)) return "금";
+  return null;
+}
+const safe = [];
+for (const it of items) {
+  const tab = Number(it.etfTabCode) || 7;
+  const risky = classify(it.itemname, tab);
+  const t = classifySafe(it.itemname.trim(), tab, risky);
+  if (t) safe.push({ name: it.itemname.trim(), type: t, r3: Number(it.threeMonthEarnRate) });
+}
+const byType = safe.reduce((a, e) => ((a[e.type] = (a[e.type] || 0) + 1), a), {});
+console.log(`[7] 안전자산 ${safe.length}종목 — ${JSON.stringify(byType)}`);
+if (safe.length < 100) { console.error("FAIL: 안전자산 분류가 비정상적으로 적음"); process.exit(1); }
+// 안전자산에 레버리지·인버스·파생형이 섞이면 안 된다
+const badSafe = safe.filter((e) => /레버리지|인버스|곱버스/.test(e.name));
+if (badSafe.length > 0) {
+  console.error(`FAIL: 안전자산에 파생형 혼입 — ${badSafe.slice(0, 3).map((e) => e.name).join(", ")}`);
+  process.exit(1);
+}
+const safeRanked = safe.filter((e) => Number.isFinite(e.r3)).sort((a, b) => b.r3 - a.r3);
+console.log(`    3M 상위 3: ${safeRanked.slice(0, 3).map((e) => `${e.name}[${e.type}](${e.r3.toFixed(2)}%)`).join(", ")}`);
+console.log(`    3M 하위 1: ${safeRanked.slice(-1).map((e) => `${e.name}[${e.type}](${e.r3.toFixed(2)}%)`).join("")}`);
+
 console.log("\n✅ 전체 ETF 유니버스 파이프라인 검증 통과");

@@ -60,6 +60,50 @@ export interface NaverEtf {
   /** 파생형(국내파생 탭 또는 롱숏 구조) — 연금·IRP 편입 불가 */
   derivative:  boolean;
   overseas:    boolean;
+  /** 안전자산 성격(채권·현금성·금) — 연금계좌 위험자산 30% 밖 배분 대상 */
+  safeAsset:   boolean;
+  /** 안전자산 세부 유형 */
+  safeType:    SafeAssetType | null;
+}
+
+export type SafeAssetType = "채권" | "현금성" | "금";
+
+/**
+ * 안전자산 판정.
+ *
+ * 퇴직연금(DC)/IRP는 위험자산 70% 한도가 있어 나머지 30%를 담을 안전자산
+ * 후보를 따로 볼 필요가 있다. 판정 기준:
+ *   - 채권   : 네이버 채권 탭(6) 또는 채권/국고채/회사채/크레딧 계열
+ *   - 현금성 : 머니마켓/MMF/CD/KOFR/SOFR 금리추종 등 초단기 자금
+ *   - 금     : 금현물·골드 (전통적 안전자산. 단, 가격 변동성은 채권보다 크다)
+ *
+ * 레버리지·인버스·파생형은 이름에 채권/금이 들어가도 안전자산에서 제외한다
+ * (예: 채권 선물 레버리지).
+ */
+function classifySafeAsset(
+  name: string,
+  tabCode: number,
+  risky: { leveraged: boolean; inverse: boolean; derivative: boolean },
+): { safeAsset: boolean; safeType: SafeAssetType | null } {
+  if (risky.leveraged || risky.inverse || risky.derivative) {
+    return { safeAsset: false, safeType: null };
+  }
+  const n = name.toUpperCase();
+
+  // 현금성: 초단기 금리추종 상품
+  if (/머니마켓|MMF|CD금리|CD 금리|KOFR|SOFR|초단기|단기통안|머니풀/.test(name) ||
+      /\bCD\b/.test(n)) {
+    return { safeAsset: true, safeType: "현금성" };
+  }
+  // 채권: 네이버 채권 탭 또는 명칭
+  if (tabCode === 6 || /채권|국고채|회사채|통안채|크레딧|국채/.test(name)) {
+    return { safeAsset: true, safeType: "채권" };
+  }
+  // 금
+  if (/금현물|골드|GOLD/.test(n) || /금\s*선물/.test(name)) {
+    return { safeAsset: true, safeType: "금" };
+  }
+  return { safeAsset: false, safeType: null };
 }
 
 /**
@@ -130,6 +174,7 @@ export async function fetchNaverEtfList(nocache = false): Promise<NaverEtf[]> {
       .map((it) => {
         const tab = toNum(it.etfTabCode);
         const flags = classifyName(it.itemname, tab);
+        const safe = classifySafeAsset(it.itemname, tab, flags);
         return {
           ticker:       String(it.itemcode).padStart(6, "0"),
           name:         it.itemname.trim(),
@@ -142,6 +187,7 @@ export async function fetchNaverEtfList(nocache = false): Promise<NaverEtf[]> {
           marketCapEok: toNum(it.marketSum),
           tradingValue: toNum(it.amonut),
           ...flags,
+          ...safe,
         };
       });
 
