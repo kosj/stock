@@ -153,9 +153,12 @@ export function EtfRankingPage() {
 
       {isSafe && (
         <p className="text-xs text-muted-foreground -mt-1">
-          안전자산 = 채권 · 현금성(CD/KOFR 등 초단기) · 금.
+          안전자산 = 채권 · 현금성(CD/KOFR 등 초단기) · 금 · 채권혼합.
           연금계좌의 위험자산 70% 한도 밖(나머지 30%) 배분 후보입니다.
           레버리지·인버스·파생형은 제외됩니다.
+          <span className="text-amber-400/90">
+            {" "}단, <b>채권혼합</b>은 주식이 섞여 있어 수익·손실 변동이 순수 채권보다 큽니다.
+          </span>
         </p>
       )}
 
