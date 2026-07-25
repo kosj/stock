@@ -50,6 +50,8 @@ export interface EtfReturnRow {
   category:   string;
   price:      number;
   marketCapEok: number | null;
+  /** 안전자산 세부 유형(채권/현금성/금) — 안전자산 탭 표기용 */
+  safeType?:  string | null;
   /** 정렬 기준 구간의 수익률(%) */
   sortReturn: number;
   /** 참고용 구간 수익률(제공 가능한 것만) */
@@ -106,6 +108,7 @@ function finalize(
     category:     c.meta.category,
     price:        c.price,
     marketCapEok: c.marketCapEok,
+    safeType:     "safeType" in c.meta ? c.meta.safeType : null,
     sortReturn:   c.value,
     returns:      c.returns,
     ...(account ? { eligible: true, reason: ineligibleReason(c.meta, account) } : {}),
@@ -120,8 +123,11 @@ function finalize(
 export async function getEtfRanking(
   period: ReturnPeriod = "1M",
   account?: AccountType,
+  opts: { safeOnly?: boolean } = {},
 ): Promise<EtfRankingResult> {
-  const naverAll = await fetchNaverEtfList();
+  const all = await fetchNaverEtfList();
+  // 안전자산 탭: 채권·현금성·금만 (연금계좌 위험자산 30% 밖 배분 후보)
+  const naverAll = opts.safeOnly ? all.filter((e) => e.safeAsset) : all;
 
   // ── 경로 1: 네이버가 해당 구간 수익률을 직접 제공 → 전체 종목 커버 ──────
   const nativeKey = NAVER_NATIVE[period];

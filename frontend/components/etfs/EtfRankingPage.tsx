@@ -11,8 +11,9 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { TrendingUp, RefreshCw, Info } from "lucide-react";
+import { TrendingUp, RefreshCw, Info, ShieldCheck } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { EtfDetailModal } from "./EtfDetailModal";
 import { colorByChange, formatPercent } from "@/lib/utils";
 
 const PERIODS = ["1D", "1W", "1M", "3M", "6M", "1Y"] as const;
@@ -26,6 +27,17 @@ const ACCOUNTS = [
 ] as const;
 type AccountKey = (typeof ACCOUNTS)[number]["key"];
 
+/**
+ * 자산군 탭.
+ * 안전자산 = 채권·현금성(CD/KOFR 등)·금. 연금계좌의 위험자산 70% 한도 밖
+ * (나머지 30%)에 배분할 후보를 따로 보기 위한 탭이다.
+ */
+const ASSETS = [
+  { key: "all",  label: "전체 자산" },
+  { key: "safe", label: "안전자산" },
+] as const;
+type AssetKey = (typeof ASSETS)[number]["key"];
+
 const ENTRY_STATE: Record<string, { label: string; cls: string }> = {
   buy_zone:   { label: "분할매수권", cls: "text-green-400" },
   watch:      { label: "눌림 대기",  cls: "text-blue-400" },
@@ -36,6 +48,7 @@ const ENTRY_STATE: Record<string, { label: string; cls: string }> = {
 interface EtfRow {
   rank: number; ticker: string; name: string; category: string;
   price: number; sortReturn: number; marketCapEok?: number | null;
+  safeType?: string | null;
   returns: Partial<Record<Period, number | null>>;
 }
 interface EntryPoint {
@@ -51,9 +64,15 @@ export function EtfRankingPage() {
   // 기본값 3M — 네이버가 3개월 수익률을 직접 제공해 "전체 종목"이 즉시 반영된다.
   const [period, setPeriod]   = useState<Period>("3M");
   const [account, setAccount] = useState<AccountKey>("all");
+  const [asset, setAsset]     = useState<AssetKey>("all");
+  // 종목 터치 시 상세 시트로 열 티커
+  const [openTicker, setOpenTicker] = useState<string | null>(null);
 
   const isAccount = account !== "all";
-  const rankUrl = `/api/etfs/ranking?period=${period}${isAccount ? `&account=${account}` : ""}`;
+  const isSafe    = asset === "safe";
+  const rankUrl = `/api/etfs/ranking?period=${period}`
+    + (isAccount ? `&account=${account}` : "")
+    + (isSafe ? "&asset=safe" : "");
   const picksUrl = isAccount ? `/api/etfs/account-picks?account=${account}&period=${period}&limit=10` : null;
 
   const { data: rankData, isLoading, mutate } = useSWR(rankUrl, fetcher, {
@@ -114,7 +133,31 @@ export function EtfRankingPage() {
             </button>
           ))}
         </div>
+
+        {/* 자산군 탭 — 안전자산(채권·현금성·금) 순위 */}
+        <div className="flex gap-1">
+          {ASSETS.map((a) => (
+            <button
+              key={a.key}
+              onClick={() => setAsset(a.key)}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1 ${
+                asset === a.key ? "bg-sky-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {a.key === "safe" && <ShieldCheck size={12} />}
+              {a.label}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {isSafe && (
+        <p className="text-xs text-muted-foreground -mt-1">
+          안전자산 = 채권 · 현금성(CD/KOFR 등 초단기) · 금.
+          연금계좌의 위험자산 70% 한도 밖(나머지 30%) 배분 후보입니다.
+          레버리지·인버스·파생형은 제외됩니다.
+        </p>
+      )}
 
       {/* 계좌 선택 시: 추천 + 진입타점 */}
       {isAccount && picks.length > 0 && (
@@ -208,11 +251,19 @@ export function EtfRankingPage() {
               </thead>
               <tbody>
                 {ranking.map((r) => (
-                  <tr key={r.ticker} className="border-b hover:bg-white/5" style={{ borderColor: "var(--border)" }}>
+                  <tr
+                    key={r.ticker}
+                    onClick={() => setOpenTicker(r.ticker)}
+                    className="border-b hover:bg-white/5 cursor-pointer active:bg-white/10"
+                    style={{ borderColor: "var(--border)" }}
+                  >
                     <td className="text-right py-2 px-3 tabular-nums text-muted-foreground">{r.rank}</td>
                     <td className="py-2 px-2">
                       <div className="font-medium">{r.name}</div>
-                      <div className="text-xs text-muted-foreground">{r.ticker}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {r.ticker}
+                        {r.safeType && <span className="ml-1 text-sky-400">· {r.safeType}</span>}
+                      </div>
                     </td>
                     <td className="py-2 px-2 hidden sm:table-cell text-muted-foreground text-xs">{r.category}</td>
                     <td className="py-2 px-2 hidden sm:table-cell text-right tabular-nums">{won(r.price)}</td>
@@ -229,8 +280,12 @@ export function EtfRankingPage() {
 
       <p className="text-xs text-muted-foreground/40 text-center pb-2">
         ETF 목록·1D·3M 수익률: 네이버 금융(상장 전체) · 그 외 구간: Yahoo Finance 일봉 계산 ·
-        투자 손익 보장 불가
+        종목을 누르면 차트·진입타점 상세를 볼 수 있습니다 · 투자 손익 보장 불가
       </p>
+
+      {openTicker && (
+        <EtfDetailModal ticker={openTicker} onClose={() => setOpenTicker(null)} />
+      )}
     </div>
   );
 }
