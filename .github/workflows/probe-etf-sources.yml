@@ -1,0 +1,25 @@
+name: "Probe ETF Data Sources"
+
+# 수동 전용 진단 잡: 국내 상장 ETF 전체 목록/시세를 클라우드에서 수집 가능한
+# 소스가 무엇인지 실측한다(네이버 vs Yahoo vs KRX). 부작용 없음(읽기 전용).
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Probe sources (stdlib only)
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python -u scripts/probe_etf_sources.py
