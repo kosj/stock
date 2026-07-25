@@ -113,6 +113,7 @@ function classifySafe(name, tab, risky) {
   if (risky.leveraged || risky.inverse || risky.derivative) return null;
   const n = name.toUpperCase();
   if (/머니마켓|MMF|CD금리|CD 금리|KOFR|SOFR|초단기|단기통안|머니풀/.test(name) || /\bCD\b/.test(n)) return "현금성";
+  if (/혼합/.test(name)) return "채권혼합";
   if (tab === 6 || /채권|국고채|회사채|통안채|크레딧|국채/.test(name)) return "채권";
   if (/금현물|골드|GOLD/.test(n) || /금\s*선물/.test(name)) return "금";
   return null;
@@ -136,5 +137,13 @@ if (badSafe.length > 0) {
 const safeRanked = safe.filter((e) => Number.isFinite(e.r3)).sort((a, b) => b.r3 - a.r3);
 console.log(`    3M 상위 3: ${safeRanked.slice(0, 3).map((e) => `${e.name}[${e.type}](${e.r3.toFixed(2)}%)`).join(", ")}`);
 console.log(`    3M 하위 1: ${safeRanked.slice(-1).map((e) => `${e.name}[${e.type}](${e.r3.toFixed(2)}%)`).join("")}`);
+// 혼합형이 순수 '채권'으로 분류되면 안 된다(주식 비중 위험이 가려짐)
+const misBond = safe.filter((e) => e.type === "채권" && /혼합/.test(e.name));
+if (misBond.length > 0) {
+  console.error(`FAIL: 혼합형이 순수 채권으로 분류됨 — ${misBond.slice(0, 3).map((e) => e.name).join(", ")}`);
+  process.exit(1);
+}
+const pureTop = safeRanked.filter((e) => e.type === "채권").slice(0, 3);
+console.log(`    순수 채권 3M 상위 3: ${pureTop.map((e) => `${e.name}(${e.r3.toFixed(2)}%)`).join(", ")}`);
 
 console.log("\n✅ 전체 ETF 유니버스 파이프라인 검증 통과");
