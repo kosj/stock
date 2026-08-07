@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import useSWR from "swr";
 import {
   PiggyBank,
   Shield,
@@ -77,6 +78,22 @@ export function PensionPage() {
   const riskWeight = useMemo(() => riskAssetWeight(portfolio.holdings), [portfolio]);
   const breakdown = useMemo(() => assetBreakdown(portfolio.holdings), [portfolio]);
 
+  // 추천 ETF의 전고점(52주) 대비 실측 등락률 — 구성 표·하락장 트리거에 표시
+  const tickerCsv = portfolio.holdings
+    .map((h) => ETF_UNIVERSE[h.etf]?.ticker)
+    .filter(Boolean)
+    .join(",");
+  const { data: ddData } = useSWR(
+    tickerCsv ? `/api/etfs/drawdown?tickers=${tickerCsv}` : null,
+    (url: string) => fetch(url).then((r) => r.json()),
+    { revalidateOnFocus: false, dedupingInterval: 1_800_000 },
+  );
+  const drawdowns = useMemo(() => {
+    const m: Record<string, { price: number; drawdownPct: number }> = {};
+    for (const it of ddData?.items ?? []) if (it?.ok) m[it.ticker] = it;
+    return m;
+  }, [ddData]);
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
       {/* ── 헤더 ─────────────────────────────────────────────────────────── */}
@@ -147,6 +164,7 @@ export function PensionPage() {
           expectedReturn={expectedReturn}
           riskWeight={riskWeight}
           breakdown={breakdown}
+          drawdowns={drawdowns}
         />
       </section>
 
@@ -165,7 +183,7 @@ export function PensionPage() {
       {/* ── 매수 타점 가이드 ─────────────────────────────────────────────── */}
       <section className="space-y-3">
         <SectionTitle icon={<Clock size={16} />} title="매수 타점 가이드" />
-        <TimingGuide holdings={portfolio.holdings} />
+        <TimingGuide holdings={portfolio.holdings} drawdowns={drawdowns} />
       </section>
 
       {/* ── 투자 방법 가이드 ─────────────────────────────────────────────── */}
@@ -289,12 +307,14 @@ function PortfolioCard({
   expectedReturn,
   riskWeight,
   breakdown,
+  drawdowns,
 }: {
   account: AccountType;
   risk: RiskProfile;
   expectedReturn: number;
   riskWeight: number;
   breakdown: Record<AssetClass, number>;
+  drawdowns: Record<string, { price: number; drawdownPct: number }>;
 }) {
   const portfolio = PORTFOLIOS[account][risk];
   const profile = RISK_PROFILES[risk];
@@ -339,6 +359,7 @@ function PortfolioCard({
               <th className="py-2 pr-2 font-medium">ETF</th>
               <th className="py-2 px-2 font-medium">종목코드</th>
               <th className="py-2 px-2 font-medium text-right">비중</th>
+              <th className="py-2 px-2 font-medium text-right">전고점 대비</th>
               <th className="py-2 pl-2 font-medium hidden sm:table-cell">역할</th>
             </tr>
           </thead>
@@ -360,6 +381,19 @@ function PortfolioCard({
                   </td>
                   <td className="py-2.5 px-2 text-muted-foreground tabular-nums">{etf.ticker}</td>
                   <td className="py-2.5 px-2 text-right tabular-nums font-semibold">{h.weight}%</td>
+                  <td className="py-2.5 px-2 text-right tabular-nums text-xs">
+                    {(() => {
+                      const dd = drawdowns[etf.ticker];
+                      if (!dd) return <span className="text-muted-foreground/50">—</span>;
+                      if (dd.drawdownPct >= -0.5)
+                        return <span className="text-green-400 font-semibold">신고가권</span>;
+                      return (
+                        <span className={dd.drawdownPct <= -10 ? "text-red-400 font-semibold" : "text-amber-400"}>
+                          {dd.drawdownPct.toFixed(1)}%
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td className="py-2.5 pl-2 text-xs text-muted-foreground hidden sm:table-cell">{etf.role}</td>
                 </tr>
               );
@@ -771,7 +805,13 @@ function TipCard({ title, points }: { title: string; points: string[] }) {
 // 매수 타점 가이드
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TimingGuide({ holdings }: { holdings: Holding[] }) {
+function TimingGuide({
+  holdings,
+  drawdowns,
+}: {
+  holdings: Holding[];
+  drawdowns: Record<string, { price: number; drawdownPct: number }>;
+}) {
   // 현재 포트폴리오에 존재하는 자산군만, 비중 큰 순으로
   const classes = useMemo(() => {
     const weightByClass = new Map<AssetClass, number>();
@@ -847,6 +887,39 @@ function TimingGuide({ holdings }: { holdings: Holding[] }) {
           주식형 ETF에 적용합니다. &lsquo;예비현금&rsquo;은 월 정기 적립과 별도로 CD금리 ETF 등에 모아둔
           대기 자금을 말하며, 트리거가 없더라도 정기 적립은 계속합니다.
         </p>
+
+        {/* 현재 포트폴리오 ETF의 실측 낙폭 — 트리거 도달 여부를 바로 판단 */}
+        {Object.keys(drawdowns).length > 0 && (
+          <div className="mb-3 rounded-lg p-3" style={{ background: "var(--background)" }}>
+            <p className="text-[11px] font-semibold text-muted-foreground mb-2">
+              현재 구성 ETF의 전고점(52주) 대비 실측 낙폭
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {holdings.map((h) => {
+                const etf = ETF_UNIVERSE[h.etf];
+                const dd = etf ? drawdowns[etf.ticker] : undefined;
+                if (!etf || !dd) return null;
+                const hit10 = dd.drawdownPct <= -10;
+                const nearHigh = dd.drawdownPct >= -0.5;
+                return (
+                  <span
+                    key={h.etf}
+                    className={`text-[11px] px-2 py-1 rounded tabular-nums ${
+                      hit10
+                        ? "bg-red-500/15 text-red-400 font-semibold"
+                        : nearHigh
+                        ? "bg-green-500/10 text-green-400"
+                        : "bg-white/5 text-muted-foreground"
+                    }`}
+                  >
+                    {etf.name} {nearHigh ? "신고가권" : `${dd.drawdownPct.toFixed(1)}%`}
+                    {hit10 && " · 트리거 도달"}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -873,7 +946,8 @@ function TimingGuide({ holdings }: { holdings: Holding[] }) {
           </table>
         </div>
         <p className="text-[11px] text-muted-foreground mt-3">
-          ※ 하락률 기준은 추종 지수(예: S&amp;P500)의 전고점 대비 종가 기준. 비율은 예시 프레임이며
+          ※ 위 실측 낙폭은 각 ETF의 52주 최고 종가 대비 현재 종가 기준(30분 캐시)입니다.
+          하락률 단계 비율은 예시 프레임이며
           본인 성향에 맞게 조정하되, <b className="text-foreground">사전에 정한 규칙을 기계적으로 실행</b>하는
           것이 핵심입니다.
         </p>
