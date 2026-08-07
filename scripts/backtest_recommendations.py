@@ -120,6 +120,37 @@ def realized_alpha(close: pd.Series, mkt: pd.Series, d0: pd.Timestamp,
     return (p1 / p0 - 1.0) - (m1 / m0 - 1.0)
 
 
+# ── 신공식 시뮬레이션 (순위 산출 교정안의 채택 게이트) ────────────────────────
+# hybrid_ensemble.py v2 교정안: 0.65·z(rank(pred)) + 0.25·z(rank(pred/vol)).
+# 감성 항(0.10)은 과거 행에 저장돼 있지 않아 제외 — 전 종목 공통 누락이므로
+# 두 항 비교의 공정성엔 영향 없음. 가중치는 앙상블 W_ALPHA_Z/W_SHARPE_Z와 동일.
+SIM_W_ALPHA  = 0.65
+SIM_W_SHARPE = 0.25
+
+
+def trailing_vol_ann(close: pd.Series, d0, window: int = 60):
+    """d0 시점에 알 수 있는 최근 window일 일수익률의 연환산 변동성. 부족 시 None."""
+    pos = int(close.index.searchsorted(pd.Timestamp(d0)))
+    seg = close.iloc[max(0, pos - window - 1): pos]
+    if len(seg) < 20:
+        return None
+    r = seg.pct_change().dropna()
+    v = float(r.std() * np.sqrt(252))
+    return v if np.isfinite(v) and v > 0 else None
+
+
+RANK_Z_DENOM = 0.2887   # 균등분포 이론 표준편차 1/√12 — 동률 붕괴에도 유계 보장
+
+
+def _rank_z(x: np.ndarray) -> np.ndarray:
+    """순위(pct) 변환 후 이론 표준편차로 정규화 — 항상 |z| ≤ ~1.73.
+
+    경험적 std로 나누면 동률이 많은 퇴화 입력(예: 예측 붕괴로 전 종목 동일)에서
+    std가 붕괴해 유계가 깨진다(아웃라이어 z≈9). 균등분포 이론값으로 나눠 방어."""
+    r = pd.Series(x).rank(pct=True).values
+    return (r - r.mean()) / RANK_Z_DENOM
+
+
 def _port_stats(alphas: list, hits: list, horizon: int) -> dict:
     """포트폴리오 run_date별 알파 배열 → 요약(평균/NW t/히트율/누적)."""
     if not alphas:
@@ -179,13 +210,14 @@ def main() -> None:
     ic_rows = []                      # (run_date, pred, realized) — daily_ic_stats 입력
     prod_alphas, prod_hits = [], []   # rank 기반(운영과 동일)
     diag_alphas, diag_hits = [], []   # 예측알파 상위(신호 진단)
+    sim_alphas,  sim_hits  = [], []   # 신공식 시뮬(교정안 채택 게이트)
     all_alphas = []                   # 유니버스 평균(비교 기준)
     n_dates_evaluated = 0
     rank_missing_dates = 0
 
     for d0 in run_dates:
         day = recs_pred[recs_pred["run_date"] == d0]
-        preds, reals, ranks = [], [], []
+        preds, reals, ranks, vols = [], [], [], []
         for _, r in day.iterrows():
             s = px.get(r["ticker"])
             if s is None:
@@ -197,6 +229,8 @@ def main() -> None:
             reals.append(float(a))
             rk = r.get("rank")
             ranks.append(float(rk) if pd.notna(rk) else np.nan)
+            v = trailing_vol_ann(s, d0)
+            vols.append(v if v is not None else np.nan)
         if len(reals) < 5:
             continue
         n_dates_evaluated += 1
@@ -217,6 +251,17 @@ def main() -> None:
         order = np.argsort(-preds_a)[: args.topn]
         diag_alphas.append(float(reals_a[order].mean()))
         diag_hits.append(float((reals_a[order] > 0).mean()))
+
+        # 신공식 시뮬: 유계 순위-z 혼합 (교정안을 과거 데이터에 소급 적용)
+        vols_a = np.array(vols, dtype=float)
+        _vmed = np.nanmedian(vols_a)
+        if np.isfinite(_vmed):
+            vols_f = np.where(np.isfinite(vols_a), vols_a, _vmed)
+            new_score = (SIM_W_ALPHA  * _rank_z(preds_a)
+                         + SIM_W_SHARPE * _rank_z(preds_a / np.maximum(vols_f, 0.05)))
+            order_new = np.argsort(-new_score)[: args.topn]
+            sim_alphas.append(float(reals_a[order_new].mean()))
+            sim_hits.append(float((reals_a[order_new] > 0).mean()))
 
     if not ic_rows:
         # 호라이즌이 아직 경과하지 않은 상태는 도구 오류가 아니라 데이터 누적 대기.
@@ -239,6 +284,7 @@ def main() -> None:
 
     prod = _port_stats(prod_alphas, prod_hits, args.horizon)
     diag = _port_stats(diag_alphas, diag_hits, args.horizon)
+    sim  = _port_stats(sim_alphas,  sim_hits,  args.horizon)
     uni_mean = float(np.mean(all_alphas)) if all_alphas else float("nan")
 
     print(f"\n{'='*60}\n  실현성과 ({n_dates_evaluated} run_date | lag={args.lag} "
@@ -259,6 +305,10 @@ def main() -> None:
     print(f"  [진단] 예측상위{args.topn} 알파: {diag['alpha_mean']*100:+.2f}%  "
           f"(NW t={diag['alpha_tstat']:.2f}, 초과 {(diag['alpha_mean']-uni_mean)*100:+.2f}%p)")
     print(f"  [진단] Hit-rate        : {diag['hit_rate']:.1%} | 누적 {diag['alpha_cumsum']*100:+.1f}%")
+    if sim.get("n"):
+        print(f"  [시뮬·신공식] 알파      : {sim['alpha_mean']*100:+.2f}%  "
+              f"(NW t={sim['alpha_tstat']:.2f}, 초과 {(sim['alpha_mean']-uni_mean)*100:+.2f}%p, "
+              f"Hit {sim['hit_rate']:.1%})  ← 유계 순위-z 교정안(감성 제외) 소급 적용")
 
     if args.json:
         out = {
@@ -269,6 +319,7 @@ def main() -> None:
             "universe_alpha_mean": uni_mean,
             "portfolio_prod_rank": prod,
             "portfolio_diag_pred": diag,
+            "portfolio_sim_newscore": sim,
         }
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2, default=float)

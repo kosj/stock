@@ -84,6 +84,15 @@ W_ALPHA_Z     = 0.65
 W_SHARPE_Z    = 0.25
 W_SENTIMENT_Z = 0.10
 
+# ── 순위·표시 교정 상수 (기업은행 장기 1위 진단 후속) ─────────────────────────
+# 표시 기대수익률의 변동성 스케일 클램프: 유니버스 분위수 알파(±12~14%)를
+# 종목 변동성/중앙값 비율로 스케일해 저베타 종목의 비현실적 표시(+14% 등)를 교정.
+VOL_SCALE_CLAMP = (0.35, 2.0)
+# Top-N 내 동일 섹터 최대 종목 수 (금융주 8/20 같은 집중 위험 제한)
+SECTOR_CAP      = 5
+# 동일 종목 연속 1위 경고 임계 (팩터 고착/과대평가 점검 신호)
+TOP1_STREAK_WARN = 5
+
 # ── 종목 유니버스 ─────────────────────────────────────────────────────────────
 # 단일 소스 universe.py에서 로드 (krx_cache.py와 공유 — 종목 수정은 거기 한 곳만).
 from universe import UNIVERSE
@@ -918,6 +927,10 @@ def main() -> None:
     #   정렬 기준 risk_adj_score는 단조변환이라 순위는 영향받지 않는다.
     pred_pct = pred.rank(pct=True)   # ∈ (0,1], 종목별 고유 백분위
 
+    # 변동성 중앙값: 표시 기대수익률 스케일 기준
+    _vols   = [per_stock[t]["vol_60d_ann"] for t in pred.index if t in per_stock]
+    vol_med = float(np.median(_vols)) if _vols else 0.30
+
     records = []
     for ticker, rank_score in pred.items():
         if np.isnan(rank_score) or ticker not in per_stock:
@@ -925,8 +938,15 @@ def main() -> None:
         d       = per_stock[ticker]
         info    = d["info"]
         vol     = d["vol_60d_ann"]
-        # 예측 백분위 → 실제 기대 수익률(분율)로 역변환 (스프레드 복원)
-        alpha_5d = _pct_to_return(float(pred_pct[ticker]))
+        alpha_pct   = float(pred_pct[ticker])
+        # 유니버스 분위수 알파(스프레드 복원용 원값) — sharpe 순위 계산에만 사용
+        alpha_q_raw = _pct_to_return(alpha_pct)
+        # [표시 교정] 유니버스 분위수는 "순위 1등이면 p95 알파"를 부여해 저베타
+        # 종목(은행 등)에 비현실적 기대수익률(+14% 등)을 표시했다. 종목 변동성/
+        # 중앙값 비율로 스케일해 그 종목이 실현 가능한 규모로 보정한다.
+        # (순위 산출은 alpha_pct·sharpe 순위를 쓰므로 이 스케일의 영향 없음)
+        vol_ratio = float(np.clip(vol / vol_med, *VOL_SCALE_CLAMP))
+        alpha_5d  = alpha_q_raw * vol_ratio
         records.append({
             "ticker":                ticker,
             "name":                  info["name"],
@@ -934,8 +954,11 @@ def main() -> None:
             "market":                info["market"],
             "current_price":         d["current_price"],
             "avg_trading_value_20d": d["avg_trading_value_20d"],
-            "alpha_5d":              alpha_5d,
-            "risk_adj_score":        alpha_5d / vol,
+            "alpha_pct":             alpha_pct,        # 순수 모델 백분위 (랭킹용)
+            "alpha_q_raw":           alpha_q_raw,      # 무스케일 분위수 알파 (sharpe용)
+            "alpha_5d":              alpha_5d,         # 표시·저장용 (변동성 스케일)
+            "vol_ratio":             vol_ratio,
+            "risk_adj_score":        alpha_q_raw / vol,
             "vol_60d_ann":           vol,
             "ret_20d":               d["ret_20d"],
         })
@@ -963,13 +986,25 @@ def main() -> None:
     #   - sentiment_z: 호재/악재 뉴스를 같은 날 다른 종목 대비 상대평가해 가산
     #                  (감성 부재 시 std≈0 → 0 → 기존 동작과 동일하게 무해)
     if len(df_all) >= 2:
-        raw_sharpe = df_all["alpha_5d"] / df_all["vol_60d_ann"]
         def _cs_zscore(s: pd.Series) -> pd.Series:
             std = float(s.std())
             return (s - s.mean()) / std if std > 1e-8 else pd.Series(0.0, index=s.index)
+        # [v2 교정] 기존 z(raw sharpe)는 분자(유니버스 분위수 알파)와 분모(종목
+        # 변동성)의 스케일 불일치로 저변동주에서 +3σ급 아웃라이어를 만들었고,
+        # 0.25 가중으로도 순위를 뒤집었다(기업은행 순수예측 5위→종합 1위 사례).
+        # sharpe를 순위(rank pct)로 변환 후 z하면 "동급 알파면 저변동 선호"
+        # 의도는 유지하되 기여가 ±1.7σ로 유계가 되어 소수 종목이 지배할 수 없다.
+        # 알파 항도 동일하게 유계인 순수 백분위 z를 사용(표시 스케일과 분리).
+        # ※ 순위-z는 경험적 std가 아닌 균등분포 이론 std(1/√12)로 정규화 —
+        #   예측 붕괴(전 종목 동일값) 같은 퇴화 입력에서도 유계가 깨지지 않는다.
+        _RANK_Z_DENOM = 0.2887
+        def _rank_z(s: pd.Series) -> pd.Series:
+            r = s.rank(pct=True)
+            return (r - r.mean()) / _RANK_Z_DENOM
+        raw_sharpe = df_all["alpha_q_raw"] / df_all["vol_60d_ann"]
         df_all["risk_adj_score"] = (
-            W_ALPHA_Z     * _cs_zscore(df_all["alpha_5d"]) +
-            W_SHARPE_Z    * _cs_zscore(raw_sharpe) +
+            W_ALPHA_Z     * _rank_z(df_all["alpha_pct"]) +
+            W_SHARPE_Z    * _rank_z(raw_sharpe) +
             W_SENTIMENT_Z * _cs_zscore(df_all["sentiment_3d_ma"])
         )
 
@@ -997,8 +1032,46 @@ def main() -> None:
     # 리스크 조정 스코어 내림차순 정렬 (상위 = 횡단면 상대 best)
     df_sorted = df_liq.sort_values("risk_adj_score", ascending=False).reset_index(drop=True)
 
-    # 섹터 쏠림 제한 없이 스코어 상위 Top-N 그대로 선정
-    df_top = df_sorted.head(TOP_N).reset_index(drop=True)
+    # ── 섹터 상한 선정: 스코어 내림차순에서 섹터당 최대 SECTOR_CAP 종목 ─────
+    # 밸류 팩터의 구조적 은행 선호로 금융주가 Top20의 8/20까지 잠식했던 집중
+    # 위험을 제한한다. 상한 초과분은 차순위 스코어 종목으로 대체.
+    _picked, _counts, _skipped = [], {}, []
+    for _idx, _row in df_sorted.iterrows():
+        _sec = _row["sector"]
+        if _counts.get(_sec, 0) >= SECTOR_CAP:
+            _skipped.append(f"{_row['name']}({_sec})")
+            continue
+        _picked.append(_idx)
+        _counts[_sec] = _counts.get(_sec, 0) + 1
+        if len(_picked) == TOP_N:
+            break
+    df_top = df_sorted.loc[_picked].reset_index(drop=True)
+    if _skipped:
+        print(f"  섹터 상한({SECTOR_CAP}) 적용: {len(_skipped)}종목 차순위 대체 — "
+              f"{', '.join(_skipped[:5])}{' 외' if len(_skipped) > 5 else ''}")
+
+    # ── 동일 종목 연속 1위 감시 (팩터 고착 경고) ─────────────────────────────
+    if len(df_top) > 0:
+        _top1 = df_top.iloc[0]["ticker"]
+        try:
+            _r = requests.get(
+                f"{SUPABASE_URL}/rest/v1/prophet_recommendations"
+                f"?select=run_date,ticker&rank=eq.1&run_date=lt.{run_date}"
+                f"&order=run_date.desc&limit=10",
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+                timeout=10,
+            )
+            _streak = 1
+            for _prev in _r.json():
+                if _prev.get("ticker") == _top1:
+                    _streak += 1
+                else:
+                    break
+            if _streak >= TOP1_STREAK_WARN:
+                print(f"  ⚠ 동일 종목 {_streak}회 연속 1위: {_top1} "
+                      f"— 팩터 고착/과대평가 여부 점검 권장 (백테스트 운영 지표 확인)")
+        except Exception:
+            pass  # 감시는 부가 기능 — 조회 실패가 추천을 막으면 안 됨
 
     # ── 결과 출력 ─────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")
@@ -1040,7 +1113,8 @@ def main() -> None:
         a10    = row["alpha_5d"]            # 컬럼명은 alpha_5d 유지, 실제는 10일 섹터중립 알파
         # 30일: 독립 모델 예측 우선, 실패 시 10일 알파의 감쇠 외삽으로 폴백
         if alpha30_map is not None and ticker in alpha30_map:
-            a30 = float(np.clip(alpha30_map[ticker], -A30_CAP, A30_CAP))
+            # 30일 독립 모델도 유니버스 분위수 매핑을 쓰므로 동일한 변동성 스케일 적용
+            a30 = float(np.clip(alpha30_map[ticker] * row["vol_ratio"], -A30_CAP, A30_CAP))
         else:
             a30_raw = a10 * sum(ALPHA30_DECAY ** k for k in range(3))  # Σ(0.7^k,k=0..2)≈2.19×
             a30 = float(np.clip(a30_raw, -A30_CAP, A30_CAP))
