@@ -46,12 +46,19 @@ export async function GET(req: NextRequest) {
     const picks = await Promise.all(
       top.map(async (row) => {
         let entry = null;
+        let drawdownPct: number | null = null;
         try {
-          const candles = await getChart(row.ticker, "6m");
+          // 1y: 진입타점(후행 구간 사용)과 52주 전고점 낙폭을 한 번의 조회로 계산
+          const candles = await getChart(row.ticker, "1y");
           // ETF는 바스켓 → 개별주 기준봉 전제의 눌림목 점수를 판정에 쓰지 않는다
           entry = analyzeEntryPoint(row.ticker, candles, { isBasket: true });
+          const closes = (candles ?? []).map((c) => c.close).filter((v) => v > 0);
+          if (closes.length >= 20) {
+            const high52 = Math.max(...closes);
+            drawdownPct = Math.round((closes[closes.length - 1] / high52 - 1) * 10000) / 100;
+          }
         } catch { /* 진입타점 실패 시 null */ }
-        return { ...row, entry };
+        return { ...row, entry, drawdownPct };
       }),
     );
 

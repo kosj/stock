@@ -55,7 +55,7 @@ interface EntryPoint {
   currentPrice: number; entryLow: number | null; entryHigh: number | null;
   stopLoss: number | null; state: string; note: string; rsi: number | null;
 }
-interface Pick extends EtfRow { entry: EntryPoint | null }
+interface Pick extends EtfRow { entry: EntryPoint | null; drawdownPct?: number | null }
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 const won = (v: number | null | undefined) => (v != null ? v.toLocaleString() + "원" : "—");
@@ -181,6 +181,17 @@ export function EtfRankingPage() {
                       <span className="text-xs text-muted-foreground ml-2">{p.ticker} · {p.category}</span>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
+                      {p.drawdownPct != null && (
+                        <span
+                          className={`text-xs tabular-nums ${
+                            p.drawdownPct >= -0.5 ? "text-green-400"
+                            : p.drawdownPct <= -10 ? "text-red-400" : "text-muted-foreground"
+                          }`}
+                          title="52주 전고점 대비"
+                        >
+                          고점比 {p.drawdownPct >= -0.5 ? "신고가권" : `${p.drawdownPct.toFixed(1)}%`}
+                        </span>
+                      )}
                       <span className={`text-sm font-bold tabular-nums ${colorByChange(p.sortReturn)}`}>
                         {formatPercent(p.sortReturn)}
                       </span>
