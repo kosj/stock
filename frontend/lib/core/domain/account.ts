@@ -19,4 +19,9 @@ export interface BrokerPosition {
   currentPrice: number;
   /** 수익률 (%), 소수점 2자리 */
   pnlPct:       number;
+  /**
+   * 시세 조회 실패로 currentPrice가 평단가 폴백일 때 true.
+   * 이 상태의 pnlPct(0%)는 실제 손익이 아니므로 매매 판단(손절 등)에 쓰면 안 된다.
+   */
+  priceStale?:  boolean;
 }
