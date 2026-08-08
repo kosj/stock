@@ -328,7 +328,7 @@ export function StockDetailPage({
                 {[
                   // 국내(6자리 코드)만 원화 "조" 단위 — 미국 종목은 달러를 조로 오표기했었다
                   { label: "시가총액",   value: f.market_cap
-                      ? /^\d{6}$/.test(t)
+                      ? /^\d{6}$/.test(ticker)
                         ? `${(f.market_cap / 1e12).toFixed(1)}조`
                         : `$${(f.market_cap / 1e9).toFixed(1)}B`
                       : "-" },
