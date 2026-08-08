@@ -46,5 +46,8 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const nocache = req.nextUrl.searchParams.get("nocache") === "1";
   const data = await getQuote(t, nocache);
   if (!data) return NextResponse.json({ error: "시세 조회 실패" }, { status: 404 });
-  return NextResponse.json({ ...data, source: "yahoo" });
+  // 실제 출처를 보존 — 네이버 폴백 응답까지 "yahoo"로 강제 라벨링하던 오기 수정.
+  // getQuote가 source를 안 주는 구버전 응답만 yahoo로 간주. as_of로 기준시각 노출.
+  const source = (data as { source?: string }).source ?? "yahoo";
+  return NextResponse.json({ ...data, source, as_of: data.timestamp ?? new Date().toISOString() });
 }

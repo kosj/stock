@@ -385,9 +385,10 @@ function fallback(
     summary: `${n}은(는) 종합 점수 ${score.toFixed(0)}점으로 ${recommendation} 의견입니다.${posNote} ${sentiment} 흐름이 관찰됩니다. 분할 접근을 권고합니다.`,
     valuation_analysis: `밸류에이션 점수 ${(breakdown.valuation_score as number).toFixed(0)}/25점. 업종 상대 PER 기준으로 평가되었습니다.`,
     technical_analysis: `기술적 점수 ${(breakdown.technical_score as number).toFixed(0)}/25점. MA60 기준 추세와 눌림목 조건이 반영되었습니다.`,
-    risk_factors: ["거시경제 불확실성", "환율 변동 리스크", "업종 경쟁 심화"],
-    catalysts: ["실적 개선 기대", "섹터 모멘텀 회복"],
-    target_price_comment: "현 주가 대비 업종 상대 밸류에이션 기반 목표가 산정 필요.",
+    // AI 미연결 시 일반론 문구임을 명시 — 종목별 분석처럼 보이면 오독을 부른다
+    risk_factors: ["[룰 기반 일반론 — AI 미연결] 거시경제 불확실성", "환율 변동 리스크", "업종 경쟁 심화"],
+    catalysts: ["[룰 기반 일반론 — AI 미연결] 실적 개선 기대", "섹터 모멘텀 회복"],
+    target_price_comment: "룰 기반 자동 산출입니다(AI 미연결). 컨센서스·52주 밴드 기반 참고치.",
   };
 }
 

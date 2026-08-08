@@ -326,7 +326,12 @@ export function StockDetailPage({
             <>
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 {[
-                  { label: "시가총액",   value: f.market_cap ? `${(f.market_cap / 1e12).toFixed(1)}조` : "-" },
+                  // 국내(6자리 코드)만 원화 "조" 단위 — 미국 종목은 달러를 조로 오표기했었다
+                  { label: "시가총액",   value: f.market_cap
+                      ? /^\d{6}$/.test(t)
+                        ? `${(f.market_cap / 1e12).toFixed(1)}조`
+                        : `$${(f.market_cap / 1e9).toFixed(1)}B`
+                      : "-" },
                   { label: "PER",        value: f.per ? `${f.per.toFixed(1)}배` : "-" },
                   { label: "Fwd PER",    value: f.forward_per ? `${f.forward_per.toFixed(1)}배` : "-" },
                   { label: "PBR",        value: f.pbr ? `${f.pbr.toFixed(2)}배` : "-" },
