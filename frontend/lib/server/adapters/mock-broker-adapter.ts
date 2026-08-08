@@ -68,16 +68,18 @@ export class MockBrokerAdapter implements BrokerPort {
 
     return positions.map((pos, i) => {
       const q = quotes[i];
-      const quoteOk = q.status === "fulfilled" && !!q.value?.price && q.value.price > 0;
+      // 값 직접 추출 — 불리언 경유 내로잉은 q.value의 null을 좁히지 못한다(빌드 오류)
+      const quotedPrice =
+        q.status === "fulfilled" && q.value?.price && q.value.price > 0 ? q.value.price : null;
       // 폴백은 표시용일 뿐 — priceStale로 표시해 손절 등 매매 판단에서 제외시킨다.
       // (기존에는 폴백이 손익 0%로 위장돼 손절이 영원히 미발동하는 결함이 있었다)
-      const currentPrice = quoteOk ? q.value.price : pos.avg_price;
+      const currentPrice = quotedPrice ?? pos.avg_price;
       const pnlPct = pos.avg_price > 0 ? ((currentPrice - pos.avg_price) / pos.avg_price) * 100 : 0;
-      if (!quoteOk) {
+      if (quotedPrice === null) {
         console.warn(`[mock-broker] ${pos.ticker} 시세 조회 실패 — 평단 폴백(priceStale)`);
       }
       return {
-        priceStale:   !quoteOk,
+        priceStale:   quotedPrice === null,
         ticker:       pos.ticker,
         name:         pos.name,
         quantity:     pos.quantity,
