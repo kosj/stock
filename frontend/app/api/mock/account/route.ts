@@ -95,8 +95,13 @@ export async function PUT(req: NextRequest) {
 
   if ("cash" in body) {
     const cash = Number(body.cash);
-    if (!isFinite(cash) || cash < 0) {
-      return NextResponse.json({ error: "올바른 금액을 입력해주세요." }, { status: 400 });
+    // 상한 10억 — 무제한 현금 설정은 모의투자 성과의 무결성을 깨뜨린다
+    const CASH_MAX = 1_000_000_000;
+    if (!isFinite(cash) || cash < 0 || cash > CASH_MAX) {
+      return NextResponse.json(
+        { error: `금액은 0원~${(CASH_MAX / 1e8).toFixed(0)}억원 범위여야 합니다.` },
+        { status: 400 },
+      );
     }
     updates.cash = Math.round(cash);
   }
