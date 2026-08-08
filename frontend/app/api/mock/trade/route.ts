@@ -16,12 +16,16 @@ export async function POST(req: NextRequest) {
   const [userId, body] = await Promise.all([getUserId(), req.json()]);
   if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
 
-  const { ticker, name, trade_type, quantity } = body ?? {};
+  const { ticker, name, trade_type, quantity, client_order_id } = body ?? {};
   if (!ticker || !name || !["BUY", "SELL"].includes(trade_type) || !(quantity > 0)) {
     return NextResponse.json(
       { error: "ticker, name, trade_type(BUY|SELL), quantity 필요" },
       { status: 400 },
     );
+  }
+  // 정수 수량 강제 — INTEGER 컬럼 절삭/오류로 이어지는 소수 수량 사전 차단
+  if (!Number.isInteger(quantity)) {
+    return NextResponse.json({ error: "quantity는 정수(주 단위)여야 합니다." }, { status: 400 });
   }
 
   // 현재가 조회 (체결가) — DB 조회와 독립적이므로 단독 실행
@@ -30,7 +34,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `${ticker} 시세를 조회할 수 없습니다.` }, { status: 502 });
   }
 
-  const price = Math.round(quote.price * 100) / 100;
+  // ── 거래 비용 모델: 실효 체결가에 반영 (RPC 스키마 변경 불필요) ──────────
+  // 매수: 위탁수수료 0.015% 가산 / 매도: 수수료 0.015% + 증권거래세 0.18% 차감.
+  // 비용을 체결가에 녹이면 평단(매수)과 회수금(매도)에 자동 반영된다 —
+  // 기존 0원 비용은 회전 잦은 전략의 수익률을 구조적으로 과대평가했다.
+  const FEE_RATE = 0.00015;
+  const TAX_RATE = 0.0018;
+  const costMult = trade_type === "BUY" ? 1 + FEE_RATE : 1 - FEE_RATE - TAX_RATE;
+  const rawPrice = Math.round(quote.price * 100) / 100;
+  const price    = Math.round(quote.price * costMult * 100) / 100;
 
   // BUY / SELL 모두 RPC 1 왕복으로 처리 (기존 5~6 왕복 대비 대폭 단축)
   const rpcName = trade_type === "BUY" ? "execute_mock_buy" : "execute_mock_sell";
@@ -40,6 +52,8 @@ export async function POST(req: NextRequest) {
     p_name:     name,
     p_quantity: quantity,
     p_price:    price,
+    // 클라이언트가 주문 UUID를 보내면 더블클릭/재시도 중복 체결이 DB에서 차단된다
+    p_client_order_id: typeof client_order_id === "string" && client_order_id ? client_order_id : null,
   });
 
   if (error) {

@@ -44,7 +44,9 @@ function ema(prices: number[], span: number): number[] {
 }
 
 export function calcIndicators(candles: Candle[]): Record<string, Series> {
-  if (candles.length < 26) return {};
+  // 지표별 최소 봉 수는 각 계산부에서 null 처리한다 — 일괄 26봉 컷은
+  // 1개월(≈20봉) 차트에서 RSI(15봉이면 충분)까지 통째로 사라지게 했다.
+  if (candles.length < 2) return {};
 
   const times = candles.map((c) => c.time);
   const closes = candles.map((c) => c.close);
@@ -68,25 +70,40 @@ export function calcIndicators(candles: Candle[]): Record<string, Series> {
   const bbUpper = bbMid.map((m, i) => (m != null && bbStd[i] != null ? m + 2 * bbStd[i]! : null));
   const bbLower = bbMid.map((m, i) => (m != null && bbStd[i] != null ? m - 2 * bbStd[i]! : null));
 
-  // RSI (14)
-  const diffs = closes.map((c, i) => (i === 0 ? 0 : c - closes[i - 1]));
-  const gains = diffs.map((d) => Math.max(d, 0));
-  const losses = diffs.map((d) => Math.max(-d, 0));
-  const avgGain = sma(gains, 14);
-  const avgLoss = sma(losses, 14);
-  const rsi = avgGain.map((g, i) => {
-    if (g == null || avgLoss[i] == null) return null;
-    const loss = avgLoss[i]!;
-    if (loss === 0) return 100;
-    return 100 - 100 / (1 + g / loss);
-  });
+  // RSI (14) — Wilder 표준식. 기존 단순이동평균(Cutler)식 + 인덱스0의 인위적
+  // 0 diff 포함은 HTS/네이버 수치와 불일치했다. 초기값 = 첫 14개 diff의 단순평균,
+  // 이후 avg = (prev*13 + cur)/14 (Wilder smoothing).
+  const P = 14;
+  const rsi: (number | null)[] = new Array(closes.length).fill(null);
+  if (closes.length >= P + 1) {
+    let avgG = 0, avgL = 0;
+    for (let i = 1; i <= P; i++) {
+      const d = closes[i] - closes[i - 1];
+      if (d > 0) avgG += d; else avgL -= d;
+    }
+    avgG /= P; avgL /= P;
+    rsi[P] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+    for (let i = P + 1; i < closes.length; i++) {
+      const d = closes[i] - closes[i - 1];
+      avgG = (avgG * (P - 1) + Math.max(d, 0)) / P;
+      avgL = (avgL * (P - 1) + Math.max(-d, 0)) / P;
+      rsi[i] = avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL);
+    }
+  }
 
-  // MACD (12, 26, 9)
+  // MACD (12, 26, 9) — 워밍업 절단: EMA가 수렴하기 전(첫값 시드 구간)의 값은
+  // 조회 기간에 따라 같은 날짜의 값이 달라지므로 null 처리한다.
+  // 26봉(느린 EMA) + 9봉(시그널) 수렴 전 구간을 표시하지 않는 표준 관행.
   const ema12 = ema(closes, 12);
   const ema26 = ema(closes, 26);
-  const macdLine = ema12.map((v, i) => v - ema26[i]);
-  const macdSignal = ema(macdLine, 9);
-  const macdHist = macdLine.map((v, i) => v - macdSignal[i]);
+  const macdRaw = ema12.map((v, i) => v - ema26[i]);
+  const signalRaw = ema(macdRaw, 9);
+  const MACD_WARMUP = 26 - 1;            // 느린 EMA 수렴 시작
+  const SIGNAL_WARMUP = MACD_WARMUP + 8; // + 시그널 EMA(9)
+  const macdLine   = macdRaw.map((v, i) => (i >= MACD_WARMUP ? v : null));
+  const macdSignal = signalRaw.map((v, i) => (i >= SIGNAL_WARMUP ? v : null));
+  const macdHist   = macdRaw.map((v, i) =>
+    i >= SIGNAL_WARMUP ? v - signalRaw[i] : null);
 
   // Volume MA5
   const volMa5 = sma(volumes, 5);

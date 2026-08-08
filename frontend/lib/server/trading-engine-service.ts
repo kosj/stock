@@ -223,6 +223,14 @@ export class TradingEngineService {
     const soldTickers = new Set<string>();
 
     for (const h of holdings) {
+      // 시세 조회 실패(평단 폴백) 포지션은 손익이 가짜(0%)이므로 이번 사이클 판단 보류.
+      // 잘못된 가격으로 매도하면 회수금이 오염되고, 손절은 어차피 발동 불가능하다.
+      if (h.priceStale) {
+        skipCount++;
+        details.push({ ticker: h.ticker, name: h.name, action: "SKIP",
+                       reason: "시세 조회 실패(가격 스테일) — 매매 판단 보류" });
+        continue;
+      }
       const rank       = rankByTicker.get(h.ticker);    // undefined = Top20 미포함
       const isStopLoss = h.pnlPct <= STOP_LOSS_PCT;
       const isRankOut  = rank === undefined || rank > EXIT_RANK_MAX;

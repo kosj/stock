@@ -385,9 +385,10 @@ function fallback(
     summary: `${n}은(는) 종합 점수 ${score.toFixed(0)}점으로 ${recommendation} 의견입니다.${posNote} ${sentiment} 흐름이 관찰됩니다. 분할 접근을 권고합니다.`,
     valuation_analysis: `밸류에이션 점수 ${(breakdown.valuation_score as number).toFixed(0)}/25점. 업종 상대 PER 기준으로 평가되었습니다.`,
     technical_analysis: `기술적 점수 ${(breakdown.technical_score as number).toFixed(0)}/25점. MA60 기준 추세와 눌림목 조건이 반영되었습니다.`,
-    risk_factors: ["거시경제 불확실성", "환율 변동 리스크", "업종 경쟁 심화"],
-    catalysts: ["실적 개선 기대", "섹터 모멘텀 회복"],
-    target_price_comment: "현 주가 대비 업종 상대 밸류에이션 기반 목표가 산정 필요.",
+    // AI 미연결 시 일반론 문구임을 명시 — 종목별 분석처럼 보이면 오독을 부른다
+    risk_factors: ["[룰 기반 일반론 — AI 미연결] 거시경제 불확실성", "환율 변동 리스크", "업종 경쟁 심화"],
+    catalysts: ["[룰 기반 일반론 — AI 미연결] 실적 개선 기대", "섹터 모멘텀 회복"],
+    target_price_comment: "룰 기반 자동 산출입니다(AI 미연결). 컨센서스·52주 밴드 기반 참고치.",
   };
 }
 
@@ -423,7 +424,8 @@ export async function analyzeStock(
     all_notes:        allNotes,
   };
 
-  const current = (signals.current_price as number | null) || financials.week_52_high;
+  // 차트 실패 시 52주 고가를 현재가로 쓰면 수익률·목표가가 조용히 왜곡된다 → null 유지
+  const current = (signals.current_price as number | null) || null;
 
   const position =
     avgPrice && avgPrice > 0 && current
@@ -439,9 +441,24 @@ export async function analyzeStock(
     total, recommendation, breakdown, anthropicApiKey, position
   );
 
-  const targetPrice = current && ["Buy", "Strong Buy"].includes(recommendation)
-    ? Math.round(current * 1.2) : null;
-  const stopPrice = current ? Math.round(current * 0.92) : null;
+  // 목표가: 애널리스트 컨센서스 우선(현재가 위일 때만 신뢰). 없으면 52주 고가를
+  // 상한 근거로 사용, 그것도 없으면 표시하지 않는다 — 기존 ×1.2 고정 배수는
+  // 근거 없는 수치가 "목표가"로 강조되는 문제였다.
+  const consensus = (financials as { analyst_mean_target?: number | null }).analyst_mean_target ?? null;
+  const targetPrice =
+    current && ["Buy", "Strong Buy"].includes(recommendation)
+      ? consensus && consensus > current
+        ? Math.round(consensus)
+        : financials.week_52_high && financials.week_52_high > current
+          ? Math.round(financials.week_52_high)
+          : null
+      : null;
+  // 손절가: 고정 -8% 대신 52주 밴드폭 기반 변동성 반영(밴드폭 25%를 1로 정규화,
+  // -5%~-12% 클램프). 저변동주는 얕게, 고변동주는 깊게.
+  const bandW = current && financials.week_52_high && financials.week_52_low
+    ? (financials.week_52_high - financials.week_52_low) / current : null;
+  const stopFrac = bandW ? Math.min(0.12, Math.max(0.05, 0.08 * (bandW / 0.25))) : 0.08;
+  const stopPrice = current ? Math.round(current * (1 - stopFrac)) : null;
 
   return {
     ticker,
