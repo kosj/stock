@@ -203,9 +203,11 @@ export class TradingEngineService {
   }
 
   // ── 멱등성 키 ─────────────────────────────────────────────────────────────
-  // 일 1회 전략 기준 (티커당 매수/매도 각 1회) → 같은 날 재시도 시 중복 체결 차단
-  private clientOrderId(userId: string, runDate: string, side: OrderSide, ticker: string): string {
-    return `${userId}:${runDate}:${side}:${ticker}`;
+  // 일 1회 전략 기준 재시도 중복 차단. 수량을 키에 포함해, 같은 날 "다른 의도의
+  // 주문"(수량이 다른 분할매수/재진입)이 duplicate로 조용히 삼켜지지 않게 한다 —
+  // 동일 수량 재시도는 여전히 멱등 차단된다.
+  private clientOrderId(userId: string, runDate: string, side: OrderSide, ticker: string, qty?: number): string {
+    return `${userId}:${runDate}:${side}:${ticker}${qty != null ? `:${qty}` : ""}`;
   }
 
   // ── 프라이빗: 매도 로직 ───────────────────────────────────────────────────
@@ -257,7 +259,7 @@ export class TradingEngineService {
 
       try {
         const result = await this.broker.placeOrder({
-          clientOrderId:  this.clientOrderId(userId, runDate, "SELL", h.ticker),
+          clientOrderId:  this.clientOrderId(userId, runDate, "SELL", h.ticker, h.quantity),
           ticker:         h.ticker,
           name:           h.name,
           side:           "SELL",
@@ -367,7 +369,7 @@ export class TradingEngineService {
 
       try {
         const result: OrderResult = await this.broker.placeOrder({
-          clientOrderId:  this.clientOrderId(userId, runDate, "BUY", rec.ticker),
+          clientOrderId:  this.clientOrderId(userId, runDate, "BUY", rec.ticker, quantity),
           ticker:         rec.ticker,
           name:           rec.name,
           side:           "BUY",
