@@ -51,7 +51,9 @@ jobs:
           [ -n "$SB_URL" ] && export SUPABASE_URL="$SB_URL"
           [ -n "$SB_KEY" ] && export SUPABASE_SERVICE_ROLE_KEY="$SB_KEY"
           npx vercel@latest build --prod --token="$VERCEL_TOKEN"
-          npx vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          # --archive=tgz: 산출물을 단일 아카이브로 업로드 — 파일 개별 업로드가
+          # 러너에서 멈추는 문제(20분 타임아웃 실측)의 표준 해결책
+          npx vercel@latest deploy --prebuilt --prod --archive=tgz --token="$VERCEL_TOKEN"
           echo "cli=done" >> "$GITHUB_OUTPUT"
 
       - name: Fallback deploy hook
