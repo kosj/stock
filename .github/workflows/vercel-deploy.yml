@@ -1,32 +1,59 @@
-name: "Vercel Deploy Hook"
+name: "Vercel Deploy"
 
-# Vercel Hobby 플랜은 비소유자(봇) 커밋/푸시의 자동 배포를 차단한다
-# ("commit author did not have contributing access").
-# Deploy Hook은 author·푸시 주체 검사와 무관하게 "해당 브랜치의 최신 커밋"을
-# 빌드하므로, master push마다 훅을 호출해 배포를 보장한다.
-#
-# 활성화 방법(1회):
-#   1) Vercel → 프로젝트 → Settings → Git → Deploy Hooks
-#      → Name: master-deploy, Branch: master 로 생성 → URL 복사
-#   2) GitHub 저장소 → Settings → Secrets and variables → Actions
-#      → New repository secret: 이름 VERCEL_DEPLOY_HOOK, 값 = 복사한 URL
-# 시크릿 미설정 시 이 워크플로우는 아무것도 하지 않고 통과한다(무해).
+# Vercel Hobby가 비소유자 연동 커밋의 자동 배포를 차단하는 문제의 확정 우회.
+# GitHub attribution이 소유자(kosj)로 정확해도 차단이 재현돼, git 연동을 거치지
+# 않는 두 경로를 제공한다:
+#   1순위) Vercel CLI 토큰 배포 — 토큰 소유자(=계정 주인) 명의의 배포로 처리되어
+#          author 검사 자체가 없다. 필요한 시크릿 3개:
+#          - VERCEL_TOKEN      : vercel.com → Account Settings → Tokens → Create
+#          - VERCEL_ORG_ID     : Account Settings → General 의 ID (또는 .vercel/project.json)
+#          - VERCEL_PROJECT_ID : 프로젝트 → Settings → General → Project ID
+#   2순위) Deploy Hook (VERCEL_DEPLOY_HOOK) — 토큰 미설정 시 폴백.
+# 시크릿이 하나도 없으면 아무것도 하지 않는다(무해).
 on:
   push:
     branches: ["master"]
   workflow_dispatch:
 
 jobs:
-  trigger:
+  deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
-      - name: Trigger Vercel deploy hook
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Deploy via Vercel CLI (token)
+        id: cli
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "cli=skipped" >> "$GITHUB_OUTPUT"
+            echo "VERCEL_TOKEN/ORG_ID/PROJECT_ID 미설정 — CLI 배포 건너뜀"
+            exit 0
+          fi
+          # 프로젝트 환경변수(SUPABASE 등)를 내려받아 원격 빌드 없이 동일하게 빌드
+          npx vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx vercel@latest build --prod --token="$VERCEL_TOKEN"
+          npx vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          echo "cli=done" >> "$GITHUB_OUTPUT"
+
+      - name: Fallback deploy hook
+        if: ${{ steps.cli.outputs.cli != 'done' }}
         env:
           HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
         run: |
           if [ -z "$HOOK" ]; then
-            echo "VERCEL_DEPLOY_HOOK 시크릿 미설정 — 건너뜀 (설정 방법은 워크플로우 파일 주석 참고)"
+            echo "VERCEL_DEPLOY_HOOK 미설정 — 건너뜀"
             exit 0
           fi
           curl -sS -X POST "$HOOK" -o /dev/null -w "Vercel hook HTTP %{http_code}\n"
