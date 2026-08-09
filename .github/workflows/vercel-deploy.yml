@@ -35,14 +35,21 @@ jobs:
         id: cli
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          # Vercel의 Sensitive 환경변수는 vercel pull로 내려받을 수 없어
+          # 빌드(page data 수집)가 실패한다 → GitHub Secrets로 직접 주입.
+          SB_URL:  ${{ secrets.SUPABASE_URL }}
+          SB_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
             echo "cli=skipped" >> "$GITHUB_OUTPUT"
             echo "VERCEL_TOKEN/ORG_ID/PROJECT_ID 미설정 — CLI 배포 건너뜀"
             exit 0
           fi
-          # 프로젝트 환경변수(SUPABASE 등)를 내려받아 원격 빌드 없이 동일하게 빌드
+          # 프로젝트 환경변수(비민감분)를 내려받아 원격 빌드와 동일 조건으로 빌드
           npx vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          # 비어있지 않은 값만 export (빈 값으로 유효한 pulled env를 덮지 않도록)
+          [ -n "$SB_URL" ] && export SUPABASE_URL="$SB_URL"
+          [ -n "$SB_KEY" ] && export SUPABASE_SERVICE_ROLE_KEY="$SB_KEY"
           npx vercel@latest build --prod --token="$VERCEL_TOKEN"
           npx vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
           echo "cli=done" >> "$GITHUB_OUTPUT"
