@@ -17,6 +17,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
     const tickers: string[] = Array.isArray(body?.tickers) ? body.tickers : [];
+    // basket=true: ETF 등 바스켓 상품 → 개별주 기준봉 전제의 눌림목 점수를 판정 제외
+    const isBasket: boolean = body?.basket === true;
 
     if (tickers.length === 0) {
       return NextResponse.json({ error: "tickers 배열이 필요합니다." }, { status: 400 });
@@ -26,7 +28,7 @@ export async function POST(req: NextRequest) {
       tickers.map(async (ticker) => {
         // 90일+: MA60 + 스윙저점 + 밴드 계산에 충분한 구간
         const candles = await getChart(ticker.toUpperCase(), "6m");
-        return analyzeEntryPoint(ticker.toUpperCase(), candles);
+        return analyzeEntryPoint(ticker.toUpperCase(), candles, { isBasket });
       }),
     );
 

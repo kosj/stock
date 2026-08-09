@@ -66,6 +66,27 @@ const eok = (n: number) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** 진입 상태 + 매매 레벨 (POST /api/analysis/entry-point 응답 일부) */
+interface EntryInfo {
+  ticker: string;
+  state: "buy_zone" | "watch" | "overbought" | "weak";
+  entryLow: number | null;
+  entryHigh: number | null;
+  stopLoss: number | null;
+  atrPct: number | null;
+  rsi: number | null;
+  note: string;
+  insufficient_data?: boolean;
+}
+
+/** 상태 배지 표기 — ETF 랭킹/추천 화면과 동일한 라벨 체계 유지 */
+const ENTRY_STATE_BADGE: Record<string, { text: string; cls: string }> = {
+  buy_zone:   { text: "분할매수권", cls: "bg-green-500/15 text-green-400" },
+  watch:      { text: "눌림 대기",  cls: "bg-blue-500/15 text-blue-400" },
+  overbought: { text: "과열·관망",  cls: "bg-amber-500/15 text-amber-400" },
+  weak:       { text: "진입 보류",  cls: "bg-red-500/15 text-red-400" },
+};
+
 export function PensionPage() {
   const [account, setAccount] = useState<AccountType>("pension");
   const [risk, setRisk] = useState<RiskProfile>("balanced");
@@ -93,6 +114,26 @@ export function PensionPage() {
     for (const it of ddData?.items ?? []) if (it?.ok) m[it.ticker] = it;
     return m;
   }, [ddData]);
+
+  // 진입 상태(분할매수권/눌림 대기/과열/보류) — ATR 기반 기술적 레벨 판정.
+  // ETF는 바스켓이므로 basket:true로 눌림목(개별주 기준봉) 판정을 제외한다.
+  const { data: epData } = useSWR(
+    tickerCsv ? ["entry-point", tickerCsv] : null,
+    ([, csv]: [string, string]) =>
+      fetch("/api/analysis/entry-point", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers: csv.split(","), basket: true }),
+      }).then((r) => r.json()),
+    { revalidateOnFocus: false, dedupingInterval: 1_800_000 },
+  );
+  const entries = useMemo(() => {
+    const m: Record<string, EntryInfo> = {};
+    for (const e of Array.isArray(epData) ? epData : []) {
+      if (e?.ticker && !e.insufficient_data) m[e.ticker] = e;
+    }
+    return m;
+  }, [epData]);
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
@@ -165,6 +206,7 @@ export function PensionPage() {
           riskWeight={riskWeight}
           breakdown={breakdown}
           drawdowns={drawdowns}
+          entries={entries}
         />
       </section>
 
@@ -183,7 +225,7 @@ export function PensionPage() {
       {/* ── 매수 타점 가이드 ─────────────────────────────────────────────── */}
       <section className="space-y-3">
         <SectionTitle icon={<Clock size={16} />} title="매수 타점 가이드" />
-        <TimingGuide holdings={portfolio.holdings} drawdowns={drawdowns} />
+        <TimingGuide holdings={portfolio.holdings} drawdowns={drawdowns} entries={entries} />
       </section>
 
       {/* ── 투자 방법 가이드 ─────────────────────────────────────────────── */}
@@ -308,6 +350,7 @@ function PortfolioCard({
   riskWeight,
   breakdown,
   drawdowns,
+  entries,
 }: {
   account: AccountType;
   risk: RiskProfile;
@@ -315,6 +358,7 @@ function PortfolioCard({
   riskWeight: number;
   breakdown: Record<AssetClass, number>;
   drawdowns: Record<string, { price: number; drawdownPct: number }>;
+  entries: Record<string, EntryInfo>;
 }) {
   const portfolio = PORTFOLIOS[account][risk];
   const profile = RISK_PROFILES[risk];
@@ -360,6 +404,7 @@ function PortfolioCard({
               <th className="py-2 px-2 font-medium">종목코드</th>
               <th className="py-2 px-2 font-medium text-right">비중</th>
               <th className="py-2 px-2 font-medium text-right">전고점 대비</th>
+              <th className="py-2 px-2 font-medium text-center">진입 상태</th>
               <th className="py-2 pl-2 font-medium hidden sm:table-cell">역할</th>
             </tr>
           </thead>
@@ -390,6 +435,18 @@ function PortfolioCard({
                       return (
                         <span className={dd.drawdownPct <= -10 ? "text-red-400 font-semibold" : "text-amber-400"}>
                           {dd.drawdownPct.toFixed(1)}%
+                        </span>
+                      );
+                    })()}
+                  </td>
+                  <td className="py-2.5 px-2 text-center">
+                    {(() => {
+                      const ep = entries[etf.ticker];
+                      if (!ep) return <span className="text-muted-foreground/50 text-xs">—</span>;
+                      const b = ENTRY_STATE_BADGE[ep.state] ?? ENTRY_STATE_BADGE.weak;
+                      return (
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${b.cls}`}>
+                          {b.text}
                         </span>
                       );
                     })()}
@@ -808,9 +865,11 @@ function TipCard({ title, points }: { title: string; points: string[] }) {
 function TimingGuide({
   holdings,
   drawdowns,
+  entries,
 }: {
   holdings: Holding[];
   drawdowns: Record<string, { price: number; drawdownPct: number }>;
+  entries: Record<string, EntryInfo>;
 }) {
   // 현재 포트폴리오에 존재하는 자산군만, 비중 큰 순으로
   const classes = useMemo(() => {
@@ -892,7 +951,7 @@ function TimingGuide({
         {Object.keys(drawdowns).length > 0 && (
           <div className="mb-3 rounded-lg p-3" style={{ background: "var(--background)" }}>
             <p className="text-[11px] font-semibold text-muted-foreground mb-2">
-              현재 구성 ETF의 전고점(52주) 대비 실측 낙폭
+              현재 구성 ETF의 진입 상태 · 전고점(52주) 대비 실측 낙폭
             </p>
             <div className="flex flex-wrap gap-1.5">
               {holdings.map((h) => {
@@ -914,6 +973,19 @@ function TimingGuide({
                   >
                     {etf.name} {nearHigh ? "신고가권" : `${dd.drawdownPct.toFixed(1)}%`}
                     {hit10 && " · 트리거 도달"}
+                    {(() => {
+                      const ep = entries[etf.ticker];
+                      if (!ep) return null;
+                      const b = ENTRY_STATE_BADGE[ep.state] ?? ENTRY_STATE_BADGE.weak;
+                      const band = ep.entryLow != null && ep.entryHigh != null
+                        ? ` ${ep.entryLow.toLocaleString()}~${ep.entryHigh.toLocaleString()}원`
+                        : "";
+                      return (
+                        <span className={`ml-1 px-1 rounded ${b.cls}`}>
+                          {b.text}{band}
+                        </span>
+                      );
+                    })()}
                   </span>
                 );
               })}
