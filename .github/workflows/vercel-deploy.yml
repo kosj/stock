@@ -35,25 +35,20 @@ jobs:
         id: cli
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          # Vercel의 Sensitive 환경변수는 vercel pull로 내려받을 수 없어
-          # 빌드(page data 수집)가 실패한다 → GitHub Secrets로 직접 주입.
-          SB_URL:  ${{ secrets.SUPABASE_URL }}
-          SB_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
             echo "cli=skipped" >> "$GITHUB_OUTPUT"
             echo "VERCEL_TOKEN/ORG_ID/PROJECT_ID 미설정 — CLI 배포 건너뜀"
             exit 0
           fi
-          # 프로젝트 환경변수(비민감분)를 내려받아 원격 빌드와 동일 조건으로 빌드
-          npx vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
-          # 비어있지 않은 값만 export (빈 값으로 유효한 pulled env를 덮지 않도록)
-          [ -n "$SB_URL" ] && export SUPABASE_URL="$SB_URL"
-          [ -n "$SB_KEY" ] && export SUPABASE_SERVICE_ROLE_KEY="$SB_KEY"
-          npx vercel@latest build --prod --token="$VERCEL_TOKEN"
-          # --archive=tgz: 산출물을 단일 아카이브로 업로드 — 파일 개별 업로드가
-          # 러너에서 멈추는 문제(20분 타임아웃 실측)의 표준 해결책
-          npx vercel@latest deploy --prebuilt --prod --archive=tgz --token="$VERCEL_TOKEN"
+          # 빌드는 Vercel에서 수행한다(원격 빌드).
+          # 로컬 prebuilt 빌드는 러너에 프로젝트 환경변수가 완전히 주입되지 않아
+          # NEXT_PUBLIC_* 값이 Edge 미들웨어에 잘못 인라인되고,
+          # 런타임에 MIDDLEWARE_INVOCATION_FAILED(500)로 터졌다(실측).
+          # 원격 빌드는 프로젝트에 설정된 환경변수를 그대로 사용하므로
+          # git 연동 빌드와 100% 동일한 결과가 나온다.
+          # --archive=tgz: 소스를 단일 아카이브로 업로드(개별 파일 업로드 행업 회피)
+          npx vercel@latest deploy --prod --archive=tgz --yes --token="$VERCEL_TOKEN"
           echo "cli=done" >> "$GITHUB_OUTPUT"
 
       - name: Fallback deploy hook
