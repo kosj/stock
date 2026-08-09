@@ -52,6 +52,9 @@ export interface EtfReturnRow {
   marketCapEok: number | null;
   /** 안전자산 세부 유형(채권/현금성/금) — 안전자산 탭 표기용 */
   safeType?:  string | null;
+  leveraged?:  boolean;
+  inverse?:    boolean;
+  derivative?: boolean;
   /** 정렬 기준 구간의 수익률(%) */
   sortReturn: number;
   /** 참고용 구간 수익률(제공 가능한 것만) */
@@ -109,6 +112,10 @@ function finalize(
     price:        c.price,
     marketCapEok: c.marketCapEok,
     safeType:     "safeType" in c.meta ? c.meta.safeType : null,
+    // 위험 상품 배지용 — 일반 주식계좌 추천에서 레버리지/인버스/파생 경고 표시
+    leveraged:    "leveraged" in c.meta ? !!c.meta.leveraged : false,
+    inverse:      "inverse" in c.meta ? !!c.meta.inverse : false,
+    derivative:   "derivative" in c.meta ? !!(c.meta as { derivative?: boolean }).derivative : false,
     sortReturn:   c.value,
     returns:      c.returns,
     ...(account ? { eligible: true, reason: ineligibleReason(c.meta, account) } : {}),

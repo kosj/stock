@@ -25,10 +25,13 @@ export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
 
-    const account = sp.get("account") as AccountType | null;
-    if (!account || !VALID_ACCOUNTS.includes(account)) {
+    // "stock" = 일반 주식계좌(편입 제한 없음 — 전체 유니버스). 나머지는 제도 필터 적용.
+    const accountRaw = sp.get("account");
+    const isStock = accountRaw === "stock";
+    const account = accountRaw as AccountType | null;
+    if (!isStock && (!account || !VALID_ACCOUNTS.includes(account))) {
       return NextResponse.json(
-        { error: "account 파라미터가 필요합니다 (pension | irp | isa)." },
+        { error: "account 파라미터가 필요합니다 (pension | irp | isa | stock)." },
         { status: 400 },
       );
     }
@@ -38,8 +41,8 @@ export async function GET(req: NextRequest) {
 
     const limit = Math.min(20, Math.max(1, parseInt(sp.get("limit") ?? "5", 10) || 5));
 
-    // 1) 계좌 편입 가능 ETF 수익률 랭킹 → 상위 N
-    const ranking = await getEtfRanking(period, account);
+    // 1) 계좌 편입 가능 ETF 수익률 랭킹 → 상위 N (stock은 필터 없음)
+    const ranking = await getEtfRanking(period, isStock ? undefined : account!);
     const top = ranking.rows.slice(0, limit);
 
     // 2) 각 종목 진입타점 계산(병렬)
@@ -65,7 +68,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         account,
-        account_label: ACCOUNT_LABEL[account],
+        account_label: isStock ? "일반 주식계좌" : ACCOUNT_LABEL[account!],
         period,
         count: picks.length,
         universe_total: ranking.total,
