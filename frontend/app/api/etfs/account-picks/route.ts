@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
     // 1) 계좌 편입 가능 ETF 수익률 랭킹 → 상위 N (stock은 필터 없음)
     // 추천 화면: 유동성 하한 + 동일지수 중복 제거 + 파생형 후순위
     const ranking = await getEtfRanking(period, isStock ? undefined : account!, {
-      liquidityFilter: true, dedup: true, demoteRisky: true,
+      liquidityFilter: true, dedup: true, demoteRisky: true, blendVolatility: true,
     });
     const top = ranking.rows.slice(0, limit);
 

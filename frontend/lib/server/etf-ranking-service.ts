@@ -73,6 +73,88 @@ function isRisky(e: { leveraged?: boolean; inverse?: boolean; derivative?: boole
   return !!(e.leveraged || e.inverse || e.derivative);
 }
 
+// ── 모멘텀 + 변동성 조정 혼합 스코어 ─────────────────────────────────────────
+/**
+ * 순수 수익률 정렬은 "3개월 급등주"를 1위로 올려, 같은 화면의 ATR 진입 판정이
+ * "과열·관망"을 띄우는 모순을 만든다. 주식 추천 엔진과 동일한 방식으로
+ * 모멘텀과 위험조정수익(수익률/변동성)을 혼합해 재정렬한다.
+ *
+ * 두 항 모두 순위(pct)를 균등분포 이론 표준편차(1/√12)로 정규화한 유계 z를 쓴다.
+ * 값 z를 쓰면 저변동 채권형에서 수익률/변동성이 +수σ 아웃라이어가 되어 소수
+ * 종목이 순위를 지배한다(주식 엔진에서 실측된 문제). 유계 z는 ±1.73으로 묶인다.
+ */
+const MOMENTUM_W  = 0.65;
+const SHARPE_W    = 0.35;
+/** 혼합 재정렬 대상(모멘텀 상위 N) — 전 종목 일봉 조회는 시간 제한을 넘긴다 */
+const BLEND_POOL  = 40;
+const RANK_Z_DENOM = 0.2887;        // 1/√12
+/** 변동성 하한(%) — 현금성 ETF의 0에 가까운 변동성이 위험조정수익을 폭주시키는 것 방지 */
+const VOL_FLOOR_PCT = 2;
+
+function rankZ(values: number[]): number[] {
+  const n = values.length;
+  if (n === 0) return [];
+  const order = values.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
+  const pct = new Array<number>(n);
+  order.forEach((o, r) => { pct[o.i] = (r + 1) / n; });
+  const mean = pct.reduce((a, b) => a + b, 0) / n;
+  return pct.map((p) => (p - mean) / RANK_Z_DENOM);
+}
+
+/** 최근 60거래일 일수익률의 연환산 변동성(%). 데이터 부족 시 null. */
+function annualizedVolPct(closes: number[], window = 60): number | null {
+  if (closes.length < 21) return null;
+  const seg = closes.slice(-Math.min(window + 1, closes.length));
+  const rets: number[] = [];
+  for (let i = 1; i < seg.length; i++) {
+    if (seg[i - 1] > 0) rets.push(seg[i] / seg[i - 1] - 1);
+  }
+  if (rets.length < 20) return null;
+  const m = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const sd = Math.sqrt(rets.reduce((a, b) => a + (b - m) ** 2, 0) / rets.length);
+  const v = sd * Math.sqrt(252) * 100;
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/**
+ * 모멘텀 상위 후보를 일봉 변동성으로 재평가해 혼합 점수 순으로 재정렬한다.
+ * 변동성 산출에 실패한 종목은 재정렬에서 제외하되 순위는 보존(뒤에 이어붙임).
+ */
+async function blendByVolatility(rows: EtfReturnRow[]): Promise<EtfReturnRow[]> {
+  const pool = rows.slice(0, BLEND_POOL);
+  const rest = rows.slice(BLEND_POOL);
+  if (pool.length < 2) return rows;
+
+  const vols = await mapLimit(pool, CONCURRENCY, async (r) => {
+    try {
+      const candles = await getChart(r.ticker, "6m");
+      const closes = (candles ?? []).map((c) => c.close).filter((v) => v > 0);
+      return annualizedVolPct(closes);
+    } catch {
+      return null;
+    }
+  });
+
+  const usable = pool
+    .map((r, i) => ({ r, vol: vols[i] }))
+    .filter((x): x is { r: EtfReturnRow; vol: number } => x.vol != null);
+  const unusable = pool.filter((_, i) => vols[i] == null);
+  if (usable.length < 2) return rows;
+
+  const momZ    = rankZ(usable.map((x) => x.r.sortReturn));
+  const sharpeZ = rankZ(usable.map((x) => x.r.sortReturn / Math.max(x.vol, VOL_FLOOR_PCT)));
+
+  const scored = usable
+    .map((x, i) => ({
+      ...x.r,
+      annVolPct:  Math.round(x.vol * 10) / 10,
+      blendScore: Math.round((MOMENTUM_W * momZ[i] + SHARPE_W * sharpeZ[i]) * 1000) / 1000,
+    }))
+    .sort((a, b) => (b.blendScore ?? 0) - (a.blendScore ?? 0));
+
+  return [...scored, ...unusable, ...rest].map((r, i) => ({ ...r, rank: i + 1 }));
+}
+
 export interface EtfReturnRow {
   rank:       number;
   ticker:     string;
@@ -87,6 +169,10 @@ export interface EtfReturnRow {
   derivative?: boolean;
   /** 정렬 기준 구간의 수익률(%) */
   sortReturn: number;
+  /** 연환산 변동성(%) — 혼합 스코어 적용 시에만 채워짐 */
+  annVolPct?:  number;
+  /** 모멘텀+위험조정 혼합 점수(유계 순위-z) — 혼합 적용 시에만 채워짐 */
+  blendScore?: number;
   /** 참고용 구간 수익률(제공 가능한 것만) */
   returns:    Partial<Record<ReturnPeriod, number | null>>;
   eligible?:  boolean;
@@ -196,10 +282,13 @@ export async function getEtfRanking(
     dedup?: boolean;
     /** 레버리지·인버스·파생형을 일반 종목 뒤로 강등(추천 화면용) */
     demoteRisky?: boolean;
+    /** 모멘텀+변동성 조정 혼합으로 상위 후보 재정렬(추천 화면용) */
+    blendVolatility?: boolean;
   } = {},
 ): Promise<EtfRankingResult> {
   const {
     safeOnly = false, liquidityFilter = true, dedup = false, demoteRisky = false,
+    blendVolatility = false,
   } = opts;
 
   const all = await fetchNaverEtfList();
@@ -227,8 +316,9 @@ export async function getEtfRanking(
         returns: { "1D": e.return1D, "3M": e.return3M } as Partial<Record<ReturnPeriod, number | null>>,
       }));
 
+    const rows1 = finalize(scored, account, { dedup, demoteRisky });
     return {
-      rows: finalize(scored, account, { dedup, demoteRisky }),
+      rows: blendVolatility ? await blendByVolatility(rows1) : rows1,
       total: pool.length,
       covered: scored.length,
       source: "naver",
@@ -267,8 +357,9 @@ export async function getEtfRanking(
     });
 
     const scored = computed.filter((c): c is NonNullable<typeof c> => c !== null);
+    const rows2 = finalize(scored, account, { dedup, demoteRisky });
     return {
-      rows: finalize(scored, account, { dedup, demoteRisky }),
+      rows: blendVolatility ? await blendByVolatility(rows2) : rows2,
       total: pool.length,
       covered: scored.length,
       source: "chart",

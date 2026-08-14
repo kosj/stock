@@ -49,6 +49,7 @@ interface PickRow {
   rank: number; ticker: string; name: string; category: string;
   price: number; sortReturn: number;
   safeType?: string | null;
+  annVolPct?: number; blendScore?: number;
   leveraged?: boolean; inverse?: boolean; derivative?: boolean;
   drawdownPct?: number | null;
   entry: Entry | null;
@@ -77,7 +78,7 @@ export function EtfPicksPage() {
             <Target size={18} className="text-blue-400" /> ETF 추천
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            계좌 유형별 수익률 상위 ETF와 매매 참고 정보(진입·손절·익절)
+            모멘텀 + 변동성 조정 혼합 순위 · 매매 참고 정보(진입·손절·익절)
             {data?.universe_total ? ` · 유니버스 ${data.universe_total.toLocaleString()}종목` : ""}
           </p>
         </div>
@@ -210,8 +211,9 @@ export function EtfPicksPage() {
                         sub={p.entry.riskReward != null && p.entry.riskReward >= 2 ? "양호" : undefined}
                       />
                       <Field
-                        label="변동성·RSI"
-                        value={`${p.entry.atrPct != null ? p.entry.atrPct + "%" : "—"} · ${p.entry.rsi != null ? p.entry.rsi.toFixed(0) : "—"}`}
+                        label="변동성(연·ATR)"
+                        value={`${p.annVolPct != null ? p.annVolPct + "%" : "—"} · ${p.entry.atrPct != null ? p.entry.atrPct + "%" : "—"}`}
+                        sub={p.entry.rsi != null ? `RSI ${p.entry.rsi.toFixed(0)}` : undefined}
                       />
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1.5">{p.entry.note}</p>
@@ -225,7 +227,7 @@ export function EtfPicksPage() {
 
       <p className="text-xs text-muted-foreground/50 flex items-start gap-1.5">
         <Info size={12} className="mt-0.5 shrink-0" />
-        수익률 모멘텀 기반 정량 순위이며 투자 권유가 아닙니다. 진입·손절 수치는 과거
+        모멘텀(수익률)과 위험조정수익(수익률/변동성)을 혼합한 정량 순위이며 투자 권유가 아닙니다. 유동성 하한·동일지수 중복 제거·파생형 후순위가 적용됩니다. 진입·손절 수치는 과거
         가격과 변동성(ATR)으로 계산한 기술적 레벨입니다. 종목을 누르면 차트 상세를 볼 수 있습니다.
       </p>
 
