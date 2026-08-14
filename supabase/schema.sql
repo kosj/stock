@@ -530,3 +530,40 @@ CREATE TABLE IF NOT EXISTS krx_daily (
 CREATE INDEX IF NOT EXISTS idx_krx_daily_ticker_date ON krx_daily(ticker, date);
 ALTER TABLE krx_daily DISABLE ROW LEVEL SECURITY;
 
+
+
+-- ETF 추천 이력 (상세: supabase/migrations/20260810_etf_pick_history.sql)
+CREATE TABLE IF NOT EXISTS etf_pick_history (
+  id            BIGSERIAL   PRIMARY KEY,
+  run_date      DATE        NOT NULL,
+  account       TEXT        NOT NULL,          -- pension | irp | isa | stock
+  period        TEXT        NOT NULL,          -- 1M | 3M | 6M ...
+  rank          INTEGER,                       -- 추천 순위(Top-N만), 그 외 NULL
+  ticker        TEXT        NOT NULL,
+  name          TEXT        NOT NULL,
+  category      TEXT,
+  price         NUMERIC,
+  -- 순위 산출 근거
+  sort_return   NUMERIC,                       -- 정렬 기준 구간 수익률(%)
+  ann_vol_pct   NUMERIC,                       -- 연환산 변동성(%)
+  blend_score   NUMERIC,                       -- 모멘텀+변동성 혼합 점수
+  drawdown_pct  NUMERIC,                       -- 52주 전고점 대비(%)
+  -- 진입/리스크 레벨 (ATR 기반)
+  entry_state   TEXT,                          -- buy_zone | watch | overbought | weak
+  entry_low     NUMERIC,
+  entry_high    NUMERIC,
+  stop_loss     NUMERIC,
+  take_profit   NUMERIC,
+  risk_reward   NUMERIC,
+  -- 상품 속성 (사후 분석용)
+  leveraged     BOOLEAN     DEFAULT FALSE,
+  inverse       BOOLEAN     DEFAULT FALSE,
+  derivative    BOOLEAN     DEFAULT FALSE,
+  safe_type     TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (run_date, account, period, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_etf_pick_hist_run   ON etf_pick_history(run_date DESC);
+CREATE INDEX IF NOT EXISTS idx_etf_pick_hist_scope ON etf_pick_history(account, period, run_date DESC);
+ALTER TABLE etf_pick_history DISABLE ROW LEVEL SECURITY;

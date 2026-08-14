@@ -1,0 +1,44 @@
+name: "ETF Pick History & Backtest"
+
+# ETF 추천 이력 적재(매 거래일) + 실현성과 백테스트(주간).
+# 추천은 요청 시 즉석 계산돼 이력이 없었기에 순위 산출 방식을 바꿔도 성과 검증이
+# 불가능했다. 스냅샷을 쌓아 주간 백테스트가 혼합 스코어의 효과를 측정한다.
+#
+# 스케줄 분을 정시에서 떼는 이유: GitHub Actions schedule은 정시에 부하가 몰려
+# 수 시간 지연/드롭된다(공식 문서 권고).
+on:
+  schedule:
+    - cron: "35 7 * * 1-5"     # 평일 07:35 UTC = 16:35 KST (장마감 후)
+    - cron: "45 7 * * 1"       # 월요일 07:45 UTC — 백테스트 동반 실행
+  workflow_dispatch:
+    inputs:
+      backtest:
+        description: "1이면 백테스트도 실행"
+        default: "1"
+      horizon:
+        description: "백테스트 호라이즌(거래일)"
+        default: "20"
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Snapshot ETF picks
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/etf_pick_snapshot.mjs
+
+      # 주간(월) 스케줄 또는 수동 실행 시 백테스트 동반
+      - name: Backtest ETF picks
+        if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' && inputs.backtest == '1' || github.event.schedule == '45 7 * * 1') }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backtest_etf_picks.mjs --horizon ${{ inputs.horizon || '20' }} --topn 10
