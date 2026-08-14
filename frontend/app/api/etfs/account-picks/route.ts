@@ -42,7 +42,10 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(20, Math.max(1, parseInt(sp.get("limit") ?? "5", 10) || 5));
 
     // 1) 계좌 편입 가능 ETF 수익률 랭킹 → 상위 N (stock은 필터 없음)
-    const ranking = await getEtfRanking(period, isStock ? undefined : account!);
+    // 추천 화면: 유동성 하한 + 동일지수 중복 제거 + 파생형 후순위
+    const ranking = await getEtfRanking(period, isStock ? undefined : account!, {
+      liquidityFilter: true, dedup: true, demoteRisky: true,
+    });
     const top = ranking.rows.slice(0, limit);
 
     // 2) 각 종목 진입타점 계산(병렬)

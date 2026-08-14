@@ -43,6 +43,36 @@ const NAVER_NATIVE: Record<string, "return1D" | "return3M" | undefined> = {
 const CHART_LIMIT = 120;
 const CONCURRENCY = 8;
 
+// ── 추천 품질 가드 ───────────────────────────────────────────────────────────
+/**
+ * 유동성 하한. ETF 1,160종목에는 하루 거래대금이 수천만 원인 초소형 상품이
+ * 다수라, 무필터 수익률 정렬은 "체결 자체가 어려운" 종목을 1위로 올린다.
+ * (주식 추천 엔진에는 LIQUIDITY_MIN=50억 필터가 있는데 ETF에는 없었다)
+ */
+const MIN_TRADING_MW    = 1000;  // 거래대금 10억원 (네이버 amonut 단위: 백만원)
+const MIN_MARKETCAP_EOK = 500;   // 시가총액 500억원
+
+function passesLiquidity(e: NaverEtf): boolean {
+  return e.tradingValue >= MIN_TRADING_MW && e.marketCapEok >= MIN_MARKETCAP_EOK;
+}
+
+/**
+ * 추종 대상 키 — 브랜드 접두어/표기 차이를 제거해 "같은 지수 추종" 상품을 묶는다.
+ * KODEX·TIGER·RISE 미국S&P500은 수익률이 사실상 동일해, 중복 제거 없이는
+ * 상위 10개가 같은 자산 3~4개로 채워져 분산된 것처럼 보인다(분산 착시).
+ */
+function exposureKey(name: string): string {
+  return name
+    .replace(/^(KODEX|TIGER|RISE|PLUS|SOL|ACE|KIWOOM|KoAct|WON|HANARO|BNK|TIMEFOLIO|1Q|UNICORN|마이다스|파워)\s*/i, "")
+    .replace(/\(합성[^)]*\)|\(H\)|액티브|TR\b|\s+/g, "")
+    .toUpperCase();
+}
+
+/** 파생형(레버리지·인버스 등) 여부 — 추천에서 후순위로 내릴 때 사용 */
+function isRisky(e: { leveraged?: boolean; inverse?: boolean; derivative?: boolean }): boolean {
+  return !!(e.leveraged || e.inverse || e.derivative);
+}
+
 export interface EtfReturnRow {
   rank:       number;
   ticker:     string;
@@ -98,12 +128,40 @@ function periodReturn(closes: number[], days: number): number | null {
   return Math.round(((last - prev) / prev) * 10000) / 100;
 }
 
+type ScoredRow = {
+  meta: NaverEtf | EtfMeta; price: number; marketCapEok: number | null;
+  value: number; returns: Partial<Record<ReturnPeriod, number | null>>;
+};
+
 function finalize(
-  scored: { meta: NaverEtf | EtfMeta; price: number; marketCapEok: number | null;
-            value: number; returns: Partial<Record<ReturnPeriod, number | null>> }[],
+  scoredInput: ScoredRow[],
   account: AccountType | undefined,
+  opts: { dedup?: boolean; demoteRisky?: boolean } = {},
 ): EtfReturnRow[] {
+  let scored = scoredInput;
   scored.sort((a, b) => b.value - a.value);
+
+  // 중복 노출 제거: 같은 추종 대상은 최상위 1개만 남긴다(수익률 순 정렬 이후이므로
+  // 남는 것은 그 그룹에서 가장 성과가 좋은 상품).
+  if (opts.dedup) {
+    const seen = new Set<string>();
+    scored = scored.filter((c) => {
+      const k = exposureKey(c.meta.name);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  // 파생형 강등: 레버리지·인버스는 장기보유 부적합인데 단기 급등으로 1위를
+  // 차지하곤 한다. 추천 화면에서는 일반 상품 뒤로 내린다(제외가 아니라 후순위).
+  if (opts.demoteRisky) {
+    scored = [
+      ...scored.filter((c) => !isRisky(c.meta as { leveraged?: boolean })),
+      ...scored.filter((c) => isRisky(c.meta as { leveraged?: boolean })),
+    ];
+  }
+
   return scored.map((c, i) => ({
     rank:         i + 1,
     ticker:       c.meta.ticker,
@@ -130,11 +188,30 @@ function finalize(
 export async function getEtfRanking(
   period: ReturnPeriod = "1M",
   account?: AccountType,
-  opts: { safeOnly?: boolean } = {},
+  opts: {
+    safeOnly?: boolean;
+    /** 유동성 하한 적용(기본 true) — 체결 불가 종목이 상위에 오르는 것을 막는다 */
+    liquidityFilter?: boolean;
+    /** 동일 지수 추종 상품 중복 제거(추천 화면용) */
+    dedup?: boolean;
+    /** 레버리지·인버스·파생형을 일반 종목 뒤로 강등(추천 화면용) */
+    demoteRisky?: boolean;
+  } = {},
 ): Promise<EtfRankingResult> {
+  const {
+    safeOnly = false, liquidityFilter = true, dedup = false, demoteRisky = false,
+  } = opts;
+
   const all = await fetchNaverEtfList();
   // 안전자산 탭: 채권·현금성·금만 (연금계좌 위험자산 30% 밖 배분 후보)
-  const naverAll = opts.safeOnly ? all.filter((e) => e.safeAsset) : all;
+  let naverAll = safeOnly ? all.filter((e) => e.safeAsset) : all;
+
+  // 유동성 필터는 두 경로(네이버 직접 / 일봉 계산) 모두에 적용한다.
+  // 기존에는 1D·3M만 무필터 전체였고 1M·6M·1Y는 시총 상위 120으로 암묵 제한돼,
+  // 기간 탭만 바꿔도 후보 풀이 조용히 달라지는 비일관성이 있었다.
+  const beforeLiquidity = naverAll.length;
+  if (liquidityFilter) naverAll = naverAll.filter(passesLiquidity);
+  const liquidityDropped = beforeLiquidity - naverAll.length;
 
   // ── 경로 1: 네이버가 해당 구간 수익률을 직접 제공 → 전체 종목 커버 ──────
   const nativeKey = NAVER_NATIVE[period];
@@ -151,10 +228,13 @@ export async function getEtfRanking(
       }));
 
     return {
-      rows: finalize(scored, account),
+      rows: finalize(scored, account, { dedup, demoteRisky }),
       total: pool.length,
       covered: scored.length,
       source: "naver",
+      note: liquidityDropped > 0
+        ? `유동성 하한(거래대금 10억·시총 500억) 미달 ${liquidityDropped.toLocaleString()}종목 제외`
+        : undefined,
     };
   }
 
@@ -188,7 +268,7 @@ export async function getEtfRanking(
 
     const scored = computed.filter((c): c is NonNullable<typeof c> => c !== null);
     return {
-      rows: finalize(scored, account),
+      rows: finalize(scored, account, { dedup, demoteRisky }),
       total: pool.length,
       covered: scored.length,
       source: "chart",
@@ -222,7 +302,7 @@ export async function getEtfRanking(
 
   const scored = computed.filter((c): c is NonNullable<typeof c> => c !== null);
   return {
-    rows: finalize(scored, account),
+    rows: finalize(scored, account, { dedup, demoteRisky }),
     total: universe.length,
     covered: scored.length,
     source: "seed",
