@@ -11,6 +11,7 @@ on:
     paths:
       - "scripts/probe_etf_sources.py"
       - "scripts/verify_etf_universe.mjs"
+      - "scripts/review_etf_picks.mjs"
       - ".github/workflows/probe-etf-sources.yml"
 
 jobs:
@@ -36,3 +37,8 @@ jobs:
       - name: Verify full ETF universe pipeline
         if: ${{ !cancelled() }}
         run: node scripts/verify_etf_universe.mjs
+
+      # 추천 품질 감사: 상위 추천에 저유동·소형·중복노출 종목이 오르는지 실측
+      - name: Review ETF pick quality
+        if: ${{ !cancelled() }}
+        run: node scripts/review_etf_picks.mjs
