@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { StockChart, RsiChart, MacdChart } from "@/components/charts/StockChart";
 import { formatNumber, formatPercent, colorByChange, recommendationColor } from "@/lib/utils";
+import { ApiError } from "@/lib/fetcher";
 import { TrendingUp, TrendingDown, RefreshCw, Zap, Calendar, DollarSign, Target } from "lucide-react";
 import { PullbackCard } from "./PullbackCard";
 import { ProfitTakingCard } from "./ProfitTakingCard";
@@ -128,7 +129,7 @@ export function StockDetailPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tickers: [ticker] }),
       });
-      if (!res.ok) return [];
+      if (!res.ok) throw new ApiError(res.status, `분석 요청 실패 (HTTP ${res.status})`);
       return res.json();
     },
     { revalidateOnFocus: false, dedupingInterval: 300_000 },
@@ -143,7 +144,7 @@ export function StockDetailPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tickers: [ticker] }),
       });
-      if (!res.ok) return [];
+      if (!res.ok) throw new ApiError(res.status, `분석 요청 실패 (HTTP ${res.status})`);
       return res.json();
     },
     { revalidateOnFocus: false, dedupingInterval: 300_000 },
@@ -158,7 +159,7 @@ export function StockDetailPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tickers: [ticker] }),
       });
-      if (!res.ok) return [];
+      if (!res.ok) throw new ApiError(res.status, `분석 요청 실패 (HTTP ${res.status})`);
       return res.json();
     },
     { revalidateOnFocus: false, dedupingInterval: 600_000 },
@@ -183,7 +184,7 @@ export function StockDetailPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tickers: [ticker] }),
       });
-      if (!res.ok) return [];
+      if (!res.ok) throw new ApiError(res.status, `분석 요청 실패 (HTTP ${res.status})`);
       return res.json();
     },
     { revalidateOnFocus: false, dedupingInterval: 300_000 },

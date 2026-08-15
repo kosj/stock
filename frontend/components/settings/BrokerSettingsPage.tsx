@@ -38,7 +38,8 @@ const BROKER_TYPES: BrokerType[] = ["kis", "miraeasset", "kb", "shinhan", "merit
 
 async function fetchConfigured(): Promise<string[]> {
   const res = await fetch("/api/settings/broker");
-  if (!res.ok) return [];
+  // 실패를 빈 목록으로 위장하면 '등록된 계정 없음'으로 오해된다
+  if (!res.ok) throw new Error(`요청 실패 (HTTP ${res.status})`);
   const data = await res.json();
   return data.configured ?? [];
 }
