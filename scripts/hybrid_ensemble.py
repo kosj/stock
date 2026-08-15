@@ -102,13 +102,20 @@ from universe import UNIVERSE
 # 양수 폴드 ≤1/5로 판정된 6개(ret_5d, ret_10d, ret_20d, alpha_5d, vol_ratio,
 # foreign_net_5d)는 모델 입력에서 제외. 단, make_features의 해당 컬럼 계산은 유지
 # (sector_rel_*, rs_rank_20d 파생과 per_stock 메타가 원천으로 계속 사용).
+#
+# [2026-08-15 실측 제거] 피처는 날짜별 z-score로 정규화된다. 이 때문에
+#   - market_ret_5d / market_ret_20d: 시장 지표라 같은 날 전 종목이 동일값 →
+#     정규화 후 항상 0. 실측 "정규화 후 분산 0 — 죽은 피처 2개"로 확인.
+#   - alpha_1d = ret_1d − 시장수익률: 종목 간 차이가 상수뿐 → 정규화 후
+#     ret_1d 와 완전 동일. 실측 상관 +1.0000 로 확인.
+# 셋 다 정보를 추가하지 않으면서 파라미터만 소모하므로 제외한다.
+# (alpha_20d 는 원천 ret_20d 가 이미 제외돼 중복이 아니므로 유지)
 FEATURE_COLS = [
     "ret_1d", "ret_2d", "ret_3d", "ret_60d",
-    "alpha_1d", "alpha_20d",
+    "alpha_20d",
     "rsi_14", "macd_hist", "bb_pct",
     "vs_ma5", "vs_ma20", "vs_ma60",
     "vol_20d", "vol_60d",
-    "market_ret_5d", "market_ret_20d",
     "high_52w_pct",         # 52주 고점 대비 위치 (모멘텀·돌파 신호)
     "momentum_12_1",        # 12개월-1개월 모멘텀 팩터 (연구 기반 알파)
     "sector_rel_ret_5d",    # 동일 섹터 평균 대비 5일 초과수익 (섹터 중립 신호)
@@ -1064,6 +1071,31 @@ def main() -> None:
     if df_liq.empty:
         print("\n  ⚠ 유동성 통과 종목 없음 — 당일 추천 생략")
         return
+
+    # ── 진단: 순수 모델 예측 → 최종 혼합 스코어 사이의 순위 이동 ──────────────
+    # 최종 순위 = 0.65·alpha_z + 0.25·sharpe_z + 0.10·sentiment_z 이므로,
+    # 모델이 높게 본 종목이 혼합 단계에서 밀릴 수 있다. "어느 단계가 순위를
+    # 결정했는가"를 추측이 아니라 실측으로 남긴다.
+    _dg = df_liq.copy()
+    _dg["rk_alpha"]  = _dg["alpha_pct"].rank(ascending=False)
+    _dg["rk_sharpe"] = (_dg["alpha_q_raw"] / _dg["vol_60d_ann"]).rank(ascending=False)
+    _dg["rk_final"]  = _dg["risk_adj_score"].rank(ascending=False)
+
+    def _fmt_rank(r) -> str:
+        return (f"    {r['name']:<12} 모델{int(r['rk_alpha']):>3}위 → 최종{int(r['rk_final']):>3}위"
+                f"  (변동성조정{int(r['rk_sharpe']):>3}위, 연변동성 {r['vol_60d_ann']*100:.1f}%)")
+
+    print("  [진단] 모델 순수예측 상위 10 종목의 최종 순위 이동")
+    for _, _r in _dg.nsmallest(10, "rk_alpha").iterrows():
+        print(_fmt_rank(_r))
+
+    # 대형 우량주가 왜 상위에 없는지 추적 (사용자 문의 상시 확인용)
+    _WATCH = {"005930": "삼성전자", "000660": "SK하이닉스", "009150": "삼성전기"}
+    _w = _dg[_dg["ticker"].isin(_WATCH)]
+    if not _w.empty:
+        print(f"  [진단] 대형주 추적 (유동성 통과 {len(_dg)}종목 중)")
+        for _, _r in _w.sort_values("rk_final").iterrows():
+            print(_fmt_rank(_r))
 
     # 리스크 조정 스코어 내림차순 정렬 (상위 = 횡단면 상대 best)
     df_sorted = df_liq.sort_values("risk_adj_score", ascending=False).reset_index(drop=True)
