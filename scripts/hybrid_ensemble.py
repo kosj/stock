@@ -22,6 +22,7 @@ Post-processing:
 Output: Upserted into Supabase `prophet_recommendations` table.
 """
 
+import hashlib
 import json
 import os
 import socket
@@ -132,6 +133,13 @@ FEATURE_COLS = [
 # ─────────────────────────────────────────────────────────────────────────────
 # 데이터 조회
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _fingerprint(a) -> str:
+    """배열 내용의 짧은 해시. 실행 간 입력/출력이 실제로 같은지 판정하는 용도.
+    (눈으로 보는 통계량은 다른 데이터에서도 우연히 같아 보일 수 있다)"""
+    arr = np.ascontiguousarray(np.asarray(a, dtype=np.float64))
+    return hashlib.sha1(arr.tobytes()).hexdigest()[:12]
+
 
 def to_yf(code: str, market: str) -> str:
     return code + (".KS" if market == "KOSPI" else ".KQ")
@@ -891,6 +899,12 @@ def main() -> None:
     if not _dead and not _dup:
         print("  피처 건전성: 죽은 피처·중복 없음")
 
+    # 실행 간 재현성 판정용 지문. 훈련 입력이 같은데 예측이 다르면 모델이,
+    # 훈련 입력부터 다르면 데이터 수집 단계가 비결정적이라는 뜻이다.
+    print(f"  [지문] 훈련X={_fingerprint(train_panel[FEATURE_COLS].values)} "
+          f"훈련y={_fingerprint(train_panel['target_alpha_5d'].values)} "
+          f"행={len(train_panel)}")
+
     # ── 4. Walk-forward 앙상블 훈련 ───────────────────────────────────────────
     print("\n[4/6] Walk-forward TimeSeriesSplit 앙상블 훈련...")
     models = walk_forward_stack(train_panel)
@@ -952,6 +966,7 @@ def main() -> None:
     print(f"  [진단] latest: {latest.shape[0]}행, 고유행={_ndup}, 피처별고유값합={int(latest.nunique().sum())}")
     print(f"  [진단] pred: 고유값={pred.nunique()}, std={float(pred.std()):.6g}, "
           f"min={float(pred.min()):.4g}, max={float(pred.max()):.4g}")
+    print(f"  [지문] 예측입력={_fingerprint(latest.values)} 예측출력={_fingerprint(pred.values)}")
 
     # ── 독립 30일 모델 예측 (결함2: 2.19배 외삽 대체) ─────────────────────────
     # 실패 시 alpha30_map=None → rows 빌딩에서 10일 알파 감쇠 외삽으로 graceful degrade.
