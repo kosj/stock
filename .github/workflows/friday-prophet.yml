@@ -11,6 +11,9 @@ on:
       feature_report:
         description: "1=피처 순열 중요도 리포트 출력 (마지막 폴드 ΔIC)"
         default: "0"
+      dry_run:
+        description: "1=Supabase 저장 생략(결과만 로그 출력) — 팩터/유니버스 변경 검증용"
+        default: "0"
 
 jobs:
   run-ensemble:
@@ -40,4 +43,7 @@ jobs:
           # 수동 실행에서만 피처 리포트 활성화 가능 (schedule에선 inputs가 비어 '0')
           FEATURE_REPORT: ${{ inputs.feature_report || '0' }}
           PYTHONUNBUFFERED: "1"      # stdout 실시간 스트리밍 (취소 시 로그 유실 방지)
-        run: python -u scripts/hybrid_ensemble.py
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run || '0' }}" = "1" ]; then ARGS="--dry-run"; fi
+          python -u scripts/hybrid_ensemble.py $ARGS

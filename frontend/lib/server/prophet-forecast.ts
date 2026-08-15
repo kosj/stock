@@ -269,6 +269,8 @@ const SECTOR_BIAS: Record<string, number> = {
   "유통":    -0.03,  "소비재":    -0.01,  "통신":    -0.04,  "철강":    -0.02,
   "건설":    -0.03,  "부동산":    -0.04,  "소재":    -0.01,  "물류":     0.01,
   "소부장":   0.08,  "이차전지":   0.10,
+  // universe.py 섹터 재정비로 신설된 키 (미등록 시 bias 0으로 무음 폴백)
+  "지주":    -0.02,  "운송":       0.03,
 };
 
 interface StaticContext { bias: number; grnScale: number }
