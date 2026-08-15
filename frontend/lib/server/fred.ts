@@ -30,7 +30,11 @@ async function fetchFred(
       `${BASE}?series_id=${seriesId}&api_key=${apiKey}&file_type=json` +
       `&sort_order=asc&observation_start=${startDate.toISOString().slice(0, 10)}`;
 
-    const res = await fetch(url, { next: { revalidate: 3600 } });
+    // 타임아웃이 없으면 FRED 지연이 라우트 전체(maxDuration)를 잡아먹는다
+    const res = await fetch(url, {
+      next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(8000),
+    });
     if (!res.ok) return null;
     const json = await res.json();
     const obs: FredObs[] = (json.observations ?? []).filter(

@@ -320,7 +320,9 @@ async function claudeAnalysis(
   if (!apiKey) return fallback(ticker, name, score, recommendation, breakdown, position);
 
   try {
-    const client = new Anthropic({ apiKey });
+    // 기본값(timeout 10분, maxRetries 2)은 maxDuration 30~60초 라우트에서
+    // 함수 타임아웃을 유발한다. 실패 시 룰 기반 폴백이 있으므로 짧게 자른다.
+    const client = new Anthropic({ apiKey, timeout: 20_000, maxRetries: 1 });
     const allNotes = (breakdown.all_notes as string[]) ?? [];
 
     const positionSection = position

@@ -35,29 +35,57 @@ export async function POST(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!accounts?.length) return NextResponse.json({ message: "자동매매 대상 사용자 없음", users: 0 });
 
+  // 위 가드로 null·빈 배열은 이미 반환됐다. 클로저 안에서는 타입 내로잉이
+  // 유지되지 않으므로 non-null 지역 변수로 고정한다.
+  const targets: { user_id: string }[] = accounts;
+
   const results: { user_id: string; result: object }[] = [];
 
-  // 사용자별 자동매매는 독립 계좌이므로 병렬 실행 가능.
-  // 계정별 브로커(모의/실전)를 팩토리로 주입 → 단일 엔진이 올바른 시장에 주문.
-  const settled = await Promise.allSettled(
-    accounts.map(async ({ user_id }) => {
-      const broker = await getBrokerForUser(user_id);
-      return new TradingEngineService(broker).executeTrading(user_id);
-    })
-  );
+  // ── 동시성 제한 + 시간 예산 ───────────────────────────────────────────────
+  // 기존에는 전 사용자를 Promise.allSettled로 무제한 병렬 실행했다. 사용자 수가
+  // 늘면 (Top20 조회 + 종목별 시세 + 주문) 호출이 동시에 폭증해 maxDuration(60s)을
+  // 넘기고, 함수가 중간에 잘리면 "일부 계정만 체결된 채 중단"된다. 실제 자금이
+  // 오가는 경로이므로, 동시 실행 수를 제한하고 남은 시간을 초과하면 시작하지
+  // 않은 사용자는 다음 실행으로 넘긴다(멱등키가 중복 체결을 막아준다).
+  const CONCURRENCY  = 3;
+  const TIME_BUDGET_MS = 50_000;               // maxDuration 60s 대비 여유 10s
+  const startedAt = Date.now();
+  const deferred: string[] = [];
 
-  for (let i = 0; i < accounts.length; i++) {
-    const { user_id } = accounts[i];
-    const s = settled[i];
-    const result = s.status === "fulfilled"
-      ? s.value
-      : { tickers_analyzed: 0, trades_buy: 0, trades_sell: 0, skipped: 0, details: [], error: String(s.reason) };
-    results.push({ user_id, result });
-    console.log(`[cron/auto-trade] user=${user_id} buy=${result.trades_buy} sell=${result.trades_sell} skip=${result.skipped}`);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < targets.length) {
+      const idx = cursor++;
+      const { user_id } = targets[idx];
+
+      // 남은 시간이 부족하면 시작하지 않는다 — 시작해놓고 잘리는 것이 더 위험하다
+      if (Date.now() - startedAt > TIME_BUDGET_MS) {
+        deferred.push(user_id);
+        continue;
+      }
+
+      try {
+        const broker = await getBrokerForUser(user_id);
+        const result = await new TradingEngineService(broker).executeTrading(user_id);
+        results.push({ user_id, result });
+        console.log(`[cron/auto-trade] user=${user_id} buy=${result.trades_buy} sell=${result.trades_sell} skip=${result.skipped}`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        results.push({ user_id, result: { tickers_analyzed: 0, trades_buy: 0, trades_sell: 0, skipped: 0, details: [], error: msg } });
+        console.error(`[cron/auto-trade] user=${user_id} 실패: ${msg}`);
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker));
+
+  if (deferred.length) {
+    console.warn(`[cron/auto-trade] 시간 예산 초과로 ${deferred.length}명 이월 — 다음 실행에서 처리`);
   }
 
   return NextResponse.json({
     success: true,
+    deferred_users: deferred.length,
+    deferred_reason: deferred.length ? "시간 예산 초과 — 다음 실행에서 처리" : undefined,
     run_at:  new Date().toISOString(),
     users:   results.length,
     results,
