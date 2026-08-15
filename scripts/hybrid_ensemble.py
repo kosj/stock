@@ -1096,6 +1096,16 @@ def main() -> None:
         print(f"  [진단] 대형주 추적 (유동성 통과 {len(_dg)}종목 중)")
         for _, _r in _w.sort_values("rk_final").iterrows():
             print(_fmt_rank(_r))
+            # vol_60d_ann = 60일 일간수익률 std × √252. 값이 비현실적으로 크면
+            # 변동성이 실제로 큰 것인지, 가격 시계열이 오염된 것인지 구분해야
+            # 한다(액면분할 미반영·결측 패딩 등은 가짜 급등락을 만든다).
+            _ps = per_stock.get(_r["ticker"])
+            if _ps is not None:
+                _rr = _ps["df"]["Close"].pct_change().dropna().tail(60)
+                print(f"        최근60일 일간수익률 std={_rr.std()*100:.2f}% "
+                      f"| 최대 {_rr.max()*100:+.1f}% 최소 {_rr.min()*100:+.1f}% "
+                      f"| |10%|초과 {int((_rr.abs() > 0.10).sum())}일 "
+                      f"| 종가 {_ps['df']['Close'].iloc[-61]:,.0f}→{_ps['df']['Close'].iloc[-1]:,.0f}")
 
     # 리스크 조정 스코어 내림차순 정렬 (상위 = 횡단면 상대 best)
     df_sorted = df_liq.sort_values("risk_adj_score", ascending=False).reset_index(drop=True)
