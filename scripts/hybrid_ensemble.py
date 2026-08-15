@@ -744,6 +744,11 @@ def main() -> None:
     mkt_df = fetch_ohlcv(BENCHMARK_YF)
     if mkt_df.empty:
         sys.exit("KOSPI 데이터 조회 실패")
+    # 재현성 추적: 실행마다 훈련 입력 해시가 달라지는 원인이 시세 수집에 있음을
+    # 확인했다. 벤치마크와 종목 시세 중 어느 쪽이 흔들리는지 분리해 기록한다.
+    print(f"  [지문] ^KS11 행={len(mkt_df)} "
+          f"종가={_fingerprint(mkt_df['Close'].values)} "
+          f"최종={mkt_df.index[-1].date()} {float(mkt_df['Close'].iloc[-1]):,.2f}")
 
     # ── 2. 종목 OHLCV + 수급 + 피처 엔지니어링 ───────────────────────────────
     print("\n[2/6] 종목 데이터 조회 및 피처 엔지니어링...")
@@ -790,6 +795,13 @@ def main() -> None:
         }
         print(f"  ✓ {s['ticker']}  {s['name']:15s}: {len(feats):3d}행  "
               f"현재가={last_close:,.0f}  거래대금={avg_tv/1e8:.0f}억")
+
+    # 종목 시세 전체의 내용 해시 (벤치마크와 분리 판정용)
+    _all_close = np.concatenate([
+        per_stock[t]["df"]["Close"].to_numpy(dtype=np.float64)
+        for t in sorted(per_stock)
+    ]) if per_stock else np.array([])
+    print(f"  [지문] 종목종가 전체 행={len(_all_close)} {_fingerprint(_all_close)}")
 
     if not per_stock:
         sys.exit("처리 가능한 종목 없음")
