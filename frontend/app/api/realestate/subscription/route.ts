@@ -56,14 +56,17 @@ export async function GET(req: NextRequest) {
         error: "청약 데이터 API 키가 설정되지 않았습니다.",
         setup: {
           // 인증키는 청약홈(applyhome.co.kr)이 아니라 공공데이터포털에서 발급된다.
+          // 주의: 15101046 은 같은 이름의 "파일데이터"(CSV)라 활용신청 버튼이 없다.
+          //       활용신청이 가능한 것은 오픈API 데이터셋 15098547 이다.
           steps: [
             "공공데이터포털(data.go.kr) 회원가입 후 로그인 — 청약홈 사이트가 아닙니다",
-            "「한국부동산원_청약홈 분양정보 조회 서비스」 페이지에서 [활용신청] (자동 승인)",
-            "우측 상단 마이페이지 → 데이터활용 → 오픈API → 인증키 발급현황",
+            "아래 링크(오픈API 15098547)로 이동 — 이름이 같은 '파일데이터' 페이지에는 활용신청 버튼이 없습니다",
+            "페이지 우측 상단 [활용신청] → 이용허락범위 동의 → 신청 (자동 승인)",
+            "마이페이지 → 데이터활용 → Open API → 인증키 발급현황",
             "일반 인증키(Decoding) 값을 복사 — Encoding 값이 아닙니다",
             "Vercel → 프로젝트 → Settings → Environment Variables 에 DATA_GO_KR_SERVICE_KEY 로 저장 후 재배포",
           ],
-          docUrl: "https://www.data.go.kr/data/15101046/openapi.do",
+          docUrl: "https://www.data.go.kr/data/15098547/openapi.do",
         },
       },
       { status: 503 },
