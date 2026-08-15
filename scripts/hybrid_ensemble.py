@@ -332,6 +332,17 @@ def _make_base_models():
         reg_lambda=2.0,                         # L2 정규화 강화
         min_child_samples=20,                   # 리프 최소 샘플 (노이즈 과적합 방지)
         random_state=42, verbose=-1,
+        # ── 재현성 고정 ────────────────────────────────────────────────────
+        # random_state 만으로는 부족하다. LightGBM은 멀티스레드로 히스토그램을
+        # 합산하는데 스레드 완료 순서가 실행마다 달라 부동소수점 합의 끝자리가
+        # 흔들리고, 그 결과 분할점이 미세하게 바뀐다.
+        # 실측(2026-08-15, 같은 날 데이터로 8분 간격 두 dry-run):
+        #   OOF IC +0.0399 vs +0.0416 | SK하이닉스 모델순위 39위 vs 46위
+        #   | Top20 구성도 변동(휴젤 진입/이탈, 크래프톤 14위↔18위)
+        # 즉 같은 날 같은 데이터로도 실행 시점에 따라 추천이 달라졌다.
+        # deterministic=True 는 force_row_wise/force_col_wise 중 하나를 함께
+        # 요구한다(미지정 시 LightGBM이 경고 후 무시).
+        deterministic=True, force_row_wise=True,
     )
     rf = RandomForestRegressor(
         n_estimators=300, max_depth=5,          # 깊이 축소 (6→5)
