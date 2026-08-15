@@ -300,6 +300,10 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
     fwd_mret = mret.rolling(TARGET_DAYS).sum().shift(-TARGET_DAYS)
     # ±TARGET_CLIP 클리핑: 에코프로·바이오株 등 급등락 이벤트가 훈련 데이터를 오염하는 것을 방지
     f["target_alpha_5d"] = (fwd_ret - fwd_mret).clip(-TARGET_CLIP, TARGET_CLIP)
+    # 진단 전용(피처 아님, FEATURE_COLS에 넣지 말 것): 벤치마크를 빼지 않은
+    # 원시 선행수익률. 타깃이 날짜별 순위로 변환되므로 "벤치마크 차감이 순위를
+    # 실제로 바꾸는가"를 실측 비교하기 위한 대조군이다.
+    f["target_raw_fwd_5d"] = fwd_ret.clip(-TARGET_CLIP, TARGET_CLIP)
 
     # ── 보조 타깃: 30거래일 선행 초과수익률 (독립 30일 모델용 — 결함2) ─────────
     fwd_ret_l  = c.pct_change(TARGET_DAYS_LONG).shift(-TARGET_DAYS_LONG)
@@ -821,6 +825,18 @@ def main() -> None:
     )
     print(f"  → 랭크 기반 타깃 적용: 날짜별 크로스섹셔널 백분위 (-0.5 ~ +0.5)")
 
+    # ── 진단: 벤치마크 차감이 타깃 순위를 바꾸는가 ───────────────────────────
+    # fwd_mret 은 같은 날 전 종목에 동일한 상수다. 상수를 빼도 날짜별 순위는
+    # 불변이므로, 이론상 rank(alpha) == rank(raw). 클리핑(±TARGET_CLIP)이
+    # 걸리는 극단값에서만 어긋난다. 실측해 "벤치마크 교체로 랭킹이 바뀐다"는
+    # 가정이 성립하는지 확인한다.
+    if "target_raw_fwd_5d" in train_panel.columns:
+        _raw_rank = train_panel.groupby(level="date")["target_raw_fwd_5d"].rank(pct=True) - 0.5
+        _agree = float(train_panel["target_alpha_5d"].corr(_raw_rank, method="spearman"))
+        _clip_hit = float((train_panel["target_raw_fwd_5d"].abs() >= TARGET_CLIP - 1e-9).mean())
+        print(f"  [진단] 벤치마크 차감 전후 타깃 순위 일치도(Spearman)={_agree:.6f} "
+              f"| 클리핑 발생 {_clip_hit*100:.3f}%")
+
     # ── 크로스섹셔널 피처 정규화 (날짜별 z-score) ─────────────────────────────
     # 핵심: 모델이 "RSI>60이면 상승" 같은 시계열 절대값 신호 대신
     #       "같은 날 다른 종목 대비 RSI가 높은 종목이 초과수익" 하는
@@ -836,6 +852,26 @@ def main() -> None:
         train_panel[_col] = (train_panel[_col] - _cs_mean) / _cs_std
     train_panel = train_panel.dropna(subset=FEATURE_COLS)
     print(f"  → 크로스섹셔널 피처 정규화 완료: {len(train_panel):,}행")
+
+    # ── 정규화 후 피처 건전성 진단 ───────────────────────────────────────────
+    # 날짜별 z-score는 "그날 전 종목이 같은 값"인 피처를 항상 0으로 만든다
+    # (시장 전체 지표가 대표적). 또 종목 간 차이가 상수뿐인 두 피처는 정규화
+    # 후 완전히 동일해진다. 둘 다 모델 입력으로는 정보가 없으므로 실측 경고한다.
+    _diag = train_panel[FEATURE_COLS]
+    _dead = [_c for _c in FEATURE_COLS if float(_diag[_c].std()) < 1e-8]
+    if _dead:
+        print(f"  ⚠ 정규화 후 분산 0 — 죽은 피처 {len(_dead)}개: {', '.join(_dead)}")
+    _corr = _diag.drop(columns=_dead).corr()
+    _dup = [
+        f"{_a}~{_b}({_corr.loc[_a, _b]:+.4f})"
+        for _i, _a in enumerate(_corr.columns)
+        for _b in _corr.columns[_i + 1:]
+        if pd.notna(_corr.loc[_a, _b]) and abs(_corr.loc[_a, _b]) > 0.99
+    ]
+    if _dup:
+        print(f"  ⚠ 사실상 중복 피처(|r|>0.99): {', '.join(_dup)}")
+    if not _dead and not _dup:
+        print("  피처 건전성: 죽은 피처·중복 없음")
 
     # ── 4. Walk-forward 앙상블 훈련 ───────────────────────────────────────────
     print("\n[4/6] Walk-forward TimeSeriesSplit 앙상블 훈련...")
