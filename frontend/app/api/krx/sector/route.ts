@@ -9,25 +9,13 @@ export async function GET(request: NextRequest) {
     const data = await KrxService.getSectorIndex();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("KRX sector API error:", error);
-
-    // 크롤링 실패 시 샘플 데이터 반환
-    const trdDd = KrxService.getLastTradingDay();
-    return NextResponse.json({
-      date: trdDd,
-      kospi: [
-        { name: "금융", index: 450.5, change: 5.2, change_pct: 1.17 },
-        { name: "에너지", index: 380.2, change: -3.1, change_pct: -0.81 },
-        { name: "IT", index: 520.8, change: 12.5, change_pct: 2.46 },
-        { name: "산업재", index: 410.3, change: 2.8, change_pct: 0.69 },
-        { name: "소비재", index: 390.1, change: 1.5, change_pct: 0.39 },
-        { name: "헬스케어", index: 440.7, change: 4.2, change_pct: 0.96 }
-      ],
-      kosdaq: [
-        { name: "IT", index: 580.5, change: 15.3, change_pct: 2.71 },
-        { name: "바이오", index: 420.3, change: -2.1, change_pct: -0.50 },
-        { name: "통신", index: 390.2, change: 3.5, change_pct: 0.90 }
-      ]
-    });
+    // 조회 실패 시 하드코딩 표본값을 200으로 반환하던 것을 제거한다.
+    // 가짜 수급/지수 값이 실측처럼 화면과 스코어링에 쓰이는 것이 더 위험하다.
+    const message = error instanceof Error ? error.message : "KRX 데이터 조회 실패";
+    console.error(`[krx] ${message}`);
+    return NextResponse.json(
+      { error: "KRX 데이터를 불러오지 못했습니다.", detail: message, stale: true },
+      { status: 503 },
+    );
   }
 }

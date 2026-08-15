@@ -16,8 +16,8 @@ export function formatNumber(n: number | null | undefined, digits = 0): string {
 export function formatCurrency(n: number | null | undefined): string {
   if (n == null) return "-";
   if (Math.abs(n) >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1)}조`;
-  if (Math.abs(n) >= 100_000_000) return `${(n / 100_000_000).toFixed(0)}억`;
-  if (Math.abs(n) >= 10_000) return `${(n / 10_000).toFixed(0)}만`;
+  if (Math.abs(n) >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}억`;
+  if (Math.abs(n) >= 10_000) return `${(n / 10_000).toFixed(1)}만`;
   return formatNumber(n);
 }
 

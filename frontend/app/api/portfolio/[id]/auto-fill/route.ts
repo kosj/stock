@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireUser, assertPortfolioOwner } from "@/lib/server/require-user";
 import { supabase } from "@/lib/server/supabase";
 import { getFinancials, getChart } from "@/lib/server/yahoo-finance";
 import { calcSignals } from "@/lib/server/indicators";
@@ -19,6 +20,14 @@ const STRATEGY_MAP: Record<string, string> = {
 
 export async function POST(req: NextRequest, { params }: Ctx) {
   const { id } = await params;
+
+  // 인증 + 소유권 — 이전에는 검증이 없어 임의 id로 남의 포지션의 손절가·목표가를
+  // 덮어쓸 수 있었다(service-role 클라이언트라 RLS 우회).
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  if (!(await assertPortfolioOwner(supabase, id, auth.userId))) {
+    return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
+  }
   const body = await req.json().catch(() => ({}));
   const anthropicKey = body.anthropic_api_key ?? "";
 

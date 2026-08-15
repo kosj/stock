@@ -257,8 +257,12 @@ export class InvestorTrendService {
     }
 
     const result: InvestorTrendResult = { ticker, days };
-    _l1.set(key, { data: result, exp: Date.now() + TTL_MS });
-    void InvestorTrendService.l2Set(key, result);
+    // 실패(빈 결과)는 캐싱하지 않는다 — 일시 장애를 1시간 동안 "수급 없음"으로
+    // 고착시켜, 다음 요청이 정상 복구돼도 캐시가 빈 값을 계속 돌려줬다.
+    if (days.length > 0) {
+      _l1.set(key, { data: result, exp: Date.now() + TTL_MS });
+      void InvestorTrendService.l2Set(key, result);
+    }
 
     return result;
   }

@@ -8,7 +8,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
 
-  if (res.status === 501) return [] as unknown as T;
+  // 501(미구현)을 빈 배열로 바꾸면 "데이터 0건"으로 위장돼 사용자가 실패를
+  // 인지하지 못한다. 실패는 실패로 전달한다.
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || `HTTP ${res.status}`);

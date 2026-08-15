@@ -9,24 +9,13 @@ export async function GET(request: NextRequest) {
     const data = await KrxService.getInvestorTrends();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("KRX investor API error:", error);
-
-    // Naver 크롤링 실패 시 샘플 데이터 반환
-    const trdDd = KrxService.getLastTradingDay();
-    return NextResponse.json({
-      date: trdDd,
-      kospi: [
-        { name: "외국인", buy: 500000000000, sell: 480000000000, net: 20000000000 },
-        { name: "기관계", buy: 450000000000, sell: 460000000000, net: -10000000000 },
-        { name: "개인", buy: 400000000000, sell: 390000000000, net: 10000000000 },
-        { name: "금융투자", buy: 100000000000, sell: 110000000000, net: -10000000000 }
-      ],
-      kosdaq: [
-        { name: "외국인", buy: 150000000000, sell: 160000000000, net: -10000000000 },
-        { name: "기관계", buy: 120000000000, sell: 115000000000, net: 5000000000 },
-        { name: "개인", buy: 180000000000, sell: 175000000000, net: 5000000000 },
-        { name: "금융투자", buy: 50000000000, sell: 55000000000, net: -5000000000 }
-      ]
-    });
+    // 조회 실패 시 하드코딩 표본값을 200으로 반환하던 것을 제거한다.
+    // 가짜 수급/지수 값이 실측처럼 화면과 스코어링에 쓰이는 것이 더 위험하다.
+    const message = error instanceof Error ? error.message : "KRX 데이터 조회 실패";
+    console.error(`[krx] ${message}`);
+    return NextResponse.json(
+      { error: "KRX 데이터를 불러오지 못했습니다.", detail: message, stale: true },
+      { status: 503 },
+    );
   }
 }

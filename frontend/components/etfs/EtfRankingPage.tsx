@@ -38,6 +38,9 @@ const ASSETS = [
 ] as const;
 type AssetKey = (typeof ASSETS)[number]["key"];
 
+/** 데이터 부족·수집 실패 — 신호가 아니라 "판단 불가"임을 명시(적색 경고 금지) */
+const NO_DATA_BADGE = { label: "데이터 없음", cls: "bg-muted text-muted-foreground" };
+
 const ENTRY_STATE: Record<string, { label: string; cls: string }> = {
   buy_zone:   { label: "분할매수권", cls: "text-green-400" },
   watch:      { label: "눌림 대기",  cls: "text-blue-400" },
@@ -172,7 +175,7 @@ export function EtfRankingPage() {
           </CardHeader>
           <div className="space-y-2">
             {picks.map((p) => {
-              const st = ENTRY_STATE[p.entry?.state ?? "weak"] ?? ENTRY_STATE.weak;
+              const st = (p.entry?.state ? ENTRY_STATE[p.entry.state] : null) ?? NO_DATA_BADGE;
               return (
                 <div key={p.ticker} className="rounded-lg p-3" style={{ background: "var(--background)" }}>
                   <div className="flex items-center justify-between gap-2">

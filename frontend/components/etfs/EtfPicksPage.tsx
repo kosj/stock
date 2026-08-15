@@ -28,6 +28,9 @@ type TabKey = (typeof TABS)[number]["key"];
 const PERIODS = ["1M", "3M", "6M"] as const;
 type Period = (typeof PERIODS)[number];
 
+/** 데이터 부족·수집 실패 — 신호가 아니라 "판단 불가"임을 명시(적색 경고 금지) */
+const NO_DATA_BADGE = { text: "데이터 없음", cls: "bg-muted text-muted-foreground" };
+
 const STATE_BADGE: Record<string, { text: string; cls: string }> = {
   buy_zone:   { text: "분할매수권", cls: "bg-green-500/15 text-green-400" },
   watch:      { text: "눌림 대기",  cls: "bg-blue-500/15 text-blue-400" },
@@ -146,7 +149,7 @@ export function EtfPicksPage() {
       ) : (
         <div className="space-y-2">
           {picks.map((p) => {
-            const st = STATE_BADGE[p.entry?.state ?? "weak"] ?? STATE_BADGE.weak;
+            const st = (p.entry?.state ? STATE_BADGE[p.entry.state] : null) ?? NO_DATA_BADGE;
             const risky = p.leveraged || p.inverse || p.derivative;
             return (
               <Card
