@@ -8,8 +8,9 @@ name: "ETF Pick History & Backtest"
 # 수 시간 지연/드롭된다(공식 문서 권고).
 on:
   schedule:
-    - cron: "35 7 * * 1-5"     # 평일 07:35 UTC = 16:35 KST (장마감 후)
-    - cron: "45 7 * * 1"       # 월요일 07:45 UTC — 백테스트 동반 실행
+    # 평일 07:35 UTC = 16:35 KST (장마감 후). 월요일은 이 실행에서 백테스트도 함께
+    # 수행한다. 이전에는 월요일용 cron(07:45)을 따로 둬 스냅샷이 이중 적재됐다.
+    - cron: "35 7 * * 1-5"
   workflow_dispatch:
     inputs:
       backtest:
@@ -37,8 +38,15 @@ jobs:
 
       # 주간(월) 스케줄 또는 수동 실행 시 백테스트 동반
       - name: Backtest ETF picks
-        if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' && inputs.backtest == '1' || github.event.schedule == '45 7 * * 1') }}
+        # 수동 실행(backtest=1) 또는 정기 실행 중 월요일에만 수행.
+        # 요일 판정은 워크플로우 표현식으로 불가하므로 스텝 안에서 date로 확인한다.
+        if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.backtest == '1') }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/backtest_etf_picks.mjs --horizon ${{ inputs.horizon || '20' }} --topn 10
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$(date -u +%u)" != "1" ]; then
+            echo "월요일이 아니므로 백테스트 건너뜀(스냅샷만 적재)"
+            exit 0
+          fi
+          node scripts/backtest_etf_picks.mjs --horizon ${{ inputs.horizon || '20' }} --topn 10

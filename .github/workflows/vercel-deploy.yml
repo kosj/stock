@@ -38,7 +38,7 @@ jobs:
         run: |
           if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
             echo "cli=skipped" >> "$GITHUB_OUTPUT"
-            echo "VERCEL_TOKEN/ORG_ID/PROJECT_ID 미설정 — CLI 배포 건너뜀"
+            echo "VERCEL_TOKEN/ORG_ID/PROJECT_ID 미설정 — CLI 배포 건너뜀(훅 폴백 시도)"
             exit 0
           fi
           # 빌드는 Vercel에서 수행한다(원격 빌드).
@@ -57,7 +57,10 @@ jobs:
           HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
         run: |
           if [ -z "$HOOK" ]; then
-            echo "VERCEL_DEPLOY_HOOK 미설정 — 건너뜀"
-            exit 0
+            # 배포가 전혀 일어나지 않았는데 녹색으로 끝나면 배포 누락을 놓친다.
+            echo "::error::배포 경로가 없습니다 — VERCEL_TOKEN(+ORG/PROJECT ID) 또는 VERCEL_DEPLOY_HOOK 설정 필요"
+            exit 1
           fi
-          curl -sS -X POST "$HOOK" -o /dev/null -w "Vercel hook HTTP %{http_code}\n"
+          CODE=$(curl -sS -X POST "$HOOK" -o /dev/null -w "%{http_code}")
+          echo "Vercel hook HTTP $CODE"
+          case "$CODE" in 2*) ;; *) echo "::error::Deploy hook 실패 (HTTP $CODE)"; exit 1;; esac

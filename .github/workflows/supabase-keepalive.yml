@@ -37,7 +37,7 @@ jobs:
           # Supabase REST API: lt 필터로 90일 이전 데이터 삭제
           CUTOFF=$(date -u -d '90 days ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || \
                    date -u -v-90d '+%Y-%m-%dT%H:%M:%SZ')
-          curl -s -o /dev/null -w "mock_trades cleanup: %{http_code}\n" \
+          curl -s -o /dev/null -w "mock_trades cleanup: %{http_code}\n" --fail-with-body \
             -X DELETE \
             "${{ secrets.SUPABASE_URL }}/rest/v1/mock_trades?created_at=lt.${CUTOFF}" \
             -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
@@ -47,7 +47,7 @@ jobs:
         run: |
           CUTOFF=$(date -u -d '30 days ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || \
                    date -u -v-30d '+%Y-%m-%dT%H:%M:%SZ')
-          curl -s -o /dev/null -w "auto_trade_logs cleanup: %{http_code}\n" \
+          curl -s -o /dev/null -w "auto_trade_logs cleanup: %{http_code}\n" --fail-with-body \
             -X DELETE \
             "${{ secrets.SUPABASE_URL }}/rest/v1/mock_auto_trade_logs?run_at=lt.${CUTOFF}" \
             -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
@@ -56,7 +56,7 @@ jobs:
       - name: "만료된 quote_cache 삭제"
         run: |
           NOW=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-          curl -s -o /dev/null -w "quote_cache cleanup: %{http_code}\n" \
+          curl -s -o /dev/null -w "quote_cache cleanup: %{http_code}\n" --fail-with-body \
             -X DELETE \
             "${{ secrets.SUPABASE_URL }}/rest/v1/quote_cache?expires_at=lt.${NOW}" \
             -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
