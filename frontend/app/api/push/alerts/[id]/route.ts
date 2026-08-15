@@ -19,7 +19,8 @@ export async function DELETE(_: NextRequest, { params }: Ctx) {
   const { error } = await supabase
     .from("price_alerts")
     .delete()
-    .eq("id", alertId);
+    .eq("id", alertId)
+    .eq("user_id", auth.userId);   // 남의 알림 삭제 차단
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return new NextResponse(null, { status: 204 });

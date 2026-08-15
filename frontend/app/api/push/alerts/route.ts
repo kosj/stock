@@ -5,8 +5,8 @@ import { requireUser } from "@/lib/server/require-user";
 export const dynamic = "force-dynamic";
 
 // 이전에는 인증이 없어 누구나 전 사용자의 알림을 읽고/만들고/지울 수 있었다.
-// 우선 인증을 강제한다. 사용자별 스코프는 price_alerts.user_id 컬럼 추가
-// (supabase/migrations/20260810_price_alerts_user_scope.sql) 적용 후 활성화한다.
+// 인증 + user_id 스코프를 적용한다(마이그레이션 20260810 적용 완료).
+// 소유자 불명(user_id NULL)인 레거시 행은 노출하지 않는다.
 export async function GET() {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
@@ -14,6 +14,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("price_alerts")
     .select("id, ticker, position_id, alert_type, direction, threshold, message, is_active, last_triggered, created_at")
+    .eq("user_id", auth.userId)
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -44,6 +45,7 @@ export async function POST(req: NextRequest) {
       position_id: position_id ?? null,
       message:     message ?? null,
       is_active:   true,
+      user_id:     auth.userId,
     })
     .select("id, ticker, position_id, alert_type, direction, threshold, message, is_active, last_triggered, created_at")
     .single();

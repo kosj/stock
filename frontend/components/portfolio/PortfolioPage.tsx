@@ -80,6 +80,8 @@ export function PortfolioPage() {
   );
 
   const tickers = (summary as any)?.positions?.map((p: any) => p.ticker) ?? [];
+  // 실시간 시세는 현재 비활성(항상 빈 객체) — 표시값은 아래 폴백(current_price)이다.
+  // WebSocket 서버가 붙으면 자동으로 이 값이 우선 적용된다.
   const rt = useRealtimePrices(tickers);
 
   // ── 포지션 관리 분석 (ATR 기반 손절·익절·피라미딩) ──────────────────────

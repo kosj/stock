@@ -12,9 +12,15 @@ export interface PriceUpdate {
   volume?: number;
 }
 
+/**
+ * 실시간 시세 훅 — 현재 비활성 상태다(항상 빈 객체 반환).
+ *
+ * Vercel 서버리스에는 WebSocket 서버(localhost:8000)가 없어 연결하지 않는다.
+ * 호출부는 반드시 폴백(SWR로 받은 current_price)을 함께 써야 하며, 이 값이
+ * 채워질 것이라고 가정하면 안 된다. 실시간이 필요하면 별도 상시가동 서버
+ * (backend/ FastAPI) 연결이 선행돼야 한다.
+ */
 export function useRealtimePrices(tickers: string[]) {
-  // WebSocket 비활성화: Vercel 환경에서는 localhost:8000이 없으므로
-  // 아무 데이터도 반환하지 않음 (하지만 에러 없이 작동)
   const [prices] = useState<Record<string, PriceUpdate>>({});
 
   // 개발 환경에서만 WebSocket 시도 (필요시 활성화)

@@ -27,8 +27,24 @@ export function formatPercent(n: number | null | undefined, digits = 2): string 
   return `${sign}${n.toFixed(digits)}%`;
 }
 
+/**
+ * 등락 색상 규약 — 앱 전체가 이 한 곳을 따른다.
+ *
+ * true  = 한국 HTS 관행(상승 빨강 / 하락 파랑)
+ * false = 서구 관행(상승 초록 / 하락 빨강)  ← 현재 앱 대부분이 이 방식
+ *
+ * 이전에는 KRX 화면만 한국 관행, 나머지는 서구 관행이라 같은 앱에서 같은
+ * 부호가 정반대 색으로 보였다. 바꾸려면 이 상수만 true로 두면 전체가 바뀐다.
+ */
+export const KR_COLOR_CONVENTION = false;
+
 export function colorByChange(n: number | null | undefined): string {
   if (n == null) return "text-muted-foreground";
+  if (KR_COLOR_CONVENTION) {
+    if (n > 0) return "text-red-400";
+    if (n < 0) return "text-blue-400";
+    return "text-muted-foreground";
+  }
   if (n > 0) return "text-green-400";
   if (n < 0) return "text-red-400";
   return "text-muted-foreground";

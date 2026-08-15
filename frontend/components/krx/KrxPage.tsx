@@ -4,14 +4,14 @@ import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { RefreshCw, TrendingUp, TrendingDown, Minus, AlertCircle } from "lucide-react";
+import { colorByChange } from "@/lib/utils";
 
-// 한국 주식 컨벤션: 상승=빨간, 하락=파란
+// 등락 색상은 앱 전체 규약(lib/utils.KR_COLOR_CONVENTION)을 따른다.
+// 이전에는 이 화면만 한국 관행(상승=빨강)이라 다른 화면과 정반대로 보였다.
 function krxColor(n: number | null | undefined): string {
-  if (n == null) return "text-muted-foreground";
-  if (n > 0) return "text-red-400";
-  if (n < 0) return "text-blue-400";
-  return "text-muted-foreground";
+  return colorByChange(n);
 }
+
 
 function krxChangePct(n: number | null | undefined): string {
   if (n == null) return "-";
