@@ -137,6 +137,9 @@ FEATURE_COLS = [
 # 데이터 조회
 # ─────────────────────────────────────────────────────────────────────────────
 
+_FP_LOG: list[str] = []   # 실행 말미에 한 줄로 모아 찍는다(로그 tail만 봐도 비교 가능)
+
+
 def _fingerprint(a) -> str:
     """배열 내용의 짧은 해시. 실행 간 입력/출력이 실제로 같은지 판정하는 용도.
     (눈으로 보는 통계량은 다른 데이터에서도 우연히 같아 보일 수 있다)"""
@@ -812,6 +815,7 @@ def main() -> None:
         per_stock[t]["df"]["Close"].to_numpy(dtype=np.float64)
         for t in sorted(per_stock)
     ]) if per_stock else np.array([])
+    _FP_LOG.append(f"종목종가={_fingerprint(_all_close)}")
     print(f"  [지문] 종목종가 전체 행={len(_all_close)} {_fingerprint(_all_close)}")
 
     if not per_stock:
@@ -924,6 +928,7 @@ def main() -> None:
 
     # 실행 간 재현성 판정용 지문. 훈련 입력이 같은데 예측이 다르면 모델이,
     # 훈련 입력부터 다르면 데이터 수집 단계가 비결정적이라는 뜻이다.
+    _FP_LOG.append(f"훈련X={_fingerprint(train_panel[FEATURE_COLS].values)}")
     print(f"  [지문] 훈련X={_fingerprint(train_panel[FEATURE_COLS].values)} "
           f"훈련y={_fingerprint(train_panel['target_alpha_5d'].values)} "
           f"행={len(train_panel)}")
@@ -989,6 +994,8 @@ def main() -> None:
     print(f"  [진단] latest: {latest.shape[0]}행, 고유행={_ndup}, 피처별고유값합={int(latest.nunique().sum())}")
     print(f"  [진단] pred: 고유값={pred.nunique()}, std={float(pred.std()):.6g}, "
           f"min={float(pred.min()):.4g}, max={float(pred.max()):.4g}")
+    _FP_LOG.append(f"예측입력={_fingerprint(latest.values)}")
+    _FP_LOG.append(f"예측출력={_fingerprint(pred.values)}")
     print(f"  [지문] 예측입력={_fingerprint(latest.values)} 예측출력={_fingerprint(pred.values)}")
 
     # ── 독립 30일 모델 예측 (결함2: 2.19배 외삽 대체) ─────────────────────────
@@ -1283,6 +1290,10 @@ def main() -> None:
                 "oof_ic":                 round(models["oof_ic"], 4),
             }),
         })
+
+    # 재현성 요약 — 로그 끝부분만 봐도 두 실행을 비교할 수 있게 한 줄로 모은다.
+    # 같은 날 두 번 돌렸을 때 이 줄이 완전히 같아야 추천이 재현된 것이다.
+    print(f"\n[재현성 지문] {' '.join(_FP_LOG)} | Top1={df_top.iloc[0]['ticker'] if len(df_top) else '-'}")
 
     if dry_run:
         print(f"\n[dry-run] Supabase 저장 생략. 산출 {len(rows)}행 (Top{TOP_N}: {len(top_tickers)})\n")
