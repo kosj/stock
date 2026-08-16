@@ -18,7 +18,8 @@ on:
 jobs:
   run-ensemble:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # 단일 스레드 고정으로 학습이 느려진 만큼 여유를 둔다(기존 40분).
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -43,6 +44,20 @@ jobs:
           # 수동 실행에서만 피처 리포트 활성화 가능 (schedule에선 inputs가 비어 '0')
           FEATURE_REPORT: ${{ inputs.feature_report || '0' }}
           PYTHONUNBUFFERED: "1"      # stdout 실시간 스트리밍 (취소 시 로그 유실 방지)
+          # ── 재현성: 수치 연산 스레드 전면 1개 고정 ──────────────────────────
+          # 부동소수점 덧셈은 결합법칙이 성립하지 않아, 병렬 축약(reduction)의
+          # 완료 순서가 달라지면 결과 끝자리가 흔들린다. 점수 차가 근소한 종목의
+          # 순위가 그 끝자리로 뒤집힌다.
+          # 실측: 시세 스냅샷으로 입력을 완전히 고정(지문 3종 일치)하고 sklearn
+          # RF도 n_jobs=1로 바꿨는데도 예측출력 지문만 계속 달랐다
+          #   66d351161675 vs 180be8f56561 (2026-08-16)
+          # 라이브러리를 하나씩 짚는 대신 OpenMP/BLAS 계층을 통째로 단일 스레드로
+          # 고정한다(LightGBM은 OMP_NUM_THREADS, numpy/scipy는 BLAS 변수를 따른다).
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          NUMEXPR_NUM_THREADS: "1"
+          PYTHONHASHSEED: "0"
         run: |
           ARGS=""
           if [ "${{ inputs.dry_run || '0' }}" = "1" ]; then ARGS="--dry-run"; fi
