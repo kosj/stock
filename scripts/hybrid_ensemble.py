@@ -46,6 +46,9 @@ from sklearn.model_selection import KFold, TimeSeriesSplit, cross_val_predict
 # KRX는 클라우드 IP를 차단하므로 ML 잡(CI)은 pykrx를 직접 호출하지 않는다.
 from news_sentiment import NewsSentimentService
 from metrics_util import daily_ic_stats
+# 시세는 Supabase 스냅샷을 우선 사용한다. yfinance 를 매번 새로 받으면 배당·분할
+# 소급 조정가가 호출마다 미세하게 달라져 같은 날 결과가 재현되지 않는다(실측).
+import price_store
 
 warnings.filterwarnings("ignore")
 
@@ -741,9 +744,12 @@ def main() -> None:
 
     # ── 1. KOSPI 벤치마크 ─────────────────────────────────────────────────────
     print("[1/6] KOSPI 벤치마크 조회...")
-    mkt_df = fetch_ohlcv(BENCHMARK_YF)
+    mkt_df, _mkt_src = price_store.load(BENCHMARK_YF, fetch_ohlcv)
     if mkt_df.empty:
         sys.exit("KOSPI 데이터 조회 실패")
+    if _mkt_src == "live":
+        print("  ⚠ 시세 스냅샷 미사용(live) — price_daily 마이그레이션 미적용 또는 "
+              "Supabase 접근 실패. 실행 간 재현성이 보장되지 않는다.")
     # 재현성 추적: 실행마다 훈련 입력 해시가 달라지는 원인이 시세 수집에 있음을
     # 확인했다. 벤치마크와 종목 시세 중 어느 쪽이 흔들리는지 분리해 기록한다.
     print(f"  [지문] ^KS11 행={len(mkt_df)} "
@@ -758,10 +764,12 @@ def main() -> None:
     # KRX 클라우드 IP 차단 우회 — CI는 pykrx 미접속, 캐시 조회만(빠름). 비어 있으면 중립.
     flow_ok  = 0
     funda_ok = 0
+    src_counts: dict[str, int] = {}
 
     for s in UNIVERSE:
         yf_code = to_yf(s["ticker"], s["market"])
-        df = fetch_ohlcv(yf_code)
+        df, _src = price_store.load(yf_code, fetch_ohlcv)
+        src_counts[_src] = src_counts.get(_src, 0) + 1
         if df.empty or len(df) < 100:
             print(f"  skip {s['ticker']} {s['name']}: 데이터 부족")
             continue
@@ -795,6 +803,9 @@ def main() -> None:
         }
         print(f"  ✓ {s['ticker']}  {s['name']:15s}: {len(feats):3d}행  "
               f"현재가={last_close:,.0f}  거래대금={avg_tv/1e8:.0f}억")
+
+    # 시세 출처 분포 — snapshot 이 아니면 그 종목은 재현성이 보장되지 않는다
+    print(f"  시세 출처: " + " | ".join(f"{k}={v}" for k, v in sorted(src_counts.items())))
 
     # 종목 시세 전체의 내용 해시 (벤치마크와 분리 판정용)
     _all_close = np.concatenate([
