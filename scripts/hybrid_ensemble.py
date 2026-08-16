@@ -361,7 +361,13 @@ def _make_base_models():
     rf = RandomForestRegressor(
         n_estimators=300, max_depth=5,          # 깊이 축소 (6→5)
         min_samples_leaf=10,                    # 리프 최소 샘플 상향 (5→10)
-        max_features=0.6, random_state=42, n_jobs=-1,
+        max_features=0.6, random_state=42,
+        # n_jobs=1 필수. random_state 로 트리 자체는 고정되지만, sklearn 의
+        # RF predict 는 각 트리 예측을 락 걸고 공유 배열에 누적하는데 그 누적
+        # 순서가 스레드 완료 순서에 따라 달라진다. 부동소수점 덧셈은 결합법칙이
+        # 성립하지 않아 평균의 끝자리가 흔들리고, 근소차 종목의 순위가 뒤집힌다.
+        # 시세 스냅샷으로 입력을 고정한 뒤에도 예측출력 지문만 계속 달랐던 원인.
+        n_jobs=1,
     )
     # MLP 제거(P1): latest OOD에서 ±1e13 폭주(P0 원인) + 메타 기여 거의 0(coef≈0.005).
     # LGBM·RF 2종으로 단순화 → 폭주 위험 제거, 입력 스케일링(StandardScaler) 불필요.
