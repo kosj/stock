@@ -283,7 +283,7 @@ export function ProphetRecommendations() {
           <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                {["#", "종목", "시장", "현재가", "10일 예측", "30일 예측", "추천", "R²", "추세", ""].map(h => (
+                {["#", "종목", "시장", "현재가", "10일 기대초과수익", "추천", "R²", "추세", ""].map(h => (
                   <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -343,9 +343,11 @@ export function ProphetRecommendations() {
                         {formatNumber(Math.round(row.current_price))}
                       </td>
 
-                      {/* 10일 / 30일 예측수익률 */}
+                      {/* 순위 산출 근거인 10일 기대초과수익(KOSPI 대비 알파)만 표시한다.
+                          30일 예측은 순위에 전혀 쓰이지 않는 별개 모델 값이라,
+                          "매수 추천 + 30일 -25%" 같은 모순이 화면에 그대로 노출됐다
+                          (실측: 2026-08-27 SK하이닉스 19위 매수 / 30일 -25.03%). */}
                       <td className="py-3 px-3"><RetCell v={row.predicted_return_7d} threshold={1} /></td>
-                      <td className="py-3 px-3"><RetCell v={row.base_return_30d} threshold={2} /></td>
 
                       {/* 추천 */}
                       <td className="py-3 px-3">
@@ -375,7 +377,7 @@ export function ProphetRecommendations() {
                     {isExpanded && (
                       <tr key={`exp-${row.rank}`} className="border-b"
                         style={{ borderColor: "var(--border)" }}>
-                        <td colSpan={10} className="p-0">
+                        <td colSpan={9} className="p-0">
                           <ExpandedRow
                             ticker={row.ticker}
                             accuracyJson={row.accuracy_json}

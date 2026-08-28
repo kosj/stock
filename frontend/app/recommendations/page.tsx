@@ -8,7 +8,7 @@ export default function RecommendationsPage() {
       <div>
         <h1 className="text-xl font-bold">추천 종목</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Hybrid Stacking Ensemble 알고리즘이 매일 오후 4:00 KST 장 마감 후 주요 종목을 분석하여 30일 예측 수익률 상위 종목을 추천합니다.
+          Hybrid Stacking Ensemble 알고리즘이 매일 장 마감 후 주요 종목을 분석해 KOSPI 대비 10일 기대초과수익(알파) 상위 종목을 추천합니다.
         </p>
       </div>
       <ProphetRecommendations />
