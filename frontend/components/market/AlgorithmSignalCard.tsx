@@ -55,11 +55,16 @@ export function AlgorithmSignalCard({ prophet, loading }: Props) {
 
       {/* 바디 */}
       <div className="px-4 py-4 space-y-3">
-        {/* 예측 수익률 */}
-        <div className="flex flex-wrap gap-4">
+        {/* 예측 수익률
+            헤더의 신호 라벨은 10일 알파 혼합 점수로 정해진다. 30일 예측은 순위·
+            라벨 산출에 전혀 쓰이지 않는 별도 모델 값인데, 예전에는 같은 크기로
+            나란히 놓여 "매수 신호인데 30일 -25%" 가 동등한 근거처럼 읽혔다
+            (실측 2026-08-27: SK하이닉스 매수 / 30일 -25.03%).
+            근거가 되는 10일 값을 주지표로 두고 30일은 참고값으로 낮춘다. */}
+        <div className="flex flex-wrap items-end gap-4">
           {ret5d !== null && (
             <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">10일 예측수익률</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">10일 기대초과수익</div>
               <div className={`text-lg font-bold tabular-nums ${ret5d >= 0 ? "text-green-400" : "text-red-400"}`}>
                 {ret5d >= 0 ? "+" : ""}{ret5d.toFixed(2)}%
               </div>
@@ -67,8 +72,8 @@ export function AlgorithmSignalCard({ prophet, loading }: Props) {
           )}
           {ret30d !== null && (
             <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">30일 예측수익률</div>
-              <div className={`text-lg font-bold tabular-nums ${ret30d >= 0 ? "text-green-400" : "text-red-400"}`}>
+              <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">30일 예측 (별도 모델)</div>
+              <div className={`text-sm font-semibold tabular-nums opacity-70 ${ret30d >= 0 ? "text-green-400" : "text-red-400"}`}>
                 {ret30d >= 0 ? "+" : ""}{ret30d.toFixed(2)}%
               </div>
             </div>
@@ -82,6 +87,11 @@ export function AlgorithmSignalCard({ prophet, loading }: Props) {
             </div>
           )}
         </div>
+
+        <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+          신호 라벨은 <span className="text-muted-foreground/80">10일 기대초과수익(KOSPI 대비 알파)</span> 기준입니다.
+          30일 예측은 순위 산출에 쓰이지 않는 별도 모델 값이라 방향이 다를 수 있습니다.
+        </p>
 
         {/* 보조 지표 */}
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
