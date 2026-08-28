@@ -74,6 +74,23 @@ if vals:
     if len(set(round(v, 4) for v in vals)) <= 1:
         errors.append("전 종목 기대수익률이 동일 — 예측 붕괴")
 
+# 6) 순위 근거와 표시값의 부호 정합성
+#    rank/recommendation 은 10일 알파 혼합(risk_adj_score)으로 정해지는데,
+#    화면의 "30일 예측"은 별개의 30일 독립 모델 값이다. 두 모델이 엇갈리면
+#    "매수 추천인데 예측은 큰 폭 하락" 같은 모순이 화면에 그대로 노출된다.
+contradict = [
+    (r.get("name"), r.get("rank"), r.get("predicted_return_30d"), r.get("recommendation"))
+    for r in rows
+    if str(r.get("recommendation", "")).endswith("buy")
+    and (r.get("predicted_return_30d") or 0) < 0
+]
+if contradict:
+    warns.append(
+        "매수 추천인데 30일 예측이 음수인 종목 "
+        + ", ".join(f"{n}({rk}위 {v:+.2f}%)" for n, rk, v, _ in contradict)
+        + " — 순위는 10일 알파, 표시는 30일 독립 모델이라 부호가 엇갈릴 수 있다"
+    )
+
 print()
 for r in rows[:TOP_N]:
     print(f"  {r.get('rank'):>2}. {r.get('name','?'):<14} {str(r.get('sector','?')):<8} "
