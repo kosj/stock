@@ -1,13 +1,8 @@
-name: "Smoke: 청약 API"
+name: "Smoke: 공개 API"
 
-# 배포된 /api/realestate/subscription 이 실제 공고를 반환하는지 확인하는 수동 진단 잡.
-# 로컬/에이전트 환경에서는 배포 도메인과 data.go.kr 로의 아웃바운드가 막혀 있어
-# 러너에서만 검증할 수 있다. 읽기 전용 — 부작용 없음.
-#
-# 판정:
-#   200 + notices>0  → 정상 (DATA_GO_KR_SERVICE_KEY 동작)
-#   503 + setup      → 키 미설정
-#   502              → 키는 있으나 data.go.kr 호출 실패(승인 대기/Encoding 키 등)
+# 배포된 공개 API가 실제로 정상 응답하는지 확인하는 수동 진단 잡.
+# 에이전트/로컬 환경에서는 배포 도메인·data.go.kr 아웃바운드가 막혀 있어
+# 러너에서만 실검증이 가능하다. 읽기 전용 — 부작용 없음.
 on:
   workflow_dispatch:
     inputs:
@@ -20,29 +15,39 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      BASE: ${{ inputs.base_url }}
     steps:
+      # ── 추천 종목 ────────────────────────────────────────────────────────
+      # 판정: 200 + Top20 20건 + rank 1~20 유일 + 필수 필드 non-null +
+      #       섹터 상한(5) 준수 + run_date 신선도
+      - name: GET /api/recommendations/prophet
+        run: |
+          set -euo pipefail
+          URL="${BASE%/}/api/recommendations/prophet"
+          echo "GET $URL"
+          CODE=$(curl -sS -m 30 -o rec.json -w "%{http_code}" "$URL" || echo 000)
+          echo "HTTP $CODE"
+          [ "$CODE" = "200" ] || { echo "::error::추천 API 응답 이상 (HTTP $CODE)"; head -c 500 rec.json; exit 1; }
+          python3 scripts/check_recommendations.py rec.json
+
+      # ── 청약 정보 ────────────────────────────────────────────────────────
       - name: GET /api/realestate/subscription
-        env:
-          BASE: ${{ inputs.base_url }}
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           URL="${BASE%/}/api/realestate/subscription?perPage=5"
           echo "GET $URL"
           CODE=$(curl -sS -m 30 -o body.json -w "%{http_code}" "$URL" || echo 000)
           echo "HTTP $CODE"
-          echo "--- body (앞 1500자) ---"
-          head -c 1500 body.json || true
-          echo
           case "$CODE" in
             200)
               COUNT=$(python3 -c 'import json;print(len(json.load(open("body.json")).get("notices",[])))')
               echo "공고 ${COUNT}건"
-              if [ "$COUNT" -eq 0 ]; then
-                echo "::warning::200이지만 공고가 0건입니다 — 현재 접수 중인 공고가 없거나 응답 필드가 바뀌었을 수 있습니다"
-              fi
+              [ "$COUNT" -gt 0 ] || echo "::warning::200이지만 공고 0건 — 접수 중 공고가 없거나 응답 필드 변경"
               python3 -c 'import json; [print("- %s | 접수 %s~%s | D%s" % (n.get("name"), n.get("applyStart"), n.get("applyEnd"), n.get("dDayApply"))) for n in json.load(open("body.json")).get("notices", [])[:5]]'
               ;;
-            503) echo "::error::키 미설정 — DATA_GO_KR_SERVICE_KEY 를 Vercel 환경변수에 추가 후 재배포하세요"; exit 1;;
-            502) echo "::error::data.go.kr 호출 실패 — 활용신청 승인 여부와 Decoding 키 사용 여부를 확인하세요"; exit 1;;
+            503) echo "::error::키 미설정 — DATA_GO_KR_SERVICE_KEY 확인"; exit 1;;
+            502) echo "::error::data.go.kr 호출 실패 — 활용신청 승인·Decoding 키 확인"; exit 1;;
             *)   echo "::error::예상치 못한 응답 (HTTP $CODE)"; exit 1;;
           esac
