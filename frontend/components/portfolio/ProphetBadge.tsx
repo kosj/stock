@@ -33,9 +33,16 @@ export function ProphetBadge({ result }: Props) {
     return <span className="text-xs text-muted-foreground/30">데이터부족</span>;
   }
 
-  const meta    = REC_META[result.recommendation];
-  const ret30   = result.predicted_return_30d;
-  const retColor = ret30 >= 0 ? "text-green-400" : "text-red-400";
+  const meta = REC_META[result.recommendation];
+  // 배지에 붙는 숫자는 추천 라벨과 같은 근거를 써야 한다.
+  // 라벨(강력매수/매수/…)은 10일 알파 혼합 점수로 정해지는데 예전에는 그 옆에
+  // 별개 모델인 30일 예측을 붙여 "매수 -25%" 같은 모순이 그대로 노출됐다
+  // (실측: 2026-08-27 SK하이닉스 매수 / 30일 -25.03%).
+  // predicted_return_7d 는 컬럼 재활용으로 실제 10일 KOSPI 대비 알파를 담는다.
+  const alpha10    = result.predicted_return_7d;
+  const alphaColor = alpha10 >= 0 ? "text-green-400" : "text-red-400";
+  const ret30      = result.predicted_return_30d;   // 툴팁 상세에만 사용
+  const ret30Color = ret30 >= 0 ? "text-green-400" : "text-red-400";
   const TrendIcon =
     result.trend_direction === "up"   ? TrendingUp  :
     result.trend_direction === "down" ? TrendingDown : Minus;
@@ -48,8 +55,8 @@ export function ProphetBadge({ result }: Props) {
       >
         <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
         <span className={`text-xs font-medium ${meta.color}`}>{meta.label}</span>
-        <span className={`text-xs tabular-nums ${retColor}`}>
-          {ret30 >= 0 ? "+" : ""}{ret30.toFixed(1)}%
+        <span className={`text-xs tabular-nums ${alphaColor}`}>
+          {alpha10 >= 0 ? "+" : ""}{alpha10.toFixed(1)}%
         </span>
       </button>
 
@@ -59,7 +66,7 @@ export function ProphetBadge({ result }: Props) {
           style={{ background: "var(--card)", borderColor: "var(--border)" }}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold">앙상블 30일 예측</span>
+            <span className="text-xs font-semibold">앙상블 예측</span>
             <div className="flex items-center gap-1">
               <TrendIcon size={11} className={result.trend_direction === "up" ? "text-green-400" : result.trend_direction === "down" ? "text-red-400" : "text-muted-foreground"} />
               <span className={`text-xs font-medium ${meta.color}`}>{meta.label}</span>
@@ -68,8 +75,8 @@ export function ProphetBadge({ result }: Props) {
 
           <div className="grid grid-cols-2 gap-1.5 text-xs">
             {[
-              { label: "7일 예측",    value: `${result.predicted_return_7d  >= 0 ? "+" : ""}${result.predicted_return_7d.toFixed(1)}%`,  color: result.predicted_return_7d  >= 0 ? "text-green-400" : "text-red-400" },
-              { label: "30일 예측",   value: `${ret30 >= 0 ? "+" : ""}${ret30.toFixed(1)}%`, color: retColor },
+              { label: "10일 기대초과수익", value: `${alpha10 >= 0 ? "+" : ""}${alpha10.toFixed(1)}%`, color: alphaColor },
+              { label: "30일 예측(별도 모델)", value: `${ret30 >= 0 ? "+" : ""}${ret30.toFixed(1)}%`, color: ret30Color },
               { label: "연간 추세",   value: `${result.trend_slope_annual_pct.toFixed(1)}%`, color: result.trend_direction === "up" ? "text-green-400" : result.trend_direction === "down" ? "text-red-400" : "text-muted-foreground" },
               { label: "적합도 R²",  value: `${Math.round(result.r_squared * 100)}%`, color: result.r_squared >= 0.6 ? "text-blue-400" : "text-yellow-400" },
             ].map(({ label, value, color }) => (
