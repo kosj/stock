@@ -18,6 +18,10 @@ jobs:
     env:
       BASE: ${{ inputs.base_url }}
     steps:
+      # 추천 검사기(scripts/check_recommendations.py)를 쓰므로 체크아웃이 필요하다.
+      # 청약 스텝은 인라인 bash라 없어도 돌아서 누락을 놓치기 쉬웠다.
+      - uses: actions/checkout@v4
+
       # ── 추천 종목 ────────────────────────────────────────────────────────
       # 판정: 200 + Top20 20건 + rank 1~20 유일 + 필수 필드 non-null +
       #       섹터 상한(5) 준수 + run_date 신선도
