@@ -5,7 +5,16 @@ name: "Hybrid Stacking Ensemble Daily"
 # 몰려 수 시간씩 지연/드롭된다(공식 문서 권고). 정시를 피하면 지연이 크게 줄어든다.
 on:
   schedule:
-    - cron: "12 7 * * 1-5"   # 평일만 — 주말은 장이 없어 새 시세가 없다(러너 낭비)
+    # 평일만 — 주말은 장이 없어 새 시세가 없다(러너 낭비).
+    # 슬롯을 여러 개 두는 이유: GitHub schedule 은 큐 부하에 따라 몇 시간씩 밀린다.
+    # 실측(2026-08-27~09-04) 07:12 UTC 슬롯 지연 4h52m ~ 12h12m — 그 전엔 44분.
+    # 어느 슬롯이 먼저 실제로 돌든, 그날 결과가 이미 저장돼 있으면 아래
+    # "이미 저장됐는지 확인" 스텝이 10초 안에 건너뛰므로 중복 비용은 거의 없다.
+    - cron: "12 7 * * 1-5"    # 16:12 KST  (1차)
+    - cron: "37 8 * * 1-5"    # 17:37 KST
+    - cron: "7 10 * * 1-5"    # 19:07 KST
+    - cron: "47 11 * * 1-5"   # 20:47 KST
+    - cron: "27 13 * * 1-5"   # 22:27 KST  (최종)
   workflow_dispatch:          # GitHub Actions UI에서 수동 실행 가능
     inputs:
       feature_report:
@@ -14,6 +23,16 @@ on:
       dry_run:
         description: "1=Supabase 저장 생략(결과만 로그 출력) — 팩터/유니버스 변경 검증용"
         default: "0"
+      skip_if_done:
+        description: "1=오늘 결과가 이미 저장돼 있으면 건너뜀 (정기 실행과 동일 동작)"
+        default: "0"
+
+# 지연된 슬롯 여러 개가 거의 동시에 풀려도 한 번에 하나만 돈다. 뒤에 온 실행은
+# 앞 실행이 저장을 마친 뒤 시작하므로 "이미 저장됨" 판정으로 건너뛰게 된다.
+# (cancel-in-progress 는 끄는 것이 맞다 — 진행 중인 학습을 죽이면 그날 결과가 없다)
+concurrency:
+  group: hybrid-ensemble-daily
+  cancel-in-progress: false
 
 jobs:
   run-ensemble:
@@ -25,7 +44,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── 오늘 결과가 이미 저장됐는지 확인 (정기 슬롯 분산의 중복 방지) ──────────
+      # 기준일은 hybrid_ensemble.py 의 run_date 와 같은 UTC 날짜다.
+      # 실패는 "진행"으로 처리한다(fail-open) — 확인 스텝의 오류 때문에 그날
+      # 추천이 통째로 빠지는 것이 중복 실행보다 훨씬 나쁘다.
+      - name: 오늘 결과 저장 여부 확인
+        id: already
+        if: ${{ github.event_name == 'schedule' || inputs.skip_if_done == '1' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          TODAY=$(date -u +%F)
+          CNT=0
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            CNT=$(curl -sS -m 20 \
+              "$SUPABASE_URL/rest/v1/prophet_recommendations?run_date=eq.$TODAY&select=ticker&limit=1" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)' 2>/dev/null || echo 0)
+          fi
+          echo "run_date=$TODAY 저장 행: $CNT"
+          if [ "${CNT:-0}" -gt 0 ]; then
+            echo "done=1" >> "$GITHUB_OUTPUT"
+            echo "오늘 결과가 이미 저장돼 있어 이 슬롯은 건너뜁니다."
+          else
+            echo "done=0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Python 3.11
+        if: ${{ steps.already.outputs.done != '1' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -33,9 +81,11 @@ jobs:
           cache-dependency-path: scripts/requirements.txt
 
       - name: Install dependencies
+        if: ${{ steps.already.outputs.done != '1' }}
         run: pip install -r scripts/requirements.txt
 
       - name: Run Hybrid Stacking Ensemble
+        if: ${{ steps.already.outputs.done != '1' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

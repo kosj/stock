@@ -13,10 +13,11 @@
 
 종료 코드: 0 정상(경고 포함) / 1 결함
 """
+import argparse
 import json
 import sys
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 SECTOR_CAP = 5
 TOP_N = 20
@@ -24,7 +25,12 @@ STALE_WARN_DAYS = 2      # 주말 끼면 2일까지는 정상
 STALE_FAIL_DAYS = 5
 REQUIRED = ["ticker", "name", "current_price", "predicted_return_30d", "recommendation"]
 
-path = sys.argv[1] if len(sys.argv) > 1 else "rec.json"
+ap = argparse.ArgumentParser(description="추천 API 응답 건전성 검사")
+ap.add_argument("path", nargs="?", default="rec.json")
+ap.add_argument("--daily-monitor", action="store_true",
+                help="정기 감시 모드: 직전 거래일(평일)의 run_date 가 반드시 있어야 한다")
+args = ap.parse_args()
+path = args.path
 d = json.load(open(path))
 rows = d.get("rows") or []
 run_date = d.get("run_date")
@@ -43,6 +49,29 @@ else:
         errors.append(f"추천이 {age}일 묵었다 — 정기 잡이 멈춘 것으로 보인다")
     elif age > STALE_WARN_DAYS:
         warns.append(f"추천이 {age}일 경과 — 정기 잡 지연/누락 가능")
+
+# 1-b) 정기 감시 모드 — "있어야 할 날의 추천이 있는가"
+#   정기 잡은 평일 UTC 07:12~13:27 슬롯 5개로 돈다(지연 시 몇 시간 뒤 실행).
+#   감시 잡 자체도 schedule 이라 지연될 수 있으므로 "지금 시각"을 기준으로
+#   기대일을 정한다:
+#     UTC 14시 이후  → 오늘(평일이면). 5개 슬롯이 모두 지나고도 여유가 있는 시각.
+#     UTC 14시 이전  → 어제 이전의 마지막 평일. 감시가 다음날 새벽으로 밀려도
+#                     아직 돌지 않은 오늘 것을 요구해 오탐하지 않게 한다.
+#   기대일이 주말이면 직전 금요일로 물린다. 한국 공휴일에도 정기 잡은 그대로
+#   돌아 run_date 를 남기므로 별도 달력은 필요 없다.
+if args.daily_monitor and run_date:
+    now = datetime.now(timezone.utc)
+    cand = now.date() if now.hour >= 14 else now.date() - timedelta(days=1)
+    while cand.weekday() >= 5:          # 5=토, 6=일
+        cand -= timedelta(days=1)
+    expected = cand
+    have = datetime.strptime(run_date, "%Y-%m-%d").date()
+    print(f"감시기준 = {now.strftime('%Y-%m-%d %H:%M')} UTC → 기대 run_date {expected}")
+    if have < expected:
+        errors.append(
+            f"{expected} 추천이 없다 (최신 {run_date}, {(expected - have).days}거래일 전) "
+            f"— 정기 슬롯 5개(16:12~22:27 KST)가 모두 누락되거나 지연됐다"
+        )
 
 # 2) 완전성
 if len(rows) != TOP_N:

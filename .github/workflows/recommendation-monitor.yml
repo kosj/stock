@@ -1,0 +1,88 @@
+name: "추천 파이프라인 감시"
+
+# 매일 한 번 운영 API 를 조회해 "있어야 할 날의 추천이 있는가"를 판정한다.
+# 배경: 정기 앙상블 슬롯(07:12 UTC)이 2026-08-27 부터 매일 5~12시간씩 밀려
+# 화면의 추천이 하루씩 늦게 갱신됐지만, 잡 자체는 성공으로 끝나 아무도 몰랐다.
+#
+# 판정 규칙은 scripts/check_recommendations.py --daily-monitor 에 있다.
+# 이 감시 잡 자체도 schedule 이라 지연될 수 있어, "지금 시각" 기준으로 기대일을
+# 정하도록 만들어 새벽으로 밀려도 오탐하지 않는다.
+#
+# 알림 경로 두 가지:
+#   1) 잡 실패 → GitHub 가 저장소 소유자에게 메일 발송(기본 알림 설정)
+#   2) 'pipeline-alert' 라벨 이슈를 열고(중복 방지: 열린 이슈가 있으면 댓글),
+#      정상 복구가 확인되면 자동으로 닫는다
+on:
+  schedule:
+    - cron: "12 15 * * *"    # 매일 00:12 KST — 마지막 앙상블 슬롯(22:27 KST)+여유
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BASE: https://stock-ashen-three.vercel.app
+      LABEL: pipeline-alert
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 추천 API 조회 + 판정
+        id: check
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          URL="${BASE%/}/api/recommendations/prophet"
+          CODE=$(curl -sS -m 30 -o rec.json -w "%{http_code}" "$URL" || echo 000)
+          echo "GET $URL → HTTP $CODE" | tee check.log
+          if [ "$CODE" != "200" ]; then
+            echo "::error::추천 API 응답 이상 (HTTP $CODE)" | tee -a check.log
+            head -c 400 rec.json >> check.log 2>/dev/null || true
+            exit 1
+          fi
+          python3 scripts/check_recommendations.py rec.json --daily-monitor 2>&1 | tee -a check.log
+
+      - name: 알림 이슈 처리
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.check.outcome }}
+        run: |
+          gh label create "$LABEL" --color D93F0B \
+            --description "추천 파이프라인 정체/장애 자동 알림" 2>/dev/null || true
+          OPEN=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ "$OUTCOME" = "failure" ]; then
+            {
+              echo "추천 파이프라인 감시에서 결함이 감지됐습니다."
+              echo
+              echo "- 감시 실행: $RUN_URL"
+              echo "- 확인 시각: $(date -u '+%Y-%m-%d %H:%M UTC')"
+              echo
+              echo '```'
+              cat check.log
+              echo '```'
+              echo
+              echo "정기 앙상블 워크플로(Hybrid Stacking Ensemble Daily)의 최근 실행을 확인하세요."
+              echo "수동 복구: Actions → Hybrid Stacking Ensemble Daily → Run workflow"
+            } > body.md
+            if [ -n "$OPEN" ]; then
+              gh issue comment "$OPEN" --body-file body.md
+              echo "기존 알림 이슈 #$OPEN 에 댓글 추가"
+            else
+              gh issue create --title "추천 파이프라인 정체 감지 ($(date -u +%F))" \
+                --label "$LABEL" --body-file body.md
+              echo "알림 이슈 생성"
+            fi
+            exit 1
+          fi
+
+          echo "판정 정상"
+          if [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --comment "감시 재확인 결과 정상 복구됐습니다. ($RUN_URL)"
+            echo "알림 이슈 #$OPEN 자동 종료"
+          fi
