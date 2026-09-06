@@ -31,8 +31,18 @@ FEEDS = [
     ("한국경제 증권",   "https://www.hankyung.com/feed/stock"),
     ("이데일리 경제",   "https://rss.edaily.co.kr/edaily_economy.xml"),
     ("서울경제",        "https://www.sedaily.com/RSS/S1N1.xml"),
-    ("조선비즈",        "https://biz.chosun.com/arc/outboundfeeds/rss/?outputType=xml"),
+    # 조선비즈 아웃바운드 피드는 제외 — 실측 결과 40건 중 금융 1건이고 나머지는
+    # 스포츠/연예였다(sports_photo 16, enter_general 10). category 태그도 비어 있어
+    # 걸러낼 방법이 없다. 금융 피드가 아니라 전사 기사 스트림이다.
     ("KBS 경제",        "https://news.kbs.co.kr/news/AllNewsRss.xml?cate=economy"),
+    # ── 국내 대체 후보 (조선비즈 제외로 줄어든 매체 폭을 메울 수 있는지 실측) ──
+    ("이데일리 대체",   "https://www.edaily.co.kr/rss/rss_economy.xml"),
+    ("서울경제 증권",   "https://www.sedaily.com/RSS/Stock.xml"),
+    ("헤럴드경제",      "https://biz.heraldcorp.com/common/rss_xml.php?ct=010000000000.xml"),
+    ("아시아경제 증권", "https://www.asiae.co.kr/rss/stock.htm"),
+    ("뉴시스 경제",     "https://newsis.com/RSS/economy.xml"),
+    ("파이낸셜뉴스",    "https://www.fnnews.com/rss/fn_realnews_economy.xml"),
+    ("머니투데이",      "https://rss.mt.co.kr/mt_news.xml"),
     # ── 해외 ──
     ("CNBC Top",        "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
     ("CNBC Finance",    "https://www.cnbc.com/id/10000664/device/rss/rss.html"),
