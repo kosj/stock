@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Briefcase, TrendingUp,
   Globe, BarChart2, Bell, Building2, Settings, Star,
-  Menu, X, LogOut, Shield, Sparkles, Gamepad2, BookOpen, PiggyBank, Coins, Target, Home,
+  Menu, X, LogOut, Shield, Sparkles, Gamepad2, BookOpen, PiggyBank, Coins, Target, Home, Newspaper,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -23,6 +23,7 @@ const NAV = [
   { href: "/etf-picks",     label: "ETF 추천",     icon: Target },
   { href: "/etfs",          label: "ETF 랭킹",     icon: Coins },
   { href: "/krx",           label: "국내증시 통계", icon: Building2 },
+  { href: "/news",          label: "주요 뉴스",     icon: Newspaper },
   { href: "/wealth",        label: "재테크",       icon: Home },
   { href: "/alerts",        label: "알림 설정",     icon: Bell },
   { href: "/glossary",      label: "용어 사전",     icon: BookOpen },
