@@ -38,7 +38,8 @@ export const FEEDS: FeedSource[] = [
   { id: "hk-fin",     name: "한국경제 금융", outlet: "한국경제", url: "https://www.hankyung.com/feed/finance",       region: "domestic" },
   { id: "mk-econ",    name: "매일경제 경제", outlet: "매일경제", url: "https://www.mk.co.kr/rss/30100041/",          region: "domestic" },
   { id: "mk-stock",   name: "매일경제 증권", outlet: "매일경제", url: "https://www.mk.co.kr/rss/50200011/",          region: "domestic" },
-  { id: "chosunbiz",  name: "조선비즈",      outlet: "조선비즈", url: "https://biz.chosun.com/arc/outboundfeeds/rss/?outputType=xml", region: "domestic" },
+  { id: "asiae-stock", name: "아시아경제 증권", outlet: "아시아경제", url: "https://www.asiae.co.kr/rss/stock.htm",     region: "domestic" },
+  { id: "newsis-econ", name: "뉴시스 경제",     outlet: "뉴시스",     url: "https://newsis.com/RSS/economy.xml",        region: "domestic" },
 
   // ── 해외 ──────────────────────────────────────────────────────────────
   { id: "cnbc-top",   name: "CNBC Top News", outlet: "CNBC",        url: "https://www.cnbc.com/id/100003114/device/rss/rss.html", region: "global" },
@@ -51,6 +52,12 @@ export const FEEDS: FeedSource[] = [
   { id: "scmp-biz",   name: "SCMP Business", outlet: "SCMP",        url: "https://www.scmp.com/rss/92/feed",                      region: "global" },
 ];
 
+// ── 피드 선정 규칙 ──────────────────────────────────────────────────────
+// URL 에 섹션(economy / stock / finance)이 드러나는 피드만 쓴다.
+// 섹션이 불명확한 전체 피드는 스포츠·연예가 섞여 들어오는데, 도달성(HTTP 200,
+// 항목 수)만으로는 이를 잡을 수 없다. 실측으로 확인된 함정이다 — 아래 조선비즈.
+// 내용 확인은 probe-news-feeds 워크플로의 dump_url 입력으로 한다.
+
 // 실측에서 뺀 후보 (scripts/probe_news_feeds.py, 2026-09-06 러너 기준)
 //   이데일리·서울경제·한국경제 증권·KBS 경제 : 도달 실패 또는 항목 0
 //   Reuters businessNews                    : DNS 해석 실패(피드 폐지)
@@ -58,6 +65,14 @@ export const FEEDS: FeedSource[] = [
 //                                             2025-07-03 — 갱신이 멈춘 피드다.
 //                                             살아 있어 보이지만 죽은 소스라
 //                                             타임라인에 과거 기사를 섞는다.
+//   조선비즈 아웃바운드 피드                : HTTP 200·항목 다수지만 40건 중 금융은
+//                                             1건뿐이고 나머지가 sports_photo 16,
+//                                             enter_general 10 등 스포츠·연예였다.
+//                                             category 태그도 비어 있어 걸러낼 수
+//                                             없다. 금융 피드가 아니라 전사 스트림.
+//   머니투데이 mt_news.xml                  : 도달은 되지만 섹션이 불명확한 전체
+//                                             피드다. 조선비즈와 같은 함정일 수
+//                                             있어 내용 확인 전까지 보류.
 //   Nikkei Asia                             : 항목 50개인데 발행시각 파싱 불가.
 //                                             전부 "시간 미상"으로 목록 끝에
 //                                             쌓여 잡음만 된다. 날짜 필드 확인 후 재검토.
