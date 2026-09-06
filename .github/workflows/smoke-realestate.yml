@@ -35,6 +35,23 @@ jobs:
           [ "$CODE" = "200" ] || { echo "::error::추천 API 응답 이상 (HTTP $CODE)"; head -c 500 rec.json; exit 1; }
           python3 scripts/check_recommendations.py rec.json
 
+      # ── 주요 뉴스 ────────────────────────────────────────────────────────
+      # 판정: 200 + 기사 존재 + 국내/해외 양쪽 수집 + 죽은 소스 수 보고.
+      # RSS 는 예고 없이 죽거나 형식이 바뀌므로 정기 확인 대상이다.
+      - name: GET /api/news
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          URL="${BASE%/}/api/news"
+          echo "GET $URL"
+          CODE=$(curl -sS -m 40 -o news.json -w "%{http_code}" "$URL" || echo 000)
+          echo "HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::뉴스 API 응답 이상 (HTTP $CODE) — 전 피드 실패 시 502"
+            head -c 600 news.json; exit 1
+          fi
+          python3 scripts/check_news.py news.json
+
       # ── 청약 정보 ────────────────────────────────────────────────────────
       - name: GET /api/realestate/subscription
         if: ${{ !cancelled() }}
