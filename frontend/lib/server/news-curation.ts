@@ -135,12 +135,43 @@ export function tokenize(title: string): Set<string> {
   return out;
 }
 
-export function similarity(a: Set<string>, b: Set<string>): number {
+/**
+ * 토큰 가중치. 같은 배치 안에서 흔한 토큰일수록 변별력이 없다.
+ *
+ * 가중치 없이 세면 상투구가 판정을 지배한다 — "현대차, 신공장 착공" 과
+ * "기아, 신공장 착공" 이 0.44 로 병합됐다(테스트에서 발견). 실전으로 옮기면
+ * "삼성전자 3분기 영업이익" 과 "LG전자 3분기 영업이익" 이 한 건으로 묶여
+ * 다른 회사 실적이 사라진다 — 중복 제거가 기사를 삼키는 최악의 실패다.
+ *
+ * 문서빈도의 역수로 눌러 주면 회사명·수치처럼 드문 토큰이 판정을 끌고 간다.
+ */
+export type TokenWeights = Map<string, number> | null;
+
+export function buildWeights(tokenSets: Set<string>[]): Map<string, number> {
+  const df = new Map<string, number>();
+  for (const set of tokenSets) {
+    for (const t of set) df.set(t, (df.get(t) ?? 0) + 1);
+  }
+  const w = new Map<string, number>();
+  for (const [t, n] of df) w.set(t, 1 / Math.log(2 + n));
+  return w;
+}
+
+const wOf = (t: string, w: TokenWeights) => (w ? (w.get(t) ?? 1) : 1);
+
+function sumW(set: Set<string>, w: TokenWeights): number {
+  let s = 0;
+  for (const t of set) s += wOf(t, w);
+  return s;
+}
+
+export function similarity(a: Set<string>, b: Set<string>, w: TokenWeights = null): number {
   if (a.size === 0 || b.size === 0) return 0;
-  let inter = 0;
   const [small, large] = a.size <= b.size ? [a, b] : [b, a];
-  for (const t of small) if (large.has(t)) inter++;
-  return inter / (a.size + b.size - inter);
+  let inter = 0;
+  for (const t of small) if (large.has(t)) inter += wOf(t, w);
+  const union = sumW(a, w) + sumW(b, w) - inter;
+  return union > 0 ? inter / union : 0;
 }
 
 /**
@@ -150,17 +181,70 @@ export function similarity(a: Set<string>, b: Set<string>): number {
  * (0.25) 놓치지만 포함계수는 0.5를 넘는다.
  * 다만 짧은 제목이 아무 긴 제목에나 삼켜질 수 있어 토큰 수 하한을 둔다.
  */
-export function containment(a: Set<string>, b: Set<string>): number {
+export function containment(a: Set<string>, b: Set<string>, w: TokenWeights = null): number {
   const [small, large] = a.size <= b.size ? [a, b] : [b, a];
   if (small.size < 8) return 0;          // 너무 짧으면 판단 근거가 부족하다
   let inter = 0;
-  for (const t of small) if (large.has(t)) inter++;
-  return inter / small.size;
+  for (const t of small) if (large.has(t)) inter += wOf(t, w);
+  const base = sumW(small, w);
+  return base > 0 ? inter / base : 0;
+}
+
+/**
+ * 수치 불일치 거부권.
+ * 금융 헤드라인에서 숫자는 가장 변별력이 큰 요소다 — 영업이익 12조와 1조,
+ * 코스피 3200과 3100은 다른 사건이다. 양쪽 다 수치를 담고 있는데 공유하는
+ * 수치가 하나도 없으면, 문장 구조가 아무리 닮았어도 같은 사건이 아니다.
+ *
+ * 문서빈도 가중만으로는 배치가 작을 때 상투구를 충분히 누르지 못한다
+ * (6건 배치에서 "삼성전자 3분기 영업이익 12조" 와 "LG전자 … 1조" 가 병합됨).
+ * 한쪽만 수치를 가진 경우는 표기 차이일 수 있으므로 거부하지 않는다.
+ */
+/**
+ * 단위가 붙은 수치만 뽑는다 — 12조, 1조, 2.50%, 3200선, 100bp 처럼.
+ *
+ * 처음엔 제목에 든 숫자를 전부 비교했는데 "3분기" 의 3 이 양쪽에 있어
+ * 거부권이 무력화됐다("삼성전자 3분기 영업이익 12조" 와 "SK하이닉스 3분기
+ * 영업이익 9조" 가 병합). 분기·연차 같은 상투 숫자는 사건을 구분하지 못한다.
+ * 금액·비율·지수처럼 단위가 붙은 값이 그 기사를 특정하는 수치다.
+ */
+export function numericSignature(title: string): Set<string> {
+  const norm = normalize(title);
+  const out = new Set<string>();
+  const re = /(\d+(?:[.,]\d+)?)\s*(조|억|만|원|달러|엔|위안|%|퍼센트|포인트|선|bp|배)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(norm)) !== null) out.add(`${m[1].replace(/,/g, "")}${m[2]}`);
+  return out;
+}
+
+/** 제목 비교용 키 — 토큰 집합과 수치 서명을 함께 들고 다닌다 */
+export interface TitleKey {
+  tokens: Set<string>;
+  nums: Set<string>;
+}
+
+export function keyOf(title: string): TitleKey {
+  return { tokens: tokenize(title), nums: numericSignature(title) };
+}
+
+/**
+ * 수치 불일치 거부권. 양쪽 다 단위 수치를 담고 있는데 공유하는 값이 하나도
+ * 없으면 문장 구조가 아무리 닮아도 다른 사건이다.
+ * 한쪽만 수치를 가진 경우는 표기 차이일 수 있어 거부하지 않는다.
+ */
+function numericMismatch(a: TitleKey, b: TitleKey): boolean {
+  if (a.nums.size === 0 || b.nums.size === 0) return false;
+  for (const n of a.nums) if (b.nums.has(n)) return false;
+  return true;
 }
 
 /** 두 제목이 같은 사건인지 — 자카드 또는 포함계수 중 하나라도 넘으면 같다 */
-export function isSameStory(a: Set<string>, b: Set<string>): boolean {
-  return similarity(a, b) >= DUP_MIN_SIM || containment(a, b) >= DUP_MIN_CONTAIN;
+export function isSameStory(a: TitleKey, b: TitleKey, w: TokenWeights = null): boolean {
+  if (numericMismatch(a, b)) return false;
+  return (
+    similarity(a.tokens, b.tokens, w) >= DUP_MIN_SIM ||
+    containment(a.tokens, b.tokens, w) >= DUP_MIN_CONTAIN
+  );
 }
 
 /** 같은 사건으로 볼 유사도 하한. 아래 테스트(scripts/test_news_curation.mjs)로 보정. */
@@ -174,9 +258,24 @@ const DUP_MAX_GAP_MS = 18 * 60 * 60 * 1000;
 // 키워드는 "이게 없으면 버린다"가 아니라 가점 신호다. 매체 수·속보 가점만으로도
 // 상위에 오를 수 있어 키워드 밖의 새 주제가 묻히지 않는다.
 const KEY_MACRO = /(금리|기준금리|인플레|물가|소비자물가|CPI|연준|美 ?연준|FOMC|환율|원\/달러|관세|무역|수출|수입|GDP|성장률|고용|실업|경기|재정|국채|유가|달러|엔화|위안|federal reserve|inflation|interest rate|tariff|trade war|jobs report|payrolls|treasury|yield|gdp|recession|central bank)/i;
-const KEY_MARKET = /(코스피|코스닥|증시|주가|나스닥|다우|S&P|선물|공매도|외국인|기관|시가총액|상장|IPO|배당|자사주|어닝|실적|영업이익|매출|인수|합병|M&A|파산|감산|증산|반도체|배터리|AI|stocks?|market|nasdaq|dow|s&p|earnings|revenue|merger|acquisition|ipo|bankrupt|chip|semiconductor)/i;
+// 주의: 단독으로 쓰면 문맥이 다른 곳까지 잡히는 단어는 붙여서 쓴다.
+// 실측 사고: "기관"만 넣었더니 "아내 원장인 기관 취업"(정치 기사)이 시장
+// 키워드로 잡혀 가점을 받고 1위로 올라왔다. 기관투자자 문맥으로 한정한다.
+const KEY_MARKET = /(코스피|코스닥|증시|주가|나스닥|다우|S&P|선물|공매도|시가총액|상장|IPO|배당|자사주|어닝|실적|영업이익|매출|인수합병|합병|M&A|파산|감산|증산|반도체|배터리|외국인\s*(순?매수|순?매도|자금)|기관\s*(투자자|순?매수|순?매도)|stocks?|market|nasdaq|dow|s&p|earnings|revenue|merger|acquisition|ipo|bankrupt|chip|semiconductor)/i;
 const KEY_BREAKING = /(\[속보\]|\[단독\]|^속보|breaking|exclusive)/i;
 const KEY_POLICY = /(정부|당국|금감원|금융위|한은|한국은행|국회|규제|제재|조사|과징금|기소|압수수색|regulator|sec |doj |antitrust|sanction|lawsuit|probe)/i;
+
+/**
+ * 시장과 무관한 정치 기사.
+ * 국내 경제지는 정당·인사 공방 기사를 경제 섹션에 함께 실어 보낸다. 여러
+ * 매체가 동시에 쓰면 중복 가점을 받아 금융 뉴스 화면 상단을 차지한다
+ * (실측: "김승원 자녀 기관 취업" 3개 매체 보도로 1위).
+ *
+ * 다만 정치가 곧 무의미한 것은 아니다 — 예산·세제·관세·규제는 시장을 직접
+ * 움직인다. 그래서 감점은 "정치 신호가 있고 매크로·시장 신호가 전혀 없을 때"
+ * 로 한정한다. "국회, 반도체특별법 통과" 는 감점되지 않는다.
+ */
+const KEY_POLITICS = /(여야|국민의힘|더불어민주당|민주당|조국혁신당|의원|원내대표|당대표|공천|총선|대선|지방선거|보궐선거|탄핵|특검|청문회|국정감사|국감|대정부질문|낙마|폭로|설전|공세|의혹\s*제기|가족폄훼|election|campaign trail|senator|congressman|congresswoman|impeach|partisan|primary race)/i;
 
 function scoreOf(item: CuratedItem): number {
   const t = `${item.title} ${item.summary}`;
@@ -185,6 +284,10 @@ function scoreOf(item: CuratedItem): number {
   if (KEY_MARKET.test(t)) s += 2;
   if (KEY_POLICY.test(t)) s += 2;
   if (KEY_BREAKING.test(item.title)) s += 3;
+  // 시장·매크로 신호가 하나도 없는 순수 정치 기사는 금융 화면에서 내린다.
+  // 중복 가점(최대 +8)을 상쇄할 만큼 깎아야 여러 매체가 쓴 정쟁 기사가
+  // 상단에 남지 않는다.
+  if (KEY_POLITICS.test(t) && !KEY_MACRO.test(t) && !KEY_MARKET.test(t)) s -= 6;
   // 여러 매체가 동시에 쓴 사안은 그 자체로 크다. 과대 가중은 막는다.
   s += Math.min(item.dupCount, 4) * 2;
   // 신선도 — 같은 점수면 최근 것을 위로
@@ -216,17 +319,22 @@ export function curate(items: NewsItem[]): CurationResult {
     else kept.push(it);
   }
 
-  // 중복 병합 — 입력이 최신순이므로 먼저 온 기사가 대표가 된다
-  const reps: { item: CuratedItem; tokens: Set<string> }[] = [];
-  for (const it of kept) {
-    const tokens = tokenize(it.title);
+  // 중복 병합 — 입력이 최신순이므로 먼저 온 기사가 대표가 된다.
+  // 가중치는 이번 배치 전체를 보고 만든다(상투구 억제).
+  const keys = kept.map((it) => keyOf(it.title));
+  const weights = buildWeights(keys.map((k) => k.tokens));
+
+  const reps: { item: CuratedItem; key: TitleKey }[] = [];
+  for (let i = 0; i < kept.length; i++) {
+    const it = kept[i];
+    const key = keys[i];
     const at = it.publishedAt ? new Date(it.publishedAt).getTime() : 0;
 
     let merged = false;
     for (const r of reps) {
       const rAt = r.item.publishedAt ? new Date(r.item.publishedAt).getTime() : 0;
       if (at && rAt && Math.abs(at - rAt) > DUP_MAX_GAP_MS) continue;
-      if (!isSameStory(tokens, r.tokens)) continue;
+      if (!isSameStory(key, r.key, weights)) continue;
       r.item.dupCount += 1;
       if (!r.item.dupOutlets.includes(it.outlet) && it.outlet !== r.item.outlet) {
         r.item.dupOutlets.push(it.outlet);
@@ -235,7 +343,7 @@ export function curate(items: NewsItem[]): CurationResult {
       break;
     }
     if (!merged) {
-      reps.push({ item: { ...it, dupCount: 0, dupOutlets: [], score: 0 }, tokens });
+      reps.push({ item: { ...it, dupCount: 0, dupOutlets: [], score: 0 }, key });
     }
   }
 
@@ -243,8 +351,13 @@ export function curate(items: NewsItem[]): CurationResult {
   for (const it of all) it.score = scoreOf(it);
 
   const byScore = [...all].sort((a, b) => b.score - a.score);
-  const overBar = byScore.filter((i) => i.score >= MAJOR_MIN_SCORE);
-  const picked = (overBar.length >= MAJOR_MIN_ITEMS ? overBar : byScore.slice(0, MAJOR_MIN_ITEMS))
+  // 최소 개수 채우기가 필터를 우회하면 안 된다. 감점으로 음수가 된 기사
+  // (시장과 무관한 정쟁 기사 등)는 목록이 비더라도 올리지 않는다 —
+  // 처음엔 상위 N개를 그냥 잘라 쓰다가, 정치 감점 -2 짜리가 정원 채우기로
+  // 주요 목록에 남는 것을 테스트에서 잡았다.
+  const eligible = byScore.filter((i) => i.score > 0);
+  const overBar = eligible.filter((i) => i.score >= MAJOR_MIN_SCORE);
+  const picked = (overBar.length >= MAJOR_MIN_ITEMS ? overBar : eligible.slice(0, MAJOR_MIN_ITEMS))
     .slice(0, MAJOR_MAX_ITEMS);
 
   // 선별은 중요도로, 표시는 시간순으로 — 사람이 훑는 순서는 시간이다
