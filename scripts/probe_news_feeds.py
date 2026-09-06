@@ -94,5 +94,42 @@ def main() -> None:
         print(f"  {name}|{url}")
 
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 상세 덤프 모드 — 특정 피드의 항목별 링크/카테고리를 찍는다.
+#   사용: python3 scripts/probe_news_feeds.py --dump "<feed url>"
+# 전체 아웃바운드 피드(예: 조선비즈)는 경제 외 기사가 섞여 오는데, 걸러낼 수
+# 있는 필드(category, 링크 경로)가 있는지는 실제 응답을 봐야 알 수 있다.
+# ─────────────────────────────────────────────────────────────────────────────
+ITEM_BLOCK = re.compile(r"<item[\s>].*?</item>", re.I | re.S)
+LINK_RE = re.compile(r"<link[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</link>", re.I | re.S)
+CAT_RE = re.compile(r"<category[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</category>", re.I | re.S)
+
+
+def dump(url: str) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        body = r.read(600_000).decode("utf-8", "replace")
+    blocks = ITEM_BLOCK.findall(body)
+    print(f"{url}\n항목 {len(blocks)}개\n" + "-" * 92)
+    from urllib.parse import urlparse
+    paths = {}
+    for b in blocks[:40]:
+        title = (TITLE.search(b).group(1).strip() if TITLE.search(b) else "")[:44]
+        link = (LINK_RE.search(b).group(1).strip() if LINK_RE.search(b) else "")
+        cats = ", ".join(c.strip() for c in CAT_RE.findall(b))[:40]
+        seg = "/".join(urlparse(link).path.strip("/").split("/")[:2])
+        paths[seg] = paths.get(seg, 0) + 1
+        print(f"  [{seg:<28}] cat={cats:<40} {title}")
+    print("-" * 92)
+    print("링크 경로 분포:", dict(sorted(paths.items(), key=lambda kv: -kv[1])))
+
+
+if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--dump":
+    dump(sys.argv[2])
+    sys.exit(0)
+
+
 if __name__ == "__main__":
     main()
