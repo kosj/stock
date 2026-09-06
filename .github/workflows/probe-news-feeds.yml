@@ -1,0 +1,23 @@
+name: "Probe News Feeds"
+
+# 뉴스 페이지가 쓸 RSS 피드의 도달성을 실측하는 수동 진단 잡. 읽기 전용.
+# 에이전트/로컬에서는 언론사 도메인이 아웃바운드 정책에 막혀(HTTP 000) 확인이 안 된다.
+# 피드는 언제든 죽거나 형식이 바뀌므로, 뉴스 페이지가 비면 먼저 이걸 돌린다.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**"]
+    paths: ["scripts/probe_news_feeds.py"]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -u scripts/probe_news_feeds.py
+        env:
+          PYTHONUNBUFFERED: "1"
