@@ -42,7 +42,9 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
-          URL="${BASE%/}/api/news"
+          # debug=1 — 무엇이 왜 빠졌는지(정형 게시물·상담 칼럼) 로그에 남긴다.
+          # 선별은 조용히 지우면 안 된다. 과하게 잡는지 목록으로 확인할 수 있어야 한다.
+          URL="${BASE%/}/api/news?debug=1"
           echo "GET $URL"
           CODE=$(curl -sS -m 40 -o news.json -w "%{http_code}" "$URL" || echo 000)
           echo "HTTP $CODE"
