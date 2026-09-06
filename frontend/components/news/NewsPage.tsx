@@ -12,7 +12,7 @@
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import {
-  Newspaper, RefreshCw, ExternalLink, Search, AlertTriangle, Clock,
+  Newspaper, RefreshCw, ExternalLink, Search, AlertTriangle, Clock, Layers, Filter,
 } from "lucide-react";
 import { QueryState } from "@/components/ui/QueryState";
 import { jsonFetcher } from "@/lib/fetcher";
@@ -26,10 +26,20 @@ interface NewsItem {
   sourceId: string;
   region: "domestic" | "global";
   summary: string;
+  /** 같은 사건을 보도한 다른 기사 수(대표 1건 제외) */
+  dupCount: number;
+  dupOutlets: string[];
+  score: number;
 }
 interface FeedFailure { id: string; name: string; reason: string }
+interface Totals {
+  collected: number; merged: number; major: number;
+  droppedNoise: number; mergedAway: number;
+}
 interface NewsResponse {
   count: number;
+  mode: "major" | "all";
+  totals: Totals;
   items: NewsItem[];
   failures: FeedFailure[];
   fetchedAt: string;
@@ -60,9 +70,12 @@ export function NewsPage() {
   const [tab, setTab] = useState<Tab>("all");
   const [outlet, setOutlet] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  // 기본은 선별 목록. 무엇이 빠졌는지 궁금하면 전체로 넘길 수 있어야 한다 —
+  // 걸러낸 결과만 보여주고 원본을 못 보게 하면 필터를 신뢰할 수 없다.
+  const [mode, setMode] = useState<"major" | "all">("major");
 
   const { data, error, isLoading, mutate, isValidating } = useSWR<NewsResponse>(
-    "/api/news",
+    `/api/news?mode=${mode}`,
     jsonFetcher,
     { revalidateOnFocus: false, dedupingInterval: 300_000, shouldRetryOnError: false },
   );
@@ -116,6 +129,31 @@ export function NewsPage() {
             {label}
           </button>
         ))}
+      </div>
+
+      {/* 선별 / 전체 토글 */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {([
+          { key: "major", label: "주요 뉴스", icon: Filter },
+          { key: "all",   label: "전체",      icon: Layers },
+        ] as const).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setMode(key)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+              mode === key ? "bg-blue-500/15 text-blue-400" : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Icon size={12} /> {label}
+          </button>
+        ))}
+        {data && (
+          <span className="text-[11px] text-muted-foreground/70">
+            수집 {data.totals.collected}건 → 중복 {data.totals.mergedAway}건 병합
+            {data.totals.droppedNoise > 0 && ` · 비기사 ${data.totals.droppedNoise}건 제외`}
+            {mode === "major" && ` · 주요 ${data.totals.major}건`}
+          </span>
+        )}
       </div>
 
       {/* 검색 + 새로고침 */}
@@ -221,6 +259,14 @@ export function NewsPage() {
                       {n.outlet}
                     </span>
                     <span className="text-muted-foreground">{timeAgo(n.publishedAt)}</span>
+                    {n.dupCount > 0 && (
+                      <span
+                        className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300"
+                        title={`같은 사건 보도: ${[n.outlet, ...n.dupOutlets].join(", ")}`}
+                      >
+                        {n.dupCount + 1}개 매체
+                      </span>
+                    )}
                   </div>
                 </div>
                 <ExternalLink size={13} className="text-muted-foreground shrink-0 mt-0.5" />
@@ -231,8 +277,10 @@ export function NewsPage() {
       </QueryState>
 
       <p className="text-xs text-muted-foreground/60">
-        각 매체의 RSS를 그대로 모아 보여줍니다. 기사 내용과 저작권은 해당 매체에 있으며,
-        본 화면은 제목·요약과 원문 링크만 제공합니다.
+        {mode === "major"
+          ? "같은 사건을 여러 매체가 보도한 기사는 한 건으로 묶고(매체 수 표시), [사진]·[표]·[부고]·[인사] 같은 정형 게시물과 개인 재무상담 칼럼은 제외했습니다. 매크로·시장·정책 키워드, 보도 매체 수, 속보 여부, 최신성으로 점수를 매겨 상위를 보여줍니다. 빠진 기사는 «전체»에서 볼 수 있습니다."
+          : "중복만 묶은 전체 목록입니다."}
+        {" "}기사 내용과 저작권은 해당 매체에 있으며, 본 화면은 제목·요약과 원문 링크만 제공합니다.
       </p>
     </div>
   );
