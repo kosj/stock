@@ -5,6 +5,8 @@ import { BrokerConfigManager } from "@/lib/apiConfig";
 import { Button } from "@/components/ui/Button";
 import { toast } from "sonner";
 import { X, Search, Zap, Loader2 } from "lucide-react";
+import { errorMessage, type PortfolioPosition } from "./portfolio-data";
+import type { analyzeStock } from "@/lib/server/ai-analysis";
 
 export interface SavedPositionData {
   ticker: string;
@@ -20,7 +22,7 @@ export interface SavedPositionData {
 
 interface Props {
   portfolioId: number;
-  initial?: any;
+  initial?: PortfolioPosition | null;
   onClose: () => void;
   onSaved: (data: SavedPositionData) => void;
 }
@@ -31,7 +33,7 @@ interface SearchResult {
   market?: string;
 }
 
-export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props) {
+export function PositionModal({ initial, onClose, onSaved }: Props) {
   const isEdit = !!initial;
 
   const [form, setForm] = useState({
@@ -122,7 +124,7 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
     }
     setAiLoading(true);
     try {
-      const analysis = await api.analysis.get(ticker) as any;
+      const analysis = await api.analysis.get(ticker) as Awaited<ReturnType<typeof analyzeStock>>;
 
       const strategyMap: Record<string, string> = {
         "Strong Buy": "적극 매수 — 분할 매수 후 장기 보유",
@@ -141,8 +143,8 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
         strategy,
       }));
       toast.success(`AI 분석 완료 — ${rec} 의견 적용`);
-    } catch (err: any) {
-      toast.error("AI 분석 실패: " + (err.message ?? "오류"));
+    } catch (err) {
+      toast.error("AI 분석 실패: " + errorMessage(err, "오류"));
     } finally {
       setAiLoading(false);
     }
@@ -175,7 +177,7 @@ export function PositionModal({ portfolioId, initial, onClose, onSaved }: Props)
     // 즉시 부모에게 데이터 전달 — 모달 닫기·API 호출·낙관적 업데이트를 부모가 처리
     onSaved({
       ...body,
-      ...(isEdit ? { position_id: initial.position_id } : {}),
+      ...(initial ? { position_id: initial.position_id } : {}),
     });
   }
 

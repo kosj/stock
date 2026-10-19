@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { toast } from "sonner";
 import { X, Plus, Trash2 } from "lucide-react";
+import { portfolioClient, errorMessage } from "./portfolio-data";
 
 interface PositionRow {
   ticker: string;
@@ -60,7 +61,7 @@ export function PortfolioCreateModal({ onClose, onCreated }: Props) {
 
     setLoading(true);
     try {
-      const portfolio = await api.portfolio.create({ name: name.trim(), description: description.trim() || undefined }) as any;
+      const portfolio = await portfolioClient.create({ name: name.trim(), description: description.trim() || undefined });
 
       // 종목 병렬 추가
       await Promise.all(
@@ -78,8 +79,8 @@ export function PortfolioCreateModal({ onClose, onCreated }: Props) {
 
       toast.success(`포트폴리오 "${portfolio.name}" 생성 완료${rows.length ? ` (종목 ${rows.length}개 추가)` : ""}`);
       onCreated();
-    } catch (err: any) {
-      toast.error(err.message ?? "포트폴리오 생성 중 오류가 발생했습니다.");
+    } catch (err) {
+      toast.error(errorMessage(err, "포트폴리오 생성 중 오류가 발생했습니다."));
     } finally {
       setLoading(false);
     }

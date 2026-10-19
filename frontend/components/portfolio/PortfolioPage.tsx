@@ -16,22 +16,15 @@ import { useRealtimePrices } from "@/lib/websocket";
 import { BrokerConfigManager } from "@/lib/apiConfig";
 import type { BrokerHolding } from "@/lib/server/providers";
 import type { PositionAnalysisResult } from "@/lib/server/position-manager-service";
-
-// summary 캐시에서 positions 변경 후 합계 재계산 (Yahoo 재조회 없이 로컬 계산)
-function recalcTotals(cur: any): any {
-  const positions: any[] = cur.positions ?? [];
-  const total_invested = positions.reduce((s: number, p: any) => s + (p.cost_basis  ?? p.avg_price    * p.quantity), 0);
-  const total_value    = positions.reduce((s: number, p: any) => s + (p.total_value ?? p.current_price * p.quantity), 0);
-  const total_pnl         = total_value - total_invested;
-  const total_pnl_percent = total_invested > 0 ? (total_pnl / total_invested) * 100 : 0;
-  return { ...cur, total_invested, total_value, total_pnl, total_pnl_percent };
-}
+import type { QuoteData } from "@/lib/server/yahoo-finance";
+import { portfolioClient, errorMessage, type PortfolioPosition, type BrokerHoldingsResponse } from "./portfolio-data";
+import { recalculateSummary as recalcTotals } from "./portfolio-calculations";
 
 export function PortfolioPage() {
-  const { data: portfolios, mutate: mutatePortfolios } = useSWR("portfolios", () => api.portfolio.list());
+  const { data: portfolios, mutate: mutatePortfolios } = useSWR("portfolios", () => portfolioClient.list());
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [editPosition, setEditPosition] = useState<any | null>(null);
+  const [editPosition, setEditPosition] = useState<PortfolioPosition | null>(null);
   const [showAddPos, setShowAddPos] = useState(false);
 
   // 이름 편집 상태
@@ -64,14 +57,13 @@ export function PortfolioPage() {
     });
   }, []);
 
-  const portfolio = (portfolios as any[])?.find((p) => p.id === selectedId) ??
-                    (portfolios as any[])?.[0];
+  const portfolio = portfolios?.find((p) => p.id === selectedId) ?? portfolios?.[0];
   const portfolioId = portfolio?.id;
 
   const brokerKey = brokerCreds?.type ?? "none";
   const { data: summary, mutate: mutateSummary, isValidating } = useSWR(
     portfolioId ? `portfolio-summary-${portfolioId}-${brokerKey}` : null,
-    () => api.portfolio.summary(portfolioId, brokerCreds),
+    () => portfolioClient.summary(portfolioId!, brokerCreds),
     {
       refreshInterval: 30_000,
       revalidateOnFocus: true,
@@ -79,7 +71,7 @@ export function PortfolioPage() {
     },
   );
 
-  const tickers = (summary as any)?.positions?.map((p: any) => p.ticker) ?? [];
+  const tickers = summary?.positions?.map((p) => p.ticker) ?? [];
   // 실시간 시세는 현재 비활성(항상 빈 객체) — 표시값은 아래 폴백(current_price)이다.
   // WebSocket 서버가 붙으면 자동으로 이 값이 우선 적용된다.
   const rt = useRealtimePrices(tickers);
@@ -90,7 +82,7 @@ export function PortfolioPage() {
     mutate: mutatePositionAnalysis,
   } = useSWR<{ results: PositionAnalysisResult[] }>(
     portfolioId ? `position-analysis-${portfolioId}` : null,
-    () => api.portfolio.positionAnalysis(portfolioId) as Promise<{ results: PositionAnalysisResult[] }>,
+    () => api.portfolio.positionAnalysis(portfolioId!) as Promise<{ results: PositionAnalysisResult[] }>,
     {
       revalidateOnFocus: false,
       refreshInterval:   300_000,   // 5분
@@ -111,8 +103,8 @@ export function PortfolioPage() {
       await api.portfolio.updatePosition(positionId, { notes });
       await mutatePositionAnalysis();
       toast.success("피라미딩 실행 완료 처리됨");
-    } catch (err: any) {
-      toast.error(err.message ?? "처리 실패");
+    } catch (err) {
+      toast.error(errorMessage(err, "처리 실패"));
     } finally {
       setMarkingPyramidedId(null);
     }
@@ -128,7 +120,7 @@ export function PortfolioPage() {
   }, [portfolioId, mutateSummary]);
 
   // 자동 동기화: 브로커 연동 + 포지션 0개 → 보유종목 자동 가져오기
-  const s = summary as any;
+  const s = summary;
   useEffect(() => {
     if (
       !portfolioId             ||   // 포트폴리오 미선택
@@ -146,8 +138,9 @@ export function PortfolioPage() {
       const toastId = toast.loading("증권사 보유종목 자동 동기화 중…");
       try {
         const res  = await fetch("/api/broker/holdings", { method: "POST" });
-        const data = await res.json();
-        if (!res.ok || !data.holdings?.length) {
+        const data: BrokerHoldingsResponse = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (!data.holdings?.length) {
           toast.dismiss(toastId);
           return;
         }
@@ -155,7 +148,7 @@ export function PortfolioPage() {
         const holdings: BrokerHolding[] = data.holdings;
         const today = new Date().toLocaleDateString("ko-KR");
 
-        await Promise.allSettled(
+        const results = await Promise.allSettled(
           holdings.map((h) =>
             api.portfolio.addPosition(portfolioId, {
               ticker:      h.ticker,
@@ -170,10 +163,14 @@ export function PortfolioPage() {
           ),
         );
 
+        const addedCount = results.filter(result => result.status === "fulfilled").length;
+        const failCount = results.length - addedCount;
         await mutateSummary();
-        toast.success(`${holdings.length}개 보유종목 자동 동기화 완료`, { id: toastId });
-      } catch {
-        toast.dismiss(toastId);
+        if (failCount === 0) toast.success(`${addedCount}개 보유종목 자동 동기화 완료`, { id: toastId });
+        else if (addedCount > 0) toast.warning(`${addedCount}개 동기화 완료, ${failCount}개 실패 — 보유종목을 확인해주세요.`, { id: toastId });
+        else toast.error(`${failCount}개 보유종목 동기화 실패`, { id: toastId });
+      } catch (error) {
+        toast.error(errorMessage(error, "보유종목 동기화 실패"), { id: toastId });
       } finally {
         setAutoSyncing(false);
       }
@@ -202,8 +199,8 @@ export function PortfolioPage() {
       await api.portfolio.update(editingPortfolioId, { name });
       await mutatePortfolios();
       toast.success("이름 변경 완료");
-    } catch (err: any) {
-      toast.error(err.message ?? "이름 변경 실패");
+    } catch (err) {
+      toast.error(errorMessage(err, "이름 변경 실패"));
     } finally {
       setEditingPortfolioId(null);
     }
@@ -219,7 +216,7 @@ export function PortfolioPage() {
     if (!confirm("포트폴리오를 삭제하시겠습니까?")) return;
     try {
       // 낙관적 업데이트: 먼저 UI에서 제거
-      const newPortfolios = (portfolios as any[])?.filter((p) => p.id !== id) ?? [];
+      const newPortfolios = portfolios?.filter((p) => p.id !== id) ?? [];
       await mutatePortfolios(newPortfolios, false);
 
       // API 호출
@@ -233,10 +230,10 @@ export function PortfolioPage() {
       }
 
       toast.success("삭제 완료");
-    } catch (err: any) {
+    } catch (err) {
       // 오류 발생 시 원래 데이터로 복구
       await mutatePortfolios();
-      toast.error(err.message ?? "삭제 실패");
+      toast.error(errorMessage(err, "삭제 실패"));
     }
   }
 
@@ -246,26 +243,26 @@ export function PortfolioPage() {
       await api.portfolio.deletePosition(posId);
       // 삭제된 종목 제거 + 합계 로컬 재계산 — Yahoo 재조회 없음
       mutateSummary(
-        (cur: any) => cur ? recalcTotals({ ...cur, positions: (cur.positions ?? []).filter((p: any) => p.position_id !== posId) }) : cur,
+        (cur) => cur ? recalcTotals({ ...cur, positions: (cur.positions ?? []).filter((p) => p.position_id !== posId) }) : cur,
         { revalidate: false },
       );
       toast.success("종목 삭제 완료");
-    } catch (err: any) {
+    } catch (err) {
       await mutateSummary();
-      toast.error(err.message ?? "삭제 실패");
+      toast.error(errorMessage(err, "삭제 실패"));
     }
   }
 
   async function handlePortfolioCreated() {
     try {
-      const updated = await mutatePortfolios() as any[];
+      const updated = await mutatePortfolios();
       // 새로 생성된 포트폴리오(최신순 첫 번째)를 자동 선택
       if (updated && updated.length > 0) {
         setSelectedId(updated[0].id);
       }
       setShowCreate(false);
-    } catch (err: any) {
-      toast.error(err.message ?? "포트폴리오 목록 갱신 실패");
+    } catch (err) {
+      toast.error(errorMessage(err, "포트폴리오 목록 갱신 실패"));
     }
   }
 
@@ -279,9 +276,9 @@ export function PortfolioPage() {
       </div>
 
       {/* 포트폴리오 탭 */}
-      {(portfolios as any[])?.length > 0 && (
+      {(portfolios?.length ?? 0) > 0 && (
         <div className="flex gap-2 flex-wrap items-center">
-          {(portfolios as any[]).map((p) => {
+          {portfolios?.map((p) => {
             const isActive = portfolio?.id === p.id;
             const isEditingThis = editingPortfolioId === p.id;
             return (
@@ -404,13 +401,13 @@ export function PortfolioPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...(s.positions ?? [])].sort((a: any, b: any) => {
+                  {[...(s.positions ?? [])].sort((a, b) => {
                     const priceA = (rt[a.ticker]?.price ?? a.current_price);
                     const priceB = (rt[b.ticker]?.price ?? b.current_price);
                     const pnlA = ((priceA - a.avg_price) / a.avg_price) * 100;
                     const pnlB = ((priceB - b.avg_price) / b.avg_price) * 100;
                     return pnlB - pnlA;
-                  }).map((pos: any) => {
+                  }).map((pos) => {
                     const live = rt[pos.ticker];
                     const currentPrice = live?.price ?? pos.current_price;
                     const costBasis = pos.avg_price * pos.quantity;
@@ -554,7 +551,7 @@ export function PortfolioPage() {
       )}
 
       {/* 포트폴리오 없음 */}
-      {portfolios !== undefined && !(portfolios as any[]).length && (
+      {portfolios !== undefined && !portfolios.length && (
         <div className="py-20 text-center space-y-3">
           <p className="text-muted-foreground text-sm">포트폴리오가 없습니다.</p>
           <button
@@ -587,17 +584,18 @@ export function PortfolioPage() {
             const tempId = -Date.now(); // 추가 시 임시 ID (클로저 캡처)
 
             // 낙관적 업데이트: 즉시 캐시 반영
-            mutateSummary((cur: any) => {
+            mutateSummary((cur) => {
               if (!cur) return cur;
               if (data.position_id) {
                 // 수정: 해당 포지션만 갱신 + 합계 재계산
-                const positions = (cur.positions ?? []).map((p: any) =>
+                const positions = (cur.positions ?? []).map((p) =>
                   p.position_id === data.position_id ? { ...p, ...data } : p,
                 );
                 return recalcTotals({ ...cur, positions });
               }
               // 추가: 임시 포지션 삽입 + 합계 재계산
-              const optimistic = {
+              const optimistic: PortfolioPosition = {
+                ...data,
                 position_id: tempId,
                 current_price: data.avg_price,
                 cost_basis: data.avg_price * data.quantity,
@@ -607,7 +605,6 @@ export function PortfolioPage() {
                 is_near_stop: false,
                 is_near_target: false,
                 price_available: false,
-                ...data,
               };
               return recalcTotals({ ...cur, positions: [...(cur.positions ?? []), optimistic] });
             }, { revalidate: false });
@@ -621,8 +618,8 @@ export function PortfolioPage() {
                 } else {
                   // 추가: 서버 저장 + 신규 종목 시세만 조회 (기존 종목 재조회 없음)
                   const [savedPos, quote] = await Promise.all([
-                    api.portfolio.addPosition(portfolioId, data) as Promise<any>,
-                    api.market.quote(data.ticker).catch(() => null) as Promise<any>,
+                    portfolioClient.addPosition(portfolioId, data),
+                    api.market.quote(data.ticker).catch(() => null) as Promise<QuoteData | null>,
                   ]);
                   toast.success("종목 추가 완료");
 
@@ -631,9 +628,9 @@ export function PortfolioPage() {
                   const hasPrice = !!quote?.price;
 
                   // 임시 ID → 실제 ID + 실제 시세 반영 + 합계 재계산
-                  mutateSummary((cur: any) => {
+                  mutateSummary((cur) => {
                     if (!cur) return cur;
-                    const positions = (cur.positions ?? []).map((p: any) =>
+                    const positions = (cur.positions ?? []).map((p) =>
                       p.position_id === tempId
                         ? {
                             ...p,
@@ -649,8 +646,8 @@ export function PortfolioPage() {
                     return recalcTotals({ ...cur, positions });
                   }, { revalidate: false });
                 }
-              } catch (err: any) {
-                toast.error(err.message ?? "저장 실패 — 다시 시도해주세요");
+              } catch (err) {
+                toast.error(errorMessage(err, "저장 실패 — 다시 시도해주세요"));
                 mutateSummary(); // 실패 시 서버 상태로 복원
               }
             })();
@@ -663,7 +660,9 @@ export function PortfolioPage() {
         <BrokerHoldingsModal
           portfolioId={portfolioId}
           onClose={() => setShowBrokerHoldings(false)}
-          onImported={() => { mutateSummary(undefined, { revalidate: true }); }}
+          onImported={() => {
+            mutateSummary().catch(() => toast.warning("최신 보유종목을 불러오지 못했습니다. 새로고침해주세요."));
+          }}
         />
       )}
     </div>

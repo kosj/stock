@@ -3,7 +3,7 @@
 backtest_recommendations.py — 추천 실현성과 측정 (Phase 1 측정 인프라 v2)
 ==========================================================================
 Supabase `prophet_recommendations`(과거 추천) × 실현 수익률(yfinance)을 결합해
-모델이 실제로 작동하는지 정량 측정한다. 모델 개선은 이 측정값으로만 판정한다.
+추천의 종가 기준 신호 품질을 진단한다. 운영 전략 성과나 개선 증명의 대용물이 아니다.
 
 v2 수정(측정기 자체의 결함 교정):
   1) 벤치마크 정렬 버그 수정 — 기존엔 종목 시계열의 "위치 인덱스"로 KOSPI를
@@ -19,7 +19,7 @@ v2 수정(측정기 자체의 결함 교정):
 
 측정 지표:
   - 실현 IC   : run_date별 (예측 vs 실현 H일 알파) Spearman 평균 + NW t-stat
-  - 운영 Top-N: rank≤N 포트폴리오의 평균 실현 알파 / Hit-rate / 누적
+  - 저장 순위 Top-N: rank≤N 코호트의 평균 실현 알파 / Hit-rate
   - 진단 Top-N: 예측알파 상위 N 포트폴리오(모델 신호 자체의 품질)
 
 사용:
@@ -106,7 +106,7 @@ def realized_alpha(close: pd.Series, mkt: pd.Series, d0: pd.Timestamp,
     run_date d0 기준: (d0 이후 lag번째 거래일 종가) → (그로부터 horizon 거래일 뒤
     종가) 수익률 − 같은 "날짜" 구간의 벤치마크 수익률.
 
-    벤치마크는 반드시 날짜(asof)로 정렬한다 — 위치 인덱스 공유 금지(구버전 버그).
+    벤치마크는 같은 날짜의 실제 관측치만 사용한다 — asof 보간/위치 공유 금지.
     데이터 부족/정렬 불가/신선도 위반 시 None.
     """
     d0 = pd.Timestamp(d0)
@@ -124,11 +124,11 @@ def realized_alpha(close: pd.Series, mkt: pd.Series, d0: pd.Timestamp,
     if (d_in - d0).days > MAX_ENTRY_DELAY_DAYS:
         return None
     # 벤치마크가 출구일까지 존재해야 같은 구간 비교가 성립
-    if len(mkt) == 0 or mkt.index[-1] < d_out:
+    if d_in not in mkt.index or d_out not in mkt.index:
         return None
 
     p0, p1 = float(close.iloc[pos]), float(close.iloc[pos + horizon])
-    m0, m1 = float(mkt.asof(d_in)), float(mkt.asof(d_out))
+    m0, m1 = float(mkt.loc[d_in]), float(mkt.loc[d_out])
     if not (np.isfinite(p0) and np.isfinite(p1) and np.isfinite(m0) and np.isfinite(m1)
             and p0 > 0 and m0 > 0):
         return None
@@ -137,8 +137,8 @@ def realized_alpha(close: pd.Series, mkt: pd.Series, d0: pd.Timestamp,
 
 # ── 신공식 시뮬레이션 (순위 산출 교정안의 채택 게이트) ────────────────────────
 # hybrid_ensemble.py v2 교정안: 0.65·z(rank(pred)) + 0.25·z(rank(pred/vol)).
-# 감성 항(0.10)은 과거 행에 저장돼 있지 않아 제외 — 전 종목 공통 누락이므로
-# 두 항 비교의 공정성엔 영향 없음. 가중치는 앙상블 W_ALPHA_Z/W_SHARPE_Z와 동일.
+# 감성 항(0.10)은 과거 행에 저장돼 있지 않아 제외한다. 실제 전체 혼합 모델과
+# 다른 부분 진단이므로 이 결과만으로 운영 가중치 채택/성능 개선을 판정하지 않는다.
 SIM_W_ALPHA  = 0.65
 SIM_W_SHARPE = 0.25
 
@@ -167,7 +167,7 @@ def _rank_z(x: np.ndarray) -> np.ndarray:
 
 
 def _port_stats(alphas: list, hits: list, horizon: int) -> dict:
-    """포트폴리오 run_date별 알파 배열 → 요약(평균/NW t/히트율/누적)."""
+    """Overlapping run_date cohorts: mean/NW t/hit-rate, never cumulative return."""
     if not alphas:
         return {"n": 0}
     a = np.array(alphas, dtype=float)
@@ -176,7 +176,7 @@ def _port_stats(alphas: list, hits: list, horizon: int) -> dict:
         "alpha_mean":   float(a.mean()),
         "alpha_tstat":  newey_west_tstat(a, lag=horizon),
         "hit_rate":     float(np.mean(hits)) if hits else float("nan"),
-        "alpha_cumsum": float(a.sum()),
+        "small_sample": len(a) < max(30, 3 * horizon),
     }
 
 
@@ -305,21 +305,24 @@ def main() -> None:
     print(f"\n{'='*60}\n  실현성과 ({n_dates_evaluated} run_date | lag={args.lag} "
           f"h={args.horizon})\n{'='*60}")
     print(f"  실현 IC 평균          : {ic['ic_mean']:+.4f}  "
-          f"(NW t={ic['ic_tstat_nw']:.2f}, {ic['n_days']}일)  ← |t|≥2 라야 유의")
+          f"(NW t={ic['ic_tstat_nw']:.2f}, {ic['n_days']}일)  ← 표본수·중첩·다중검정 확인 필요")
     print(f"  실현 IC > 0 비율       : {ic['ic_share_pos']:.1%}")
     print(f"  유니버스 평균 알파      : {uni_mean*100:+.2f}%  (비교 기준선)")
     if prod.get("n"):
-        print(f"  [운영] rank≤{args.topn} 알파  : {prod['alpha_mean']*100:+.2f}%  "
+        print(f"  [저장 순위] rank≤{args.topn} 알파: {prod['alpha_mean']*100:+.2f}%  "
               f"(NW t={prod['alpha_tstat']:.2f}, 초과 {(prod['alpha_mean']-uni_mean)*100:+.2f}%p, "
               f"{prod['n']}일)")
-        print(f"  [운영] Hit-rate        : {prod['hit_rate']:.1%} | 누적 {prod['alpha_cumsum']*100:+.1f}%")
+        print(f"  [저장 순위 코호트] Hit-rate: {prod['hit_rate']:.1%}")
     else:
-        print(f"  [운영] rank 포트폴리오  : 측정 불가(rank 컬럼 없음 — 구버전 추천 데이터)")
+        print(f"  [저장 순위] 코호트: 측정 불가(rank 컬럼 없음 — 구버전 추천 데이터)")
     if rank_missing_dates:
         print(f"  (참고) rank 결측 run_date {rank_missing_dates}건은 운영 지표에서 제외")
     print(f"  [진단] 예측상위{args.topn} 알파: {diag['alpha_mean']*100:+.2f}%  "
           f"(NW t={diag['alpha_tstat']:.2f}, 초과 {(diag['alpha_mean']-uni_mean)*100:+.2f}%p)")
-    print(f"  [진단] Hit-rate        : {diag['hit_rate']:.1%} | 누적 {diag['alpha_cumsum']*100:+.1f}%")
+    print(f"  [진단] Hit-rate        : {diag['hit_rate']:.1%}")
+    print("  중첩 코호트의 평균 진단입니다. 투자 가능한 누적수익률/운영 전략 성과가 아니며 비용·세금은 미반영입니다.")
+    if any(result.get("small_sample") for result in [prod, diag, sim]):
+        print("  표본이 적어 NW t 통계도 불안정합니다. |t|>=2만으로 유의성이나 개선을 확정하지 마세요.")
     if sim.get("n"):
         print(f"  [시뮬·신공식] 알파      : {sim['alpha_mean']*100:+.2f}%  "
               f"(NW t={sim['alpha_tstat']:.2f}, 초과 {(sim['alpha_mean']-uni_mean)*100:+.2f}%p, "
@@ -327,6 +330,10 @@ def main() -> None:
 
     if args.json:
         out = {
+            "kind": "overlapping_close_cohort_diagnostic_not_strategy_performance",
+            "limitations": ["No compounded cumulative strategy return; costs/taxes excluded",
+                            "Partial sentiment-free score simulation is not the full production model",
+                            "Use recommendation_diagnostics.py for stored-input, exact-session and same-entry-session aggregation"],
             "params": {"horizon": args.horizon, "topn": args.topn, "lag": args.lag,
                        "pred_col": args.pred_col, "period": args.period},
             "n_run_dates_evaluated": n_dates_evaluated,

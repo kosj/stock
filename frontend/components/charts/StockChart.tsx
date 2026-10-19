@@ -8,25 +8,15 @@ import {
   LineSeries,
   HistogramSeries,
   type IChartApi,
+  type LineData,
 } from "lightweight-charts";
-import type { RSPoint } from "@/lib/server/relative-strength";
+import type { RSPoint, RelativeStrengthResult } from "@/lib/server/relative-strength";
+import type { CandleData } from "@/lib/server/yahoo-finance";
 
-interface Candle {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
-
-interface IndicatorPoint {
-  time: string;
-  value: number;
-}
+type IndicatorPoint = LineData<string>;
 
 interface StockChartProps {
-  candles: Candle[];
+  candles: CandleData[];
   indicators?: Record<string, IndicatorPoint[]>;
   stopLoss?: number | null;
   takeProfit?: number | null;
@@ -34,12 +24,9 @@ interface StockChartProps {
   /** 상대 강도 시계열 (기준=100). null이면 토글 버튼 숨김 */
   rsData?: RSPoint[] | null;
   /** RS 요약: { stock_return_1m, index_return_1m, rs_ratio, is_outperformer } */
-  rsSummary?: {
-    stock_return_1m: number;
-    index_return_1m: number;
-    rs_ratio: number;
-    is_outperformer: boolean;
-  } | null;
+  rsSummary?: Pick<RelativeStrengthResult,
+    "stock_return_1m" | "index_return_1m" | "rs_ratio" | "is_outperformer"
+  > | null;
 }
 
 export function StockChart({
@@ -87,7 +74,7 @@ export function StockChart({
       wickUpColor: "#22c55e",
       wickDownColor: "#ef4444",
     });
-    candleSeries.setData(candles as any);
+    candleSeries.setData(candles);
 
     if (stopLoss) {
       candleSeries.createPriceLine({
@@ -119,7 +106,7 @@ export function StockChart({
           const s = chart.addSeries(LineSeries, {
             color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
           });
-          s.setData(indicators[key] as any);
+          s.setData(indicators[key]);
         }
       }
     }
@@ -134,7 +121,7 @@ export function StockChart({
             priceLineVisible: false,
             lastValueVisible: false,
           });
-          s.setData(indicators[key] as any);
+          s.setData(indicators[key]);
         }
       }
     }
@@ -175,7 +162,7 @@ export function StockChart({
       priceLineVisible: false,
       lastValueVisible: true,
     });
-    rsSeries.setData(rsData as any);
+    rsSeries.setData(rsData);
 
     // 기준선 (RS = 100, KOSPI와 동일 수익률)
     rsSeries.createPriceLine({
@@ -265,7 +252,7 @@ export function RsiChart({ data, height = 100 }: { data: IndicatorPoint[]; heigh
     });
 
     const rsiSeries = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 2, priceLineVisible: false });
-    rsiSeries.setData(data as any);
+    rsiSeries.setData(data);
     rsiSeries.createPriceLine({ price: 70, color: "#ef4444", lineWidth: 1, lineStyle: LineStyle.Dotted, title: "", axisLabelVisible: false });
     rsiSeries.createPriceLine({ price: 30, color: "#22c55e", lineWidth: 1, lineStyle: LineStyle.Dotted, title: "", axisLabelVisible: false });
     chart.timeScale().fitContent();
@@ -302,13 +289,13 @@ export function MacdChart({ macd, signal, hist, height = 100 }: {
     });
 
     const histSeries = chart.addSeries(HistogramSeries, { color: "#3b82f6", priceLineVisible: false });
-    histSeries.setData(hist.map((d) => ({ ...d, color: d.value >= 0 ? "#22c55e" : "#ef4444" })) as any);
+    histSeries.setData(hist.map((d) => ({ ...d, color: d.value >= 0 ? "#22c55e" : "#ef4444" })));
 
     const macdLine = chart.addSeries(LineSeries, { color: "#60a5fa", lineWidth: 1, priceLineVisible: false });
-    macdLine.setData(macd as any);
+    macdLine.setData(macd);
 
     const sigLine = chart.addSeries(LineSeries, { color: "#f43f5e", lineWidth: 1, priceLineVisible: false });
-    sigLine.setData(signal as any);
+    sigLine.setData(signal);
 
     chart.timeScale().fitContent();
 

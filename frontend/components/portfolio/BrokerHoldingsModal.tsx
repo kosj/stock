@@ -1,12 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { formatNumber, formatPercent, colorByChange } from "@/lib/utils";
+import { formatNumber, colorByChange } from "@/lib/utils";
 import { X, Download, Loader2, AlertCircle, Building2, Settings } from "lucide-react";
 import { toast } from "sonner";
 import type { BrokerHolding } from "@/lib/server/providers";
+import { portfolioClient, errorMessage, type BrokerHoldingsResponse } from "./portfolio-data";
 
 interface Props {
   portfolioId: number;
@@ -36,7 +36,7 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
       try {
         // 자격증명은 서버가 DB에서 직접 읽으므로 body 불필요
         const res = await fetch("/api/broker/holdings", { method: "POST" });
-        const data = await res.json();
+        const data: BrokerHoldingsResponse = await res.json();
 
         if (!res.ok) {
           const errMsg = data.error ?? `HTTP ${res.status}`;
@@ -86,12 +86,9 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
     const today = new Date().toLocaleDateString("ko-KR");
 
     try {
-      // 기존 포지션 전체 삭제 후 증권사 보유종목으로 완전 교체
-      await api.portfolio.clearPositions(portfolioId);
-
-      const results = await Promise.allSettled(
-        targets.map((h) =>
-          api.portfolio.addPosition(portfolioId, {
+      // One transaction: a failed replacement preserves the existing holdings.
+      const saved = await portfolioClient.replacePositions(portfolioId,
+        targets.map((h) => ({
             ticker:      h.ticker,
             name:        h.name,
             quantity:    h.quantity,
@@ -100,23 +97,16 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
             take_profit: null,
             strategy:    null,
             notes:       `${brokerName} 연동 (${today})`,
-          }),
-        ),
+        })),
       );
-
-      const addedCount = results.filter((r) => r.status === "fulfilled").length;
-      const failCount  = results.filter((r) => r.status === "rejected").length;
-
-      if (addedCount > 0) {
-        if (failCount === 0) toast.success(`${addedCount}개 종목으로 포트폴리오 구성 완료`);
-        else toast.warning(`${addedCount}개 추가, ${failCount}개 실패`);
-        onImported();
-        onClose();
-      } else {
-        toast.error("종목 추가에 실패했습니다.");
-      }
-    } catch (err: any) {
-      toast.error(err.message ?? "가져오기 실패");
+      toast.success(`${saved.length}개 종목으로 포트폴리오 구성 완료`);
+      onImported();
+      onClose();
+    } catch (err) {
+      // A lost response can follow a committed transaction; reconcile the view
+      // without replacing local state or claiming the server rolled back.
+      toast.error(errorMessage(err, "저장 결과를 확인하지 못했습니다.") + " 새로고침 후 보유종목을 확인해주세요.");
+      onImported();
     } finally {
       setImporting(false);
     }
@@ -134,7 +124,7 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
             <Building2 size={16} className="text-blue-400" />
             <h2 className="text-base font-semibold">증권사 보유종목 가져오기</h2>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} disabled={importing} className="text-muted-foreground hover:text-foreground disabled:opacity-40">
             <X size={18} />
           </button>
         </div>
@@ -186,7 +176,7 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
                 <>
                   <div className="flex items-center justify-between mb-3 pb-3 border-b" style={{ borderColor: "var(--border)" }}>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox" checked={selected.size === holdings.length} onChange={toggleAll} className="accent-blue-500" />
+                      <input type="checkbox" checked={selected.size === holdings.length} onChange={toggleAll} disabled={importing} className="accent-blue-500" />
                       <span className="text-muted-foreground">전체 선택</span>
                     </label>
                     <span className="text-xs text-muted-foreground">{selected.size}/{holdings.length}개 선택</span>
@@ -201,7 +191,7 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
                         }`}
                         style={{ borderColor: selected.has(h.ticker) ? undefined : "var(--border)" }}
                       >
-                        <input type="checkbox" checked={selected.has(h.ticker)} onChange={() => toggle(h.ticker)} className="accent-blue-500 shrink-0" />
+                        <input type="checkbox" checked={selected.has(h.ticker)} onChange={() => toggle(h.ticker)} disabled={importing} className="accent-blue-500 shrink-0" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <div className="min-w-0">
@@ -231,13 +221,16 @@ export function BrokerHoldingsModal({ portfolioId, onClose, onImported }: Props)
         </div>
 
         {status === "ready" && holdings.length > 0 && (
-          <div className="flex justify-end gap-2 p-5 pt-3 border-t shrink-0" style={{ borderColor: "var(--border)" }}>
+          <div className="p-5 pt-3 border-t shrink-0" style={{ borderColor: "var(--border)" }}>
+            <p className="text-xs text-muted-foreground mb-3">기존 보유종목과 손절·목표가·메모를 선택한 종목으로 교체합니다.</p>
+            <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose} disabled={importing}>취소</Button>
             <Button onClick={handleImport} disabled={importing || selected.size === 0}>
               {importing
-                ? <><Loader2 size={14} className="animate-spin" /> 추가 중…</>
-                : <><Download size={14} /> {selected.size}개 포트폴리오에 추가</>}
+                ? <><Loader2 size={14} className="animate-spin" /> 교체 중…</>
+                : <><Download size={14} /> {selected.size}개 종목으로 교체</>}
             </Button>
+            </div>
           </div>
         )}
       </div>

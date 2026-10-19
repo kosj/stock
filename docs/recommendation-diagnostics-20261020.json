@@ -1,0 +1,4654 @@
+{
+  "kind": "stored_close_cohort_quality_diagnostic",
+  "parameters": {
+    "entry_lag_sessions": 1,
+    "horizons": [
+      1,
+      5,
+      10,
+      20
+    ],
+    "topn": 5,
+    "benchmark": "^KS11",
+    "prediction_field": "predicted_return_7d",
+    "prediction_semantics": "Legacy field reused for 10-session alpha; 1/5/20-session ICs are sensitivity diagnostics, not matching-horizon calibration."
+  },
+  "input": {
+    "recommendation_rows": 10234,
+    "cohort_dates": 120,
+    "first_run_date": "2026-05-29",
+    "last_run_date": "2026-10-16",
+    "price_rows": 114422,
+    "invalid_price_rows": 0,
+    "duplicate_price_keys_rejected": 0,
+    "benchmark_sessions": 1260,
+    "observed_domestic_sessions": 1260,
+    "first_benchmark_date": "2021-08-17",
+    "last_benchmark_date": "2026-10-16"
+  },
+  "limitations": [
+    "Overlapping cohorts are not a compounded portfolio; no cumulative strategy return is computed.",
+    "Entry is next benchmark-session close, not the production 09:12 quote; costs/taxes/slippage are excluded.",
+    "Stored adjusted closes may include later corporate-action revisions; full historical point-in-time inputs are unavailable.",
+    "run_date alone does not prove a recommendation was available before entry; missing publication timestamps remain unverified.",
+    "created_at is checked conservatively when present but is not proof of completed batch publication or point-in-time availability.",
+    "Legacy/current model versions are mixed unless explicitly separated; this does not measure the new implementation's improvement.",
+    "HAC t values use cohort order and horizon lag; small samples and overlapping labels prevent strong inference.",
+    "Session calendar is the union of stored domestic observations, not an independently verified exchange calendar.",
+    "Cohorts sharing an entry date are averaged before means/HAC inference so weekend runs do not multiply session weight."
+  ],
+  "horizons": {
+    "1": {
+      "valid_rows": 10019,
+      "row_coverage": 0.9789915966386554,
+      "row_rejections": {
+        "missing_exact_entry_or_exit_close": 35,
+        "not_mature_or_no_future_benchmark": 180
+      },
+      "cohort_rejections": {
+        "incomplete_topn_ranks_or_prices": 3,
+        "not_mature_or_no_future_benchmark": 2
+      },
+      "valid_rows_without_recorded_timestamp": 0,
+      "prediction_ic": {
+        "n_cohorts": 115,
+        "n_entry_sessions": 90,
+        "mean": 0.009354983390489947,
+        "nw_t": 0.41454298272161066,
+        "positive_share": 0.5222222222222223,
+        "rough_nonoverlapping_blocks": 90,
+        "small_sample": false
+      },
+      "saved_rank_ic": {
+        "n_cohorts": 115,
+        "n_entry_sessions": 90,
+        "mean": 0.04331534745949884,
+        "nw_t": 1.609326064139765,
+        "positive_share": 0.5444444444444444,
+        "rough_nonoverlapping_blocks": 90,
+        "small_sample": false
+      },
+      "topn_gross_return": {
+        "n_cohorts": 115,
+        "n_entry_sessions": 90,
+        "mean": -0.003960792044294148,
+        "nw_t": -1.8073848924809122,
+        "positive_share": 0.4444444444444444,
+        "rough_nonoverlapping_blocks": 90,
+        "small_sample": false
+      },
+      "topn_excess_return": {
+        "n_cohorts": 115,
+        "n_entry_sessions": 90,
+        "mean": 0.00028294653627927024,
+        "nw_t": 0.08959689622996388,
+        "positive_share": 0.4888888888888889,
+        "rough_nonoverlapping_blocks": 90,
+        "small_sample": false
+      },
+      "topn_minus_same_cohort_available_universe": {
+        "n_cohorts": 115,
+        "n_entry_sessions": 90,
+        "mean": -0.001429045905391976,
+        "nw_t": -0.8938516203498365,
+        "positive_share": 0.4666666666666667,
+        "rough_nonoverlapping_blocks": 90,
+        "small_sample": false
+      },
+      "available_universe_excess_return": {
+        "n_cohorts": 118,
+        "n_entry_sessions": 91,
+        "mean": 0.00239762918224031,
+        "nw_t": 0.820978442366002,
+        "positive_share": 0.5604395604395604,
+        "rough_nonoverlapping_blocks": 91,
+        "small_sample": false
+      },
+      "daily": [
+        {
+          "run_date": "2026-05-29",
+          "entry_date": "2026-06-01",
+          "exit_date": "2026-06-02",
+          "valid_rows": 10,
+          "prediction_ic": -0.01818181818181818,
+          "rank_ic": -0.11515151515151517,
+          "topn_complete": true,
+          "topn_excess": 0.0009083642486320765
+        },
+        {
+          "run_date": "2026-05-31",
+          "entry_date": "2026-06-01",
+          "exit_date": "2026-06-02",
+          "valid_rows": 30,
+          "prediction_ic": 0.2765294771968856,
+          "rank_ic": 0.16084538375973315,
+          "topn_complete": true,
+          "topn_excess": 0.024245532289085835
+        },
+        {
+          "run_date": "2026-06-02",
+          "entry_date": "2026-06-04",
+          "exit_date": "2026-06-05",
+          "valid_rows": 30,
+          "prediction_ic": 0.03359288097886546,
+          "rank_ic": 0.16751946607341484,
+          "topn_complete": true,
+          "topn_excess": 0.0458552717331562
+        },
+        {
+          "run_date": "2026-06-03",
+          "entry_date": "2026-06-04",
+          "exit_date": "2026-06-05",
+          "valid_rows": 30,
+          "prediction_ic": -0.10923248053392662,
+          "rank_ic": -0.002447163515016716,
+          "topn_complete": true,
+          "topn_excess": 0.022314394564335416
+        },
+        {
+          "run_date": "2026-06-04",
+          "entry_date": "2026-06-05",
+          "exit_date": "2026-06-08",
+          "valid_rows": 30,
+          "prediction_ic": 0.1208008898776419,
+          "rank_ic": 0.4549499443826474,
+          "topn_complete": true,
+          "topn_excess": 0.04234326282967007
+        },
+        {
+          "run_date": "2026-06-05",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-06-09",
+          "valid_rows": 30,
+          "prediction_ic": -0.19445989663105437,
+          "rank_ic": -0.17888530536769764,
+          "topn_complete": true,
+          "topn_excess": -0.050994887809157285
+        },
+        {
+          "run_date": "2026-06-06",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-06-09",
+          "valid_rows": 1,
+          "prediction_ic": null,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-07",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-06-09",
+          "valid_rows": 1,
+          "prediction_ic": null,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-08",
+          "entry_date": "2026-06-09",
+          "exit_date": "2026-06-10",
+          "valid_rows": 51,
+          "prediction_ic": 0.26231810555888957,
+          "rank_ic": 0.31269349845201244,
+          "topn_complete": true,
+          "topn_excess": 0.03484316981146045
+        },
+        {
+          "run_date": "2026-06-09",
+          "entry_date": "2026-06-10",
+          "exit_date": "2026-06-11",
+          "valid_rows": 90,
+          "prediction_ic": null,
+          "rank_ic": 0.2315906562847608,
+          "topn_complete": true,
+          "topn_excess": 0.014723578683111338
+        },
+        {
+          "run_date": "2026-06-10",
+          "entry_date": "2026-06-11",
+          "exit_date": "2026-06-12",
+          "valid_rows": 90,
+          "prediction_ic": 0.0684875183148121,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-11",
+          "entry_date": "2026-06-12",
+          "exit_date": "2026-06-15",
+          "valid_rows": 90,
+          "prediction_ic": 0.15565281008589346,
+          "rank_ic": -0.1701890989988877,
+          "topn_complete": true,
+          "topn_excess": -0.025348885332914926
+        },
+        {
+          "run_date": "2026-06-13",
+          "entry_date": "2026-06-15",
+          "exit_date": "2026-06-16",
+          "valid_rows": 90,
+          "prediction_ic": 0.11177511626949825,
+          "rank_ic": 0.39655172413793105,
+          "topn_complete": true,
+          "topn_excess": 0.0055747719397743365
+        },
+        {
+          "run_date": "2026-06-14",
+          "entry_date": "2026-06-15",
+          "exit_date": "2026-06-16",
+          "valid_rows": 90,
+          "prediction_ic": 0.09621764003786472,
+          "rank_ic": 0.3097744360902256,
+          "topn_complete": true,
+          "topn_excess": 0.0055747719397743365
+        },
+        {
+          "run_date": "2026-06-15",
+          "entry_date": "2026-06-16",
+          "exit_date": "2026-06-17",
+          "valid_rows": 90,
+          "prediction_ic": -0.29304852450919877,
+          "rank_ic": 0.034586466165413575,
+          "topn_complete": true,
+          "topn_excess": -0.03840541802653832
+        },
+        {
+          "run_date": "2026-06-16",
+          "entry_date": "2026-06-17",
+          "exit_date": "2026-06-18",
+          "valid_rows": 90,
+          "prediction_ic": 0.11034284067991922,
+          "rank_ic": 0.47969924812030057,
+          "topn_complete": true,
+          "topn_excess": -0.02100693875726367
+        },
+        {
+          "run_date": "2026-06-17",
+          "entry_date": "2026-06-18",
+          "exit_date": "2026-06-19",
+          "valid_rows": 90,
+          "prediction_ic": 0.3095374307036578,
+          "rank_ic": 0.12180451127819553,
+          "topn_complete": true,
+          "topn_excess": -0.0032182071599068606
+        },
+        {
+          "run_date": "2026-06-18",
+          "entry_date": "2026-06-19",
+          "exit_date": "2026-06-22",
+          "valid_rows": 90,
+          "prediction_ic": -0.10122237313248554,
+          "rank_ic": -0.15789473684210537,
+          "topn_complete": true,
+          "topn_excess": -0.04233063965738926
+        },
+        {
+          "run_date": "2026-06-19",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-06-23",
+          "valid_rows": 90,
+          "prediction_ic": 0.289426678190723,
+          "rank_ic": 0.30075187969924805,
+          "topn_complete": true,
+          "topn_excess": 0.0632226273433514
+        },
+        {
+          "run_date": "2026-06-20",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-06-23",
+          "valid_rows": 90,
+          "prediction_ic": 0.18712598263160057,
+          "rank_ic": 0.0646616541353383,
+          "topn_complete": true,
+          "topn_excess": 0.04530011192188852
+        },
+        {
+          "run_date": "2026-06-21",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-06-23",
+          "valid_rows": 90,
+          "prediction_ic": 0.21542577272914343,
+          "rank_ic": 0.2646616541353383,
+          "topn_complete": true,
+          "topn_excess": 0.06316867767272141
+        },
+        {
+          "run_date": "2026-06-22",
+          "entry_date": "2026-06-23",
+          "exit_date": "2026-06-24",
+          "valid_rows": 90,
+          "prediction_ic": -0.18534798534798544,
+          "rank_ic": -0.10977443609022558,
+          "topn_complete": true,
+          "topn_excess": -0.03546717196253415
+        },
+        {
+          "run_date": "2026-06-23",
+          "entry_date": "2026-06-24",
+          "exit_date": "2026-06-25",
+          "valid_rows": 90,
+          "prediction_ic": 0.2222743548586244,
+          "rank_ic": -0.17744360902255651,
+          "topn_complete": true,
+          "topn_excess": -0.03752307993206409
+        },
+        {
+          "run_date": "2026-06-24",
+          "entry_date": "2026-06-25",
+          "exit_date": "2026-06-26",
+          "valid_rows": 90,
+          "prediction_ic": 0.2384244968514632,
+          "rank_ic": -0.05112781954887209,
+          "topn_complete": true,
+          "topn_excess": 0.017390004796267445
+        },
+        {
+          "run_date": "2026-06-25",
+          "entry_date": "2026-06-26",
+          "exit_date": "2026-06-29",
+          "valid_rows": 90,
+          "prediction_ic": -0.21310449849775678,
+          "rank_ic": -0.05263157894736842,
+          "topn_complete": true,
+          "topn_excess": 0.04029789171005822
+        },
+        {
+          "run_date": "2026-06-26",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-06-30",
+          "valid_rows": 90,
+          "prediction_ic": 0.22414474334828052,
+          "rank_ic": 0.1654135338345864,
+          "topn_complete": true,
+          "topn_excess": -0.005873141786063396
+        },
+        {
+          "run_date": "2026-06-27",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-06-30",
+          "valid_rows": 90,
+          "prediction_ic": 0.21663758191112922,
+          "rank_ic": 0.3278195488721804,
+          "topn_complete": true,
+          "topn_excess": 0.0045030958951654656
+        },
+        {
+          "run_date": "2026-06-28",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-06-30",
+          "valid_rows": 90,
+          "prediction_ic": 0.1811431958179311,
+          "rank_ic": 0.2706766917293233,
+          "topn_complete": true,
+          "topn_excess": -0.018526637095130204
+        },
+        {
+          "run_date": "2026-06-29",
+          "entry_date": "2026-06-30",
+          "exit_date": "2026-07-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.1762633455125562,
+          "rank_ic": 0.3849624060150376,
+          "topn_complete": true,
+          "topn_excess": 0.02464686731373671
+        },
+        {
+          "run_date": "2026-06-30",
+          "entry_date": "2026-07-01",
+          "exit_date": "2026-07-02",
+          "valid_rows": 90,
+          "prediction_ic": 0.15823352677285266,
+          "rank_ic": 0.0917293233082707,
+          "topn_complete": true,
+          "topn_excess": 0.04307738482714907
+        },
+        {
+          "run_date": "2026-07-01",
+          "entry_date": "2026-07-02",
+          "exit_date": "2026-07-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.2570052685746232,
+          "rank_ic": 0.3699248120300753,
+          "topn_complete": true,
+          "topn_excess": -0.011647432921035072
+        },
+        {
+          "run_date": "2026-07-02",
+          "entry_date": "2026-07-03",
+          "exit_date": "2026-07-06",
+          "valid_rows": 90,
+          "prediction_ic": 0.28631636134893423,
+          "rank_ic": -0.27153066982278906,
+          "topn_complete": true,
+          "topn_excess": -0.013593921725227132
+        },
+        {
+          "run_date": "2026-07-03",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-07-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.09445610569206082,
+          "rank_ic": -0.3714285714285713,
+          "topn_complete": true,
+          "topn_excess": 0.018128376101672793
+        },
+        {
+          "run_date": "2026-07-04",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-07-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.07354817467177023,
+          "rank_ic": -0.2646616541353383,
+          "topn_complete": true,
+          "topn_excess": 0.03141230440244254
+        },
+        {
+          "run_date": "2026-07-05",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-07-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.06027904679590099,
+          "rank_ic": -0.2511278195488722,
+          "topn_complete": true,
+          "topn_excess": 0.018128376101672793
+        },
+        {
+          "run_date": "2026-07-06",
+          "entry_date": "2026-07-07",
+          "exit_date": "2026-07-08",
+          "valid_rows": 90,
+          "prediction_ic": 0.0035477630983250285,
+          "rank_ic": 0.03007518796992481,
+          "topn_complete": true,
+          "topn_excess": 0.006637079801235002
+        },
+        {
+          "run_date": "2026-07-07",
+          "entry_date": "2026-07-08",
+          "exit_date": "2026-07-09",
+          "valid_rows": 90,
+          "prediction_ic": -0.15987982055397773,
+          "rank_ic": 0.46165413533834593,
+          "topn_complete": true,
+          "topn_excess": -0.010185912045549306
+        },
+        {
+          "run_date": "2026-07-08",
+          "entry_date": "2026-07-09",
+          "exit_date": "2026-07-10",
+          "valid_rows": 90,
+          "prediction_ic": 0.010972548051199698,
+          "rank_ic": -0.012030075187969913,
+          "topn_complete": true,
+          "topn_excess": 0.010355687430637417
+        },
+        {
+          "run_date": "2026-07-09",
+          "entry_date": "2026-07-10",
+          "exit_date": "2026-07-13",
+          "valid_rows": 90,
+          "prediction_ic": 0.0008478447867908187,
+          "rank_ic": 0.10078977771815445,
+          "topn_complete": true,
+          "topn_excess": 0.0224493483319411
+        },
+        {
+          "run_date": "2026-07-10",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-07-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.059159567024735515,
+          "rank_ic": 0.2210526315789473,
+          "topn_complete": true,
+          "topn_excess": -0.009678889308140915
+        },
+        {
+          "run_date": "2026-07-11",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-07-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.09829197020208252,
+          "rank_ic": 0.5924812030075188,
+          "topn_complete": true,
+          "topn_excess": -0.006931102023254199
+        },
+        {
+          "run_date": "2026-07-12",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-07-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.10046507799316781,
+          "rank_ic": 0.5203007518796993,
+          "topn_complete": true,
+          "topn_excess": -0.006931102023254199
+        },
+        {
+          "run_date": "2026-07-13",
+          "entry_date": "2026-07-14",
+          "exit_date": "2026-07-15",
+          "valid_rows": 90,
+          "prediction_ic": -0.1729377773256101,
+          "rank_ic": -0.16842105263157897,
+          "topn_complete": true,
+          "topn_excess": -0.037433865445518986
+        },
+        {
+          "run_date": "2026-07-14",
+          "entry_date": "2026-07-15",
+          "exit_date": "2026-07-16",
+          "valid_rows": 90,
+          "prediction_ic": 0.291699764169916,
+          "rank_ic": -0.06315789473684212,
+          "topn_complete": true,
+          "topn_excess": 0.027146567604176663
+        },
+        {
+          "run_date": "2026-07-15",
+          "entry_date": "2026-07-16",
+          "exit_date": "2026-07-20",
+          "valid_rows": 90,
+          "prediction_ic": 0.2503930526402437,
+          "rank_ic": 0.17142857142857149,
+          "topn_complete": true,
+          "topn_excess": 0.02239511582687732
+        },
+        {
+          "run_date": "2026-07-16",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.027263859362234213,
+          "rank_ic": 0.016547575446264173,
+          "topn_complete": true,
+          "topn_excess": -0.03641521903932885
+        },
+        {
+          "run_date": "2026-07-17",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.04752242152722762,
+          "rank_ic": -0.10379842779929332,
+          "topn_complete": true,
+          "topn_excess": -0.03669256540759473
+        },
+        {
+          "run_date": "2026-07-18",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.04199885581706485,
+          "rank_ic": -0.13915006625267595,
+          "topn_complete": true,
+          "topn_excess": -0.030104103251078575
+        },
+        {
+          "run_date": "2026-07-19",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.06560777751117346,
+          "rank_ic": -0.036103800973667236,
+          "topn_complete": true,
+          "topn_excess": -0.030104103251078575
+        },
+        {
+          "run_date": "2026-07-20",
+          "entry_date": "2026-07-21",
+          "exit_date": "2026-07-22",
+          "valid_rows": 90,
+          "prediction_ic": -0.08253727841893325,
+          "rank_ic": -0.3037593984962405,
+          "topn_complete": true,
+          "topn_excess": -0.005288070891031315
+        },
+        {
+          "run_date": "2026-07-21",
+          "entry_date": "2026-07-22",
+          "exit_date": "2026-07-23",
+          "valid_rows": 90,
+          "prediction_ic": -0.36627567189364946,
+          "rank_ic": 0.055639097744361,
+          "topn_complete": true,
+          "topn_excess": -0.022186892022614767
+        },
+        {
+          "run_date": "2026-07-22",
+          "entry_date": "2026-07-23",
+          "exit_date": "2026-07-24",
+          "valid_rows": 90,
+          "prediction_ic": 0.4763817606401655,
+          "rank_ic": -0.05714285714285723,
+          "topn_complete": true,
+          "topn_excess": 0.07085840459702837
+        },
+        {
+          "run_date": "2026-07-23",
+          "entry_date": "2026-07-24",
+          "exit_date": "2026-07-27",
+          "valid_rows": 90,
+          "prediction_ic": -0.031971156814514595,
+          "rank_ic": -0.022556390977443715,
+          "topn_complete": true,
+          "topn_excess": -0.006217799223972498
+        },
+        {
+          "run_date": "2026-07-24",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.35972342264477114,
+          "rank_ic": 0.40601503759398505,
+          "topn_complete": true,
+          "topn_excess": 0.06399316347070964
+        },
+        {
+          "run_date": "2026-07-25",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.34223978268922095,
+          "rank_ic": 0.506766917293233,
+          "topn_complete": true,
+          "topn_excess": 0.06399316347070964
+        },
+        {
+          "run_date": "2026-07-26",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.3541754126023789,
+          "rank_ic": 0.5233082706766916,
+          "topn_complete": true,
+          "topn_excess": 0.06154335700187097
+        },
+        {
+          "run_date": "2026-07-27",
+          "entry_date": "2026-07-28",
+          "exit_date": "2026-07-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.443931349549327,
+          "rank_ic": 0.46165413533834576,
+          "topn_complete": true,
+          "topn_excess": 0.03128380068182483
+        },
+        {
+          "run_date": "2026-07-28",
+          "entry_date": "2026-07-29",
+          "exit_date": "2026-07-30",
+          "valid_rows": 90,
+          "prediction_ic": 0.1376077311415215,
+          "rank_ic": 0.033082706766917276,
+          "topn_complete": true,
+          "topn_excess": 0.023218424452488562
+        },
+        {
+          "run_date": "2026-07-29",
+          "entry_date": "2026-07-30",
+          "exit_date": "2026-07-31",
+          "valid_rows": 90,
+          "prediction_ic": -0.5191011235955055,
+          "rank_ic": -0.3774436090225564,
+          "topn_complete": true,
+          "topn_excess": -0.16590706039293918
+        },
+        {
+          "run_date": "2026-07-30",
+          "entry_date": "2026-07-31",
+          "exit_date": "2026-08-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.13232304110186993,
+          "rank_ic": 0.04360902255639105,
+          "topn_complete": true,
+          "topn_excess": 0.045500901003955097
+        },
+        {
+          "run_date": "2026-07-31",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-08-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.31829144822930044,
+          "rank_ic": -0.14441520389466905,
+          "topn_complete": true,
+          "topn_excess": -0.012728647613807565
+        },
+        {
+          "run_date": "2026-08-01",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-08-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.3060428208476778,
+          "rank_ic": -0.46709292509682016,
+          "topn_complete": true,
+          "topn_excess": -0.012728647613807565
+        },
+        {
+          "run_date": "2026-08-02",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-08-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.29739963620338766,
+          "rank_ic": -0.1602106168206484,
+          "topn_complete": true,
+          "topn_excess": -0.00806097720449601
+        },
+        {
+          "run_date": "2026-08-03",
+          "entry_date": "2026-08-04",
+          "exit_date": "2026-08-05",
+          "valid_rows": 90,
+          "prediction_ic": -0.45577872939495023,
+          "rank_ic": -0.5077097011921958,
+          "topn_complete": true,
+          "topn_excess": -0.04278899746722671
+        },
+        {
+          "run_date": "2026-08-04",
+          "entry_date": "2026-08-05",
+          "exit_date": "2026-08-06",
+          "valid_rows": 90,
+          "prediction_ic": 0.1674719919886497,
+          "rank_ic": -0.00676946268256257,
+          "topn_complete": true,
+          "topn_excess": 0.05919458713659
+        },
+        {
+          "run_date": "2026-08-05",
+          "entry_date": "2026-08-06",
+          "exit_date": "2026-08-07",
+          "valid_rows": 90,
+          "prediction_ic": 0.1310455243272586,
+          "rank_ic": 0.27980445754592137,
+          "topn_complete": true,
+          "topn_excess": 0.024667228818317177
+        },
+        {
+          "run_date": "2026-08-06",
+          "entry_date": "2026-08-07",
+          "exit_date": "2026-08-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.6192122484257314,
+          "rank_ic": -0.3383458646616542,
+          "topn_complete": true,
+          "topn_excess": -0.016787353851523367
+        },
+        {
+          "run_date": "2026-08-07",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-08-11",
+          "valid_rows": 90,
+          "prediction_ic": -0.05234498796521914,
+          "rank_ic": 0.35488721804511303,
+          "topn_complete": true,
+          "topn_excess": -0.016041632149013264
+        },
+        {
+          "run_date": "2026-08-08",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-08-11",
+          "valid_rows": 90,
+          "prediction_ic": -0.0668647723156958,
+          "rank_ic": -0.048120300751879674,
+          "topn_complete": true,
+          "topn_excess": -0.016041632149013264
+        },
+        {
+          "run_date": "2026-08-09",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-08-11",
+          "valid_rows": 90,
+          "prediction_ic": -0.06066667489875103,
+          "rank_ic": -0.03609022556390981,
+          "topn_complete": true,
+          "topn_excess": -0.01003572598973288
+        },
+        {
+          "run_date": "2026-08-10",
+          "entry_date": "2026-08-11",
+          "exit_date": "2026-08-12",
+          "valid_rows": 90,
+          "prediction_ic": -0.3063384921923074,
+          "rank_ic": -0.32493420876300516,
+          "topn_complete": true,
+          "topn_excess": -0.04580898440541488
+        },
+        {
+          "run_date": "2026-08-11",
+          "entry_date": "2026-08-12",
+          "exit_date": "2026-08-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.12221495083659606,
+          "rank_ic": -0.3082706766917293,
+          "topn_complete": true,
+          "topn_excess": -0.05236026468179951
+        },
+        {
+          "run_date": "2026-08-12",
+          "entry_date": "2026-08-13",
+          "exit_date": "2026-08-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.09906695147984654,
+          "rank_ic": -0.024060150375939872,
+          "topn_complete": true,
+          "topn_excess": 0.00010217367454563586
+        },
+        {
+          "run_date": "2026-08-13",
+          "entry_date": "2026-08-14",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": 0.20395126787114023,
+          "rank_ic": 0.32481203007518794,
+          "topn_complete": true,
+          "topn_excess": 0.014149748638787974
+        },
+        {
+          "run_date": "2026-08-14",
+          "entry_date": "2026-08-18",
+          "exit_date": "2026-08-19",
+          "valid_rows": 90,
+          "prediction_ic": -0.04958677685950414,
+          "rank_ic": 0.06766917293233082,
+          "topn_complete": true,
+          "topn_excess": 0.04004763879471214
+        },
+        {
+          "run_date": "2026-08-17",
+          "entry_date": "2026-08-18",
+          "exit_date": "2026-08-19",
+          "valid_rows": 90,
+          "prediction_ic": -0.05425405814757498,
+          "rank_ic": 0.31278195488721794,
+          "topn_complete": true,
+          "topn_excess": 0.041752484373338186
+        },
+        {
+          "run_date": "2026-08-18",
+          "entry_date": "2026-08-19",
+          "exit_date": "2026-08-20",
+          "valid_rows": 90,
+          "prediction_ic": -0.18738988871721515,
+          "rank_ic": -0.015060258043015253,
+          "topn_complete": true,
+          "topn_excess": -0.0674441461384426
+        },
+        {
+          "run_date": "2026-08-19",
+          "entry_date": "2026-08-20",
+          "exit_date": "2026-08-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.3250524756142736,
+          "rank_ic": 0.37894736842105264,
+          "topn_complete": true,
+          "topn_excess": 0.0143686802331775
+        },
+        {
+          "run_date": "2026-08-20",
+          "entry_date": "2026-08-21",
+          "exit_date": "2026-08-24",
+          "valid_rows": 90,
+          "prediction_ic": -0.00015643589999841996,
+          "rank_ic": -0.09025950243416817,
+          "topn_complete": true,
+          "topn_excess": 0.033115424942463376
+        },
+        {
+          "run_date": "2026-08-21",
+          "entry_date": "2026-08-24",
+          "exit_date": "2026-08-25",
+          "valid_rows": 90,
+          "prediction_ic": -0.10849943820085406,
+          "rank_ic": -0.3142857142857142,
+          "topn_complete": true,
+          "topn_excess": -0.011633982519240037
+        },
+        {
+          "run_date": "2026-08-24",
+          "entry_date": "2026-08-25",
+          "exit_date": "2026-08-26",
+          "valid_rows": 90,
+          "prediction_ic": -0.07394389384610317,
+          "rank_ic": 0.1578947368421052,
+          "topn_complete": true,
+          "topn_excess": 0.023968962030345643
+        },
+        {
+          "run_date": "2026-08-25",
+          "entry_date": "2026-08-26",
+          "exit_date": "2026-08-27",
+          "valid_rows": 90,
+          "prediction_ic": -0.15988574298068017,
+          "rank_ic": 0.22857142857142854,
+          "topn_complete": true,
+          "topn_excess": -0.02299893037678773
+        },
+        {
+          "run_date": "2026-08-26",
+          "entry_date": "2026-08-27",
+          "exit_date": "2026-08-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.07519951269166085,
+          "rank_ic": 0.06766917293233073,
+          "topn_complete": true,
+          "topn_excess": 0.032445010086186075
+        },
+        {
+          "run_date": "2026-08-27",
+          "entry_date": "2026-08-28",
+          "exit_date": "2026-08-31",
+          "valid_rows": 90,
+          "prediction_ic": 0.1064913898126503,
+          "rank_ic": -0.006015037593984922,
+          "topn_complete": true,
+          "topn_excess": -1.2144979944417322e-05
+        },
+        {
+          "run_date": "2026-08-28",
+          "entry_date": "2026-08-31",
+          "exit_date": "2026-09-01",
+          "valid_rows": 90,
+          "prediction_ic": 0.1252510618682296,
+          "rank_ic": -0.0481203007518796,
+          "topn_complete": true,
+          "topn_excess": -0.0014713876189433872
+        },
+        {
+          "run_date": "2026-08-31",
+          "entry_date": "2026-09-01",
+          "exit_date": "2026-09-02",
+          "valid_rows": 90,
+          "prediction_ic": -0.03002852215740199,
+          "rank_ic": -0.12180451127819544,
+          "topn_complete": true,
+          "topn_excess": -0.010603448499307255
+        },
+        {
+          "run_date": "2026-09-01",
+          "entry_date": "2026-09-02",
+          "exit_date": "2026-09-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.22931792365077813,
+          "rank_ic": 0.0451127819548873,
+          "topn_complete": true,
+          "topn_excess": 0.01682783324325965
+        },
+        {
+          "run_date": "2026-09-02",
+          "entry_date": "2026-09-03",
+          "exit_date": "2026-09-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.32964418745953294,
+          "rank_ic": 0.046616541353383584,
+          "topn_complete": true,
+          "topn_excess": -0.02229819895767764
+        },
+        {
+          "run_date": "2026-09-03",
+          "entry_date": "2026-09-04",
+          "exit_date": "2026-09-07",
+          "valid_rows": 90,
+          "prediction_ic": 0.13920638121971873,
+          "rank_ic": 0.010526315789473764,
+          "topn_complete": true,
+          "topn_excess": -0.024959041229671453
+        },
+        {
+          "run_date": "2026-09-04",
+          "entry_date": "2026-09-07",
+          "exit_date": "2026-09-08",
+          "valid_rows": 90,
+          "prediction_ic": -0.080158374114249,
+          "rank_ic": 0.20300751879699247,
+          "topn_complete": true,
+          "topn_excess": 0.008984725084446143
+        },
+        {
+          "run_date": "2026-09-07",
+          "entry_date": "2026-09-08",
+          "exit_date": "2026-09-09",
+          "valid_rows": 90,
+          "prediction_ic": -0.18231207401797775,
+          "rank_ic": -0.17593984962406012,
+          "topn_complete": true,
+          "topn_excess": -0.0280368225804714
+        },
+        {
+          "run_date": "2026-09-08",
+          "entry_date": "2026-09-09",
+          "exit_date": "2026-09-10",
+          "valid_rows": 90,
+          "prediction_ic": 0.04846808581351921,
+          "rank_ic": 0.41654135338345866,
+          "topn_complete": true,
+          "topn_excess": 0.004808806238989405
+        },
+        {
+          "run_date": "2026-09-09",
+          "entry_date": "2026-09-10",
+          "exit_date": "2026-09-11",
+          "valid_rows": 90,
+          "prediction_ic": 0.4235923612412463,
+          "rank_ic": 0.32342988372243586,
+          "topn_complete": true,
+          "topn_excess": 0.021477966434064986
+        },
+        {
+          "run_date": "2026-09-10",
+          "entry_date": "2026-09-11",
+          "exit_date": "2026-09-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.2924100803837632,
+          "rank_ic": 0.1729323308270676,
+          "topn_complete": true,
+          "topn_excess": 0.02863056804918145
+        },
+        {
+          "run_date": "2026-09-11",
+          "entry_date": "2026-09-14",
+          "exit_date": "2026-09-15",
+          "valid_rows": 90,
+          "prediction_ic": -0.2632785522514424,
+          "rank_ic": 0.27819548872180444,
+          "topn_complete": true,
+          "topn_excess": -0.005694853378709452
+        },
+        {
+          "run_date": "2026-09-14",
+          "entry_date": "2026-09-15",
+          "exit_date": "2026-09-16",
+          "valid_rows": 90,
+          "prediction_ic": 0.053471842087303455,
+          "rank_ic": -0.11428571428571427,
+          "topn_complete": true,
+          "topn_excess": -0.025782170069211064
+        },
+        {
+          "run_date": "2026-09-15",
+          "entry_date": "2026-09-16",
+          "exit_date": "2026-09-17",
+          "valid_rows": 90,
+          "prediction_ic": 0.04145726070410177,
+          "rank_ic": -0.0661654135338346,
+          "topn_complete": true,
+          "topn_excess": 0.008605581235236314
+        },
+        {
+          "run_date": "2026-09-16",
+          "entry_date": "2026-09-17",
+          "exit_date": "2026-09-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.17639214717866403,
+          "rank_ic": -0.06917293233082711,
+          "topn_complete": true,
+          "topn_excess": -0.030729929925864985
+        },
+        {
+          "run_date": "2026-09-17",
+          "entry_date": "2026-09-18",
+          "exit_date": "2026-09-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.20514720106196382,
+          "rank_ic": 0.4345864661654137,
+          "topn_complete": true,
+          "topn_excess": -0.001982504486429848
+        },
+        {
+          "run_date": "2026-09-18",
+          "entry_date": "2026-09-21",
+          "exit_date": "2026-09-22",
+          "valid_rows": 90,
+          "prediction_ic": -0.03616620187395894,
+          "rank_ic": 0.25413533834586494,
+          "topn_complete": true,
+          "topn_excess": -0.00188925044192505
+        },
+        {
+          "run_date": "2026-09-21",
+          "entry_date": "2026-09-22",
+          "exit_date": "2026-09-23",
+          "valid_rows": 90,
+          "prediction_ic": -0.13862902065140079,
+          "rank_ic": 0.12180451127819544,
+          "topn_complete": true,
+          "topn_excess": -0.019535923762773556
+        },
+        {
+          "run_date": "2026-09-22",
+          "entry_date": "2026-09-23",
+          "exit_date": "2026-09-28",
+          "valid_rows": 90,
+          "prediction_ic": -0.07159790589949852,
+          "rank_ic": 0.26315789473684204,
+          "topn_complete": true,
+          "topn_excess": 0.03521667360765819
+        },
+        {
+          "run_date": "2026-09-23",
+          "entry_date": "2026-09-28",
+          "exit_date": "2026-09-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.0054659428171466564,
+          "rank_ic": -0.06024103217206132,
+          "topn_complete": true,
+          "topn_excess": -0.005135586677316462
+        },
+        {
+          "run_date": "2026-09-24",
+          "entry_date": "2026-09-28",
+          "exit_date": "2026-09-29",
+          "valid_rows": 90,
+          "prediction_ic": -0.004823879026973191,
+          "rank_ic": 0.12650616756132887,
+          "topn_complete": true,
+          "topn_excess": -0.00376045767834845
+        },
+        {
+          "run_date": "2026-09-25",
+          "entry_date": "2026-09-28",
+          "exit_date": "2026-09-29",
+          "valid_rows": 90,
+          "prediction_ic": -0.004823879026973191,
+          "rank_ic": 0.12650616756132887,
+          "topn_complete": true,
+          "topn_excess": -0.00376045767834845
+        },
+        {
+          "run_date": "2026-09-28",
+          "entry_date": "2026-09-29",
+          "exit_date": "2026-09-30",
+          "valid_rows": 90,
+          "prediction_ic": -0.41030358412567286,
+          "rank_ic": -0.37142857142857144,
+          "topn_complete": true,
+          "topn_excess": -0.02105410948731703
+        },
+        {
+          "run_date": "2026-09-29",
+          "entry_date": "2026-09-30",
+          "exit_date": "2026-10-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.27663725265169553,
+          "rank_ic": -0.48571428571428565,
+          "topn_complete": true,
+          "topn_excess": -0.03151514451573432
+        },
+        {
+          "run_date": "2026-09-30",
+          "entry_date": "2026-10-01",
+          "exit_date": "2026-10-02",
+          "valid_rows": 90,
+          "prediction_ic": -0.006651191123866059,
+          "rank_ic": 0.19248120300751892,
+          "topn_complete": true,
+          "topn_excess": 0.00402039854317624
+        },
+        {
+          "run_date": "2026-10-01",
+          "entry_date": "2026-10-02",
+          "exit_date": "2026-10-06",
+          "valid_rows": 90,
+          "prediction_ic": -0.38418860408604794,
+          "rank_ic": 0.17921707071188264,
+          "topn_complete": true,
+          "topn_excess": 0.004798262587613844
+        },
+        {
+          "run_date": "2026-10-02",
+          "entry_date": "2026-10-06",
+          "exit_date": "2026-10-07",
+          "valid_rows": 90,
+          "prediction_ic": 0.22278470593077326,
+          "rank_ic": 0.31729323308270685,
+          "topn_complete": true,
+          "topn_excess": 0.012609297004975196
+        },
+        {
+          "run_date": "2026-10-05",
+          "entry_date": "2026-10-06",
+          "exit_date": "2026-10-07",
+          "valid_rows": 90,
+          "prediction_ic": 0.22896019229645362,
+          "rank_ic": 0.13533834586466167,
+          "topn_complete": true,
+          "topn_excess": 0.012609297004975196
+        },
+        {
+          "run_date": "2026-10-06",
+          "entry_date": "2026-10-07",
+          "exit_date": "2026-10-08",
+          "valid_rows": 90,
+          "prediction_ic": -0.15463892069298454,
+          "rank_ic": -0.0030075187969924332,
+          "topn_complete": true,
+          "topn_excess": -1.348157627378832e-05
+        },
+        {
+          "run_date": "2026-10-07",
+          "entry_date": "2026-10-08",
+          "exit_date": "2026-10-12",
+          "valid_rows": 90,
+          "prediction_ic": 0.39320376382662386,
+          "rank_ic": 0.2315789473684211,
+          "topn_complete": true,
+          "topn_excess": 0.02200840097023482
+        },
+        {
+          "run_date": "2026-10-08",
+          "entry_date": "2026-10-12",
+          "exit_date": "2026-10-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.038311148449715324,
+          "rank_ic": -0.10977443609022552,
+          "topn_complete": true,
+          "topn_excess": 0.027708864135542233
+        },
+        {
+          "run_date": "2026-10-09",
+          "entry_date": "2026-10-12",
+          "exit_date": "2026-10-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.06777247289244011,
+          "rank_ic": -0.1150808656035644,
+          "topn_complete": true,
+          "topn_excess": 0.029195599877377208
+        },
+        {
+          "run_date": "2026-10-12",
+          "entry_date": "2026-10-13",
+          "exit_date": "2026-10-14",
+          "valid_rows": 90,
+          "prediction_ic": -0.26067021726736633,
+          "rank_ic": -0.4300751879699247,
+          "topn_complete": true,
+          "topn_excess": -0.020285556195780274
+        },
+        {
+          "run_date": "2026-10-13",
+          "entry_date": "2026-10-14",
+          "exit_date": "2026-10-15",
+          "valid_rows": 90,
+          "prediction_ic": 0.3737004568465244,
+          "rank_ic": -0.012030075187969926,
+          "topn_complete": true,
+          "topn_excess": 0.03485383939493503
+        },
+        {
+          "run_date": "2026-10-14",
+          "entry_date": "2026-10-15",
+          "exit_date": "2026-10-16",
+          "valid_rows": 86,
+          "prediction_ic": 0.009057116440956199,
+          "rank_ic": -0.23157894736842105,
+          "topn_complete": true,
+          "topn_excess": -0.011426380279961412
+        }
+      ]
+    },
+    "5": {
+      "valid_rows": 9569,
+      "row_coverage": 0.9350205198358413,
+      "row_rejections": {
+        "missing_exact_entry_or_exit_close": 35,
+        "not_mature_or_no_future_benchmark": 630
+      },
+      "cohort_rejections": {
+        "incomplete_topn_ranks_or_prices": 3,
+        "not_mature_or_no_future_benchmark": 7
+      },
+      "valid_rows_without_recorded_timestamp": 0,
+      "prediction_ic": {
+        "n_cohorts": 110,
+        "n_entry_sessions": 86,
+        "mean": -0.0032462695040565144,
+        "nw_t": -0.07885176006226886,
+        "positive_share": 0.5697674418604651,
+        "rough_nonoverlapping_blocks": 17,
+        "small_sample": false
+      },
+      "saved_rank_ic": {
+        "n_cohorts": 110,
+        "n_entry_sessions": 86,
+        "mean": 0.009603316639999313,
+        "nw_t": 0.22323470009056942,
+        "positive_share": 0.5232558139534884,
+        "rough_nonoverlapping_blocks": 17,
+        "small_sample": false
+      },
+      "topn_gross_return": {
+        "n_cohorts": 110,
+        "n_entry_sessions": 86,
+        "mean": -0.015551766054962304,
+        "nw_t": -2.1379811553456034,
+        "positive_share": 0.3488372093023256,
+        "rough_nonoverlapping_blocks": 17,
+        "small_sample": false
+      },
+      "topn_excess_return": {
+        "n_cohorts": 110,
+        "n_entry_sessions": 86,
+        "mean": 0.0015770066949629589,
+        "nw_t": 0.1484051917506597,
+        "positive_share": 0.5116279069767442,
+        "rough_nonoverlapping_blocks": 17,
+        "small_sample": false
+      },
+      "topn_minus_same_cohort_available_universe": {
+        "n_cohorts": 110,
+        "n_entry_sessions": 86,
+        "mean": -0.005927704212105869,
+        "nw_t": -1.0141478005434257,
+        "positive_share": 0.4186046511627907,
+        "rough_nonoverlapping_blocks": 17,
+        "small_sample": false
+      },
+      "available_universe_excess_return": {
+        "n_cohorts": 113,
+        "n_entry_sessions": 87,
+        "mean": 0.010320589809649621,
+        "nw_t": 0.9902686283868629,
+        "positive_share": 0.5747126436781609,
+        "rough_nonoverlapping_blocks": 17,
+        "small_sample": false
+      },
+      "daily": [
+        {
+          "run_date": "2026-05-29",
+          "entry_date": "2026-06-01",
+          "exit_date": "2026-06-09",
+          "valid_rows": 10,
+          "prediction_ic": 0.23636363636363633,
+          "rank_ic": 0.27272727272727276,
+          "topn_complete": true,
+          "topn_excess": 0.03587908156796864
+        },
+        {
+          "run_date": "2026-05-31",
+          "entry_date": "2026-06-01",
+          "exit_date": "2026-06-09",
+          "valid_rows": 30,
+          "prediction_ic": 0.14304783092324802,
+          "rank_ic": 0.09054505005561737,
+          "topn_complete": true,
+          "topn_excess": 0.001326931848106061
+        },
+        {
+          "run_date": "2026-06-02",
+          "entry_date": "2026-06-04",
+          "exit_date": "2026-06-11",
+          "valid_rows": 30,
+          "prediction_ic": -0.1488320355951056,
+          "rank_ic": -0.2547274749721914,
+          "topn_complete": true,
+          "topn_excess": 0.009565478242651216
+        },
+        {
+          "run_date": "2026-06-03",
+          "entry_date": "2026-06-04",
+          "exit_date": "2026-06-11",
+          "valid_rows": 30,
+          "prediction_ic": -0.3192436040044495,
+          "rank_ic": -0.15862068965517243,
+          "topn_complete": true,
+          "topn_excess": -0.018333934579720233
+        },
+        {
+          "run_date": "2026-06-04",
+          "entry_date": "2026-06-05",
+          "exit_date": "2026-06-12",
+          "valid_rows": 30,
+          "prediction_ic": -0.31612903225806444,
+          "rank_ic": -0.2213570634037818,
+          "topn_complete": true,
+          "topn_excess": -0.04809997134182986
+        },
+        {
+          "run_date": "2026-06-05",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-06-15",
+          "valid_rows": 30,
+          "prediction_ic": 0.2253615127919911,
+          "rank_ic": 0.253392658509455,
+          "topn_complete": true,
+          "topn_excess": 0.02434625599114253
+        },
+        {
+          "run_date": "2026-06-06",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-06-15",
+          "valid_rows": 1,
+          "prediction_ic": null,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-07",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-06-15",
+          "valid_rows": 1,
+          "prediction_ic": null,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-08",
+          "entry_date": "2026-06-09",
+          "exit_date": "2026-06-16",
+          "valid_rows": 51,
+          "prediction_ic": -0.10433878055448498,
+          "rank_ic": 0.17440660474716202,
+          "topn_complete": true,
+          "topn_excess": 0.043450133640839605
+        },
+        {
+          "run_date": "2026-06-09",
+          "entry_date": "2026-06-10",
+          "exit_date": "2026-06-17",
+          "valid_rows": 90,
+          "prediction_ic": null,
+          "rank_ic": -0.042491657397107946,
+          "topn_complete": true,
+          "topn_excess": -0.06565555319412635
+        },
+        {
+          "run_date": "2026-06-10",
+          "entry_date": "2026-06-11",
+          "exit_date": "2026-06-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.07471334884122882,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-11",
+          "entry_date": "2026-06-12",
+          "exit_date": "2026-06-19",
+          "valid_rows": 90,
+          "prediction_ic": 0.07471334884122882,
+          "rank_ic": -0.023804226918798688,
+          "topn_complete": true,
+          "topn_excess": -0.12487726141272992
+        },
+        {
+          "run_date": "2026-06-13",
+          "entry_date": "2026-06-15",
+          "exit_date": "2026-06-22",
+          "valid_rows": 90,
+          "prediction_ic": -0.00045273078980946103,
+          "rank_ic": 0.3783251231527094,
+          "topn_complete": true,
+          "topn_excess": -0.07120587656654945
+        },
+        {
+          "run_date": "2026-06-14",
+          "entry_date": "2026-06-15",
+          "exit_date": "2026-06-22",
+          "valid_rows": 90,
+          "prediction_ic": -0.02972383421821626,
+          "rank_ic": 0.4330827067669173,
+          "topn_complete": true,
+          "topn_excess": -0.07120587656654945
+        },
+        {
+          "run_date": "2026-06-15",
+          "entry_date": "2026-06-16",
+          "exit_date": "2026-06-23",
+          "valid_rows": 90,
+          "prediction_ic": 0.06235337696011843,
+          "rank_ic": 0.4872180451127819,
+          "topn_complete": true,
+          "topn_excess": -0.028039752212895896
+        },
+        {
+          "run_date": "2026-06-16",
+          "entry_date": "2026-06-17",
+          "exit_date": "2026-06-24",
+          "valid_rows": 90,
+          "prediction_ic": 0.23185578466477347,
+          "rank_ic": 0.30827067669172936,
+          "topn_complete": true,
+          "topn_excess": -0.03988925974227446
+        },
+        {
+          "run_date": "2026-06-17",
+          "entry_date": "2026-06-18",
+          "exit_date": "2026-06-25",
+          "valid_rows": 90,
+          "prediction_ic": 0.25238506811540523,
+          "rank_ic": 0.09172932330827073,
+          "topn_complete": true,
+          "topn_excess": -0.07228241152563397
+        },
+        {
+          "run_date": "2026-06-18",
+          "entry_date": "2026-06-19",
+          "exit_date": "2026-06-26",
+          "valid_rows": 90,
+          "prediction_ic": 0.13339095361567288,
+          "rank_ic": 0.1233082706766918,
+          "topn_complete": true,
+          "topn_excess": -0.0270572507174212
+        },
+        {
+          "run_date": "2026-06-19",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-06-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.14588632341441332,
+          "rank_ic": 0.051127819548872126,
+          "topn_complete": true,
+          "topn_excess": 0.04458670591617921
+        },
+        {
+          "run_date": "2026-06-20",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-06-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.024373379429559278,
+          "rank_ic": -0.4330827067669173,
+          "topn_complete": true,
+          "topn_excess": 0.0328354987505729
+        },
+        {
+          "run_date": "2026-06-21",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-06-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.06907025558710951,
+          "rank_ic": -0.0015037593984962565,
+          "topn_complete": true,
+          "topn_excess": 0.06476461539179075
+        },
+        {
+          "run_date": "2026-06-22",
+          "entry_date": "2026-06-23",
+          "exit_date": "2026-06-30",
+          "valid_rows": 90,
+          "prediction_ic": -0.018471492248138738,
+          "rank_ic": 0.19097744360902247,
+          "topn_complete": true,
+          "topn_excess": -0.0299207690096559
+        },
+        {
+          "run_date": "2026-06-23",
+          "entry_date": "2026-06-24",
+          "exit_date": "2026-07-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.008272626250154366,
+          "rank_ic": 0.21503759398496236,
+          "topn_complete": true,
+          "topn_excess": 0.0456639857474815
+        },
+        {
+          "run_date": "2026-06-24",
+          "entry_date": "2026-06-25",
+          "exit_date": "2026-07-02",
+          "valid_rows": 90,
+          "prediction_ic": 0.04506729225830351,
+          "rank_ic": 0.09924812030075203,
+          "topn_complete": true,
+          "topn_excess": 0.11606752354560582
+        },
+        {
+          "run_date": "2026-06-25",
+          "entry_date": "2026-06-26",
+          "exit_date": "2026-07-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.11138000576202818,
+          "rank_ic": 0.20300751879699247,
+          "topn_complete": true,
+          "topn_excess": 0.10563308238012277
+        },
+        {
+          "run_date": "2026-06-26",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-07-06",
+          "valid_rows": 90,
+          "prediction_ic": 0.2360209079310203,
+          "rank_ic": 0.13984962406015028,
+          "topn_complete": true,
+          "topn_excess": 0.0641888921357147
+        },
+        {
+          "run_date": "2026-06-27",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-07-06",
+          "valid_rows": 90,
+          "prediction_ic": 0.2176647322714739,
+          "rank_ic": 0.09473684210526316,
+          "topn_complete": true,
+          "topn_excess": 0.04394972693985229
+        },
+        {
+          "run_date": "2026-06-28",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-07-06",
+          "valid_rows": 90,
+          "prediction_ic": 0.25121619953080626,
+          "rank_ic": 0.0571428571428572,
+          "topn_complete": true,
+          "topn_excess": 0.06310783406553219
+        },
+        {
+          "run_date": "2026-06-29",
+          "entry_date": "2026-06-30",
+          "exit_date": "2026-07-07",
+          "valid_rows": 90,
+          "prediction_ic": 0.061661933572045954,
+          "rank_ic": 0.028571428571428508,
+          "topn_complete": true,
+          "topn_excess": 0.06260326942422467
+        },
+        {
+          "run_date": "2026-06-30",
+          "entry_date": "2026-07-01",
+          "exit_date": "2026-07-08",
+          "valid_rows": 90,
+          "prediction_ic": 0.1433345680536694,
+          "rank_ic": -0.02706766917293231,
+          "topn_complete": true,
+          "topn_excess": 0.04674528741100792
+        },
+        {
+          "run_date": "2026-07-01",
+          "entry_date": "2026-07-02",
+          "exit_date": "2026-07-09",
+          "valid_rows": 90,
+          "prediction_ic": 0.1684405482158291,
+          "rank_ic": -0.2075187969924812,
+          "topn_complete": true,
+          "topn_excess": -0.010486906422444342
+        },
+        {
+          "run_date": "2026-07-02",
+          "entry_date": "2026-07-03",
+          "exit_date": "2026-07-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.054303000370416195,
+          "rank_ic": 0.08421052631578947,
+          "topn_complete": true,
+          "topn_excess": 0.01699796012993966
+        },
+        {
+          "run_date": "2026-07-03",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-07-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.10280281516236568,
+          "rank_ic": -0.269172932330827,
+          "topn_complete": true,
+          "topn_excess": 0.0384303932665685
+        },
+        {
+          "run_date": "2026-07-04",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-07-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.10260525990863048,
+          "rank_ic": -0.24962406015037608,
+          "topn_complete": true,
+          "topn_excess": 0.056637607720431825
+        },
+        {
+          "run_date": "2026-07-05",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-07-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.08550026752273951,
+          "rank_ic": -0.24511278195488723,
+          "topn_complete": true,
+          "topn_excess": 0.0384303932665685
+        },
+        {
+          "run_date": "2026-07-06",
+          "entry_date": "2026-07-07",
+          "exit_date": "2026-07-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.005177593941638832,
+          "rank_ic": 0.21203007518796993,
+          "topn_complete": true,
+          "topn_excess": 0.018560787624201724
+        },
+        {
+          "run_date": "2026-07-07",
+          "entry_date": "2026-07-08",
+          "exit_date": "2026-07-15",
+          "valid_rows": 90,
+          "prediction_ic": -0.112155610265193,
+          "rank_ic": 0.21203007518796987,
+          "topn_complete": true,
+          "topn_excess": -0.0035306389881349263
+        },
+        {
+          "run_date": "2026-07-08",
+          "entry_date": "2026-07-09",
+          "exit_date": "2026-07-16",
+          "valid_rows": 90,
+          "prediction_ic": 0.07509569082602804,
+          "rank_ic": -0.13533834586466165,
+          "topn_complete": true,
+          "topn_excess": 0.03750089692143514
+        },
+        {
+          "run_date": "2026-07-09",
+          "entry_date": "2026-07-10",
+          "exit_date": "2026-07-20",
+          "valid_rows": 90,
+          "prediction_ic": 0.09914021953501893,
+          "rank_ic": 0.09624060150375939,
+          "topn_complete": true,
+          "topn_excess": 0.04331287947399827
+        },
+        {
+          "run_date": "2026-07-10",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.20568309972083507,
+          "rank_ic": -0.03859649122807029,
+          "topn_complete": true,
+          "topn_excess": 0.00012569986736732375
+        },
+        {
+          "run_date": "2026-07-11",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.2551879687215595,
+          "rank_ic": -0.03609022556390973,
+          "topn_complete": true,
+          "topn_excess": -0.006344318763042733
+        },
+        {
+          "run_date": "2026-07-12",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.2696262028797356,
+          "rank_ic": -0.14887218045112785,
+          "topn_complete": true,
+          "topn_excess": -0.006344318763042733
+        },
+        {
+          "run_date": "2026-07-13",
+          "entry_date": "2026-07-14",
+          "exit_date": "2026-07-22",
+          "valid_rows": 90,
+          "prediction_ic": 0.1889862946042721,
+          "rank_ic": -0.4075187969924812,
+          "topn_complete": true,
+          "topn_excess": -0.00712941756250276
+        },
+        {
+          "run_date": "2026-07-14",
+          "entry_date": "2026-07-15",
+          "exit_date": "2026-07-23",
+          "valid_rows": 90,
+          "prediction_ic": 0.11784994032185038,
+          "rank_ic": -0.37744360902255647,
+          "topn_complete": true,
+          "topn_excess": 0.005660712101649734
+        },
+        {
+          "run_date": "2026-07-15",
+          "entry_date": "2026-07-16",
+          "exit_date": "2026-07-24",
+          "valid_rows": 90,
+          "prediction_ic": 0.13083919825492862,
+          "rank_ic": 0.07518796992481204,
+          "topn_complete": true,
+          "topn_excess": 0.023460205884291586
+        },
+        {
+          "run_date": "2026-07-16",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-07-27",
+          "valid_rows": 90,
+          "prediction_ic": 0.02083384780013999,
+          "rank_ic": -0.12781954887218044,
+          "topn_complete": true,
+          "topn_excess": -0.004209106051288325
+        },
+        {
+          "run_date": "2026-07-17",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-07-27",
+          "valid_rows": 90,
+          "prediction_ic": 0.004963575750092632,
+          "rank_ic": -0.11428571428571441,
+          "topn_complete": true,
+          "topn_excess": 0.010439079774647243
+        },
+        {
+          "run_date": "2026-07-18",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-07-27",
+          "valid_rows": 90,
+          "prediction_ic": 0.00028810141169700594,
+          "rank_ic": -0.06015037593984962,
+          "topn_complete": true,
+          "topn_excess": 0.011610361935805669
+        },
+        {
+          "run_date": "2026-07-19",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-07-27",
+          "valid_rows": 90,
+          "prediction_ic": 0.017228464419475745,
+          "rank_ic": -0.1894736842105264,
+          "topn_complete": true,
+          "topn_excess": 0.011610361935805669
+        },
+        {
+          "run_date": "2026-07-20",
+          "entry_date": "2026-07-21",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.23649833312754662,
+          "rank_ic": -0.0030075187969924814,
+          "topn_complete": true,
+          "topn_excess": 0.10360865461012794
+        },
+        {
+          "run_date": "2026-07-21",
+          "entry_date": "2026-07-22",
+          "exit_date": "2026-07-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.35934477507511214,
+          "rank_ic": 0.25714285714285706,
+          "topn_complete": true,
+          "topn_excess": 0.1342598721606109
+        },
+        {
+          "run_date": "2026-07-22",
+          "entry_date": "2026-07-23",
+          "exit_date": "2026-07-30",
+          "valid_rows": 90,
+          "prediction_ic": 0.5150677038317487,
+          "rank_ic": -0.05563909774436103,
+          "topn_complete": true,
+          "topn_excess": 0.19234065463000793
+        },
+        {
+          "run_date": "2026-07-23",
+          "entry_date": "2026-07-24",
+          "exit_date": "2026-07-31",
+          "valid_rows": 90,
+          "prediction_ic": 0.17472939045972752,
+          "rank_ic": 0.2736842105263158,
+          "topn_complete": true,
+          "topn_excess": -0.021331326757170553
+        },
+        {
+          "run_date": "2026-07-24",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-08-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.21768119520928508,
+          "rank_ic": 0.2842105263157896,
+          "topn_complete": true,
+          "topn_excess": 0.028816962204499252
+        },
+        {
+          "run_date": "2026-07-25",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-08-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.18906860929332833,
+          "rank_ic": 0.37293233082706767,
+          "topn_complete": true,
+          "topn_excess": 0.028816962204499252
+        },
+        {
+          "run_date": "2026-07-26",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-08-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.21167222290817803,
+          "rank_ic": 0.2601503759398497,
+          "topn_complete": true,
+          "topn_excess": 0.025090848389536236
+        },
+        {
+          "run_date": "2026-07-27",
+          "entry_date": "2026-07-28",
+          "exit_date": "2026-08-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.35631559451784167,
+          "rank_ic": -0.1609022556390977,
+          "topn_complete": true,
+          "topn_excess": -0.05045740716177116
+        },
+        {
+          "run_date": "2026-07-28",
+          "entry_date": "2026-07-29",
+          "exit_date": "2026-08-05",
+          "valid_rows": 90,
+          "prediction_ic": -0.5003333744906779,
+          "rank_ic": -0.4827067669172933,
+          "topn_complete": true,
+          "topn_excess": -0.15372518955217923
+        },
+        {
+          "run_date": "2026-07-29",
+          "entry_date": "2026-07-30",
+          "exit_date": "2026-08-06",
+          "valid_rows": 90,
+          "prediction_ic": -0.4977322303165001,
+          "rank_ic": -0.4466165413533835,
+          "topn_complete": true,
+          "topn_excess": -0.1039973341559564
+        },
+        {
+          "run_date": "2026-07-30",
+          "entry_date": "2026-07-31",
+          "exit_date": "2026-08-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.25663250607070826,
+          "rank_ic": -0.3398496240601503,
+          "topn_complete": true,
+          "topn_excess": 0.07718013690279162
+        },
+        {
+          "run_date": "2026-07-31",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-08-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.4369528623030065,
+          "rank_ic": -0.5355397144427311,
+          "topn_complete": true,
+          "topn_excess": 0.005460525533041438
+        },
+        {
+          "run_date": "2026-08-01",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-08-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.40819199157439845,
+          "rank_ic": -0.626551379397184,
+          "topn_complete": true,
+          "topn_excess": 0.005460525533041438
+        },
+        {
+          "run_date": "2026-08-02",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-08-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.41590490968335836,
+          "rank_ic": -0.5671305402946898,
+          "topn_complete": true,
+          "topn_excess": 0.011094927636238183
+        },
+        {
+          "run_date": "2026-08-03",
+          "entry_date": "2026-08-04",
+          "exit_date": "2026-08-11",
+          "valid_rows": 90,
+          "prediction_ic": -0.48263571634358154,
+          "rank_ic": -0.21954887218045108,
+          "topn_complete": true,
+          "topn_excess": 0.008867517197300435
+        },
+        {
+          "run_date": "2026-08-04",
+          "entry_date": "2026-08-05",
+          "exit_date": "2026-08-12",
+          "valid_rows": 90,
+          "prediction_ic": -0.32377793052062714,
+          "rank_ic": -0.055639097744360926,
+          "topn_complete": true,
+          "topn_excess": 0.005735363266185223
+        },
+        {
+          "run_date": "2026-08-05",
+          "entry_date": "2026-08-06",
+          "exit_date": "2026-08-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.4382094614655082,
+          "rank_ic": -0.1978187428348851,
+          "topn_complete": true,
+          "topn_excess": -0.09468697751990367
+        },
+        {
+          "run_date": "2026-08-06",
+          "entry_date": "2026-08-07",
+          "exit_date": "2026-08-14",
+          "valid_rows": 90,
+          "prediction_ic": -0.5214739328929744,
+          "rank_ic": -0.2556390977443609,
+          "topn_complete": true,
+          "topn_excess": -0.13999979531811713
+        },
+        {
+          "run_date": "2026-08-07",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.0760929512874454,
+          "rank_ic": 0.10676691729323311,
+          "topn_complete": true,
+          "topn_excess": -0.12320565332221348
+        },
+        {
+          "run_date": "2026-08-08",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.07342500483662966,
+          "rank_ic": -0.0616541353383458,
+          "topn_complete": true,
+          "topn_excess": -0.12320565332221348
+        },
+        {
+          "run_date": "2026-08-09",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.08229067202544117,
+          "rank_ic": -0.042105263157894854,
+          "topn_complete": true,
+          "topn_excess": -0.11247696483278877
+        },
+        {
+          "run_date": "2026-08-10",
+          "entry_date": "2026-08-11",
+          "exit_date": "2026-08-19",
+          "valid_rows": 90,
+          "prediction_ic": -0.09290074042446235,
+          "rank_ic": -0.14586466165413528,
+          "topn_complete": true,
+          "topn_excess": -0.06328644486436703
+        },
+        {
+          "run_date": "2026-08-11",
+          "entry_date": "2026-08-12",
+          "exit_date": "2026-08-20",
+          "valid_rows": 90,
+          "prediction_ic": -0.1360014487504528,
+          "rank_ic": -0.10526315789473678,
+          "topn_complete": true,
+          "topn_excess": -0.08308665711269576
+        },
+        {
+          "run_date": "2026-08-12",
+          "entry_date": "2026-08-13",
+          "exit_date": "2026-08-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.28038260182410835,
+          "rank_ic": 0.24219633153168446,
+          "topn_complete": true,
+          "topn_excess": -0.02631603383259251
+        },
+        {
+          "run_date": "2026-08-13",
+          "entry_date": "2026-08-14",
+          "exit_date": "2026-08-24",
+          "valid_rows": 90,
+          "prediction_ic": 0.18971066386796717,
+          "rank_ic": 0.324812030075188,
+          "topn_complete": true,
+          "topn_excess": 0.04233423195003414
+        },
+        {
+          "run_date": "2026-08-14",
+          "entry_date": "2026-08-18",
+          "exit_date": "2026-08-25",
+          "valid_rows": 90,
+          "prediction_ic": 0.096104377180993,
+          "rank_ic": 0.15639097744360908,
+          "topn_complete": true,
+          "topn_excess": 0.014265074380376209
+        },
+        {
+          "run_date": "2026-08-17",
+          "entry_date": "2026-08-18",
+          "exit_date": "2026-08-25",
+          "valid_rows": 90,
+          "prediction_ic": 0.08420142819566408,
+          "rank_ic": 0.27218045112781963,
+          "topn_complete": true,
+          "topn_excess": 0.024862537074439618
+        },
+        {
+          "run_date": "2026-08-18",
+          "entry_date": "2026-08-19",
+          "exit_date": "2026-08-26",
+          "valid_rows": 90,
+          "prediction_ic": 0.1229719384605254,
+          "rank_ic": 0.3533834586466166,
+          "topn_complete": true,
+          "topn_excess": -0.01363377790430067
+        },
+        {
+          "run_date": "2026-08-19",
+          "entry_date": "2026-08-20",
+          "exit_date": "2026-08-27",
+          "valid_rows": 90,
+          "prediction_ic": 0.1664409863000733,
+          "rank_ic": 0.38345864661654133,
+          "topn_complete": true,
+          "topn_excess": 0.044890526562581676
+        },
+        {
+          "run_date": "2026-08-20",
+          "entry_date": "2026-08-21",
+          "exit_date": "2026-08-28",
+          "valid_rows": 90,
+          "prediction_ic": -0.06493062844420265,
+          "rank_ic": 0.46466165413533816,
+          "topn_complete": true,
+          "topn_excess": 0.07687739067135162
+        },
+        {
+          "run_date": "2026-08-21",
+          "entry_date": "2026-08-24",
+          "exit_date": "2026-08-31",
+          "valid_rows": 90,
+          "prediction_ic": -0.07040375354982104,
+          "rank_ic": 0.20751879699248124,
+          "topn_complete": true,
+          "topn_excess": 0.0029960269985464414
+        },
+        {
+          "run_date": "2026-08-24",
+          "entry_date": "2026-08-25",
+          "exit_date": "2026-09-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.007227259444681709,
+          "rank_ic": 0.11729323308270669,
+          "topn_complete": true,
+          "topn_excess": 0.05706859467988865
+        },
+        {
+          "run_date": "2026-08-25",
+          "entry_date": "2026-08-26",
+          "exit_date": "2026-09-02",
+          "valid_rows": 90,
+          "prediction_ic": 0.11452631233905548,
+          "rank_ic": 0.3954887218045112,
+          "topn_complete": true,
+          "topn_excess": 0.032663529407823
+        },
+        {
+          "run_date": "2026-08-26",
+          "entry_date": "2026-08-27",
+          "exit_date": "2026-09-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.29254881302232455,
+          "rank_ic": -0.09774436090225577,
+          "topn_complete": true,
+          "topn_excess": 0.05627478805430184
+        },
+        {
+          "run_date": "2026-08-27",
+          "entry_date": "2026-08-28",
+          "exit_date": "2026-09-04",
+          "valid_rows": 90,
+          "prediction_ic": 0.14434763282680943,
+          "rank_ic": -0.4857142857142857,
+          "topn_complete": true,
+          "topn_excess": -0.011187121170345548
+        },
+        {
+          "run_date": "2026-08-28",
+          "entry_date": "2026-08-31",
+          "exit_date": "2026-09-07",
+          "valid_rows": 90,
+          "prediction_ic": 0.021113891541272863,
+          "rank_ic": -0.3548872180451127,
+          "topn_complete": true,
+          "topn_excess": -0.04090791709504267
+        },
+        {
+          "run_date": "2026-08-31",
+          "entry_date": "2026-09-01",
+          "exit_date": "2026-09-08",
+          "valid_rows": 90,
+          "prediction_ic": 0.040136807576615086,
+          "rank_ic": -0.30526315789473685,
+          "topn_complete": true,
+          "topn_excess": -0.05103039073682254
+        },
+        {
+          "run_date": "2026-09-01",
+          "entry_date": "2026-09-02",
+          "exit_date": "2026-09-09",
+          "valid_rows": 90,
+          "prediction_ic": -0.09000362187918108,
+          "rank_ic": -0.36541353383458647,
+          "topn_complete": true,
+          "topn_excess": -0.07374868131933916
+        },
+        {
+          "run_date": "2026-09-02",
+          "entry_date": "2026-09-03",
+          "exit_date": "2026-09-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.33554074799950007,
+          "rank_ic": -0.046616541353383445,
+          "topn_complete": true,
+          "topn_excess": -0.06430792496500459
+        },
+        {
+          "run_date": "2026-09-03",
+          "entry_date": "2026-09-04",
+          "exit_date": "2026-09-11",
+          "valid_rows": 90,
+          "prediction_ic": 0.021863231329800552,
+          "rank_ic": -0.08499436479217502,
+          "topn_complete": true,
+          "topn_excess": -0.02923799057895613
+        },
+        {
+          "run_date": "2026-09-04",
+          "entry_date": "2026-09-07",
+          "exit_date": "2026-09-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.07949293108666809,
+          "rank_ic": 0.21052631578947367,
+          "topn_complete": true,
+          "topn_excess": 0.04282583488281302
+        },
+        {
+          "run_date": "2026-09-07",
+          "entry_date": "2026-09-08",
+          "exit_date": "2026-09-15",
+          "valid_rows": 90,
+          "prediction_ic": 0.00755655065687666,
+          "rank_ic": 0.1218045112781954,
+          "topn_complete": true,
+          "topn_excess": 0.05575773472398356
+        },
+        {
+          "run_date": "2026-09-08",
+          "entry_date": "2026-09-09",
+          "exit_date": "2026-09-16",
+          "valid_rows": 90,
+          "prediction_ic": 0.17185731513219243,
+          "rank_ic": 0.39849624060150374,
+          "topn_complete": true,
+          "topn_excess": 0.035680278716044955
+        },
+        {
+          "run_date": "2026-09-09",
+          "entry_date": "2026-09-10",
+          "exit_date": "2026-09-17",
+          "valid_rows": 90,
+          "prediction_ic": 0.2960447791908469,
+          "rank_ic": 0.18345864661654132,
+          "topn_complete": true,
+          "topn_excess": 0.014724801524737785
+        },
+        {
+          "run_date": "2026-09-10",
+          "entry_date": "2026-09-11",
+          "exit_date": "2026-09-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.015253037437545474,
+          "rank_ic": -0.1503759398496241,
+          "topn_complete": true,
+          "topn_excess": -0.03281493772279358
+        },
+        {
+          "run_date": "2026-09-11",
+          "entry_date": "2026-09-14",
+          "exit_date": "2026-09-21",
+          "valid_rows": 90,
+          "prediction_ic": -0.2198981754891519,
+          "rank_ic": 0.17293233082706772,
+          "topn_complete": true,
+          "topn_excess": -0.07141268289985783
+        },
+        {
+          "run_date": "2026-09-14",
+          "entry_date": "2026-09-15",
+          "exit_date": "2026-09-22",
+          "valid_rows": 90,
+          "prediction_ic": 0.006527554842161399,
+          "rank_ic": 0.15187969924812025,
+          "topn_complete": true,
+          "topn_excess": -0.06953857832708887
+        },
+        {
+          "run_date": "2026-09-15",
+          "entry_date": "2026-09-16",
+          "exit_date": "2026-09-23",
+          "valid_rows": 90,
+          "prediction_ic": 0.06372006305385086,
+          "rank_ic": 0.0015037593984961952,
+          "topn_complete": true,
+          "topn_excess": -0.061510420181131086
+        },
+        {
+          "run_date": "2026-09-16",
+          "entry_date": "2026-09-17",
+          "exit_date": "2026-09-28",
+          "valid_rows": 90,
+          "prediction_ic": -0.09625056591348717,
+          "rank_ic": 0.22255639097744365,
+          "topn_complete": true,
+          "topn_excess": -0.04192581762226457
+        },
+        {
+          "run_date": "2026-09-17",
+          "entry_date": "2026-09-18",
+          "exit_date": "2026-09-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.05920121168420237,
+          "rank_ic": 0.43909774436090226,
+          "topn_complete": true,
+          "topn_excess": 0.03655507221601202
+        },
+        {
+          "run_date": "2026-09-18",
+          "entry_date": "2026-09-21",
+          "exit_date": "2026-09-30",
+          "valid_rows": 90,
+          "prediction_ic": -0.21513032526965464,
+          "rank_ic": 0.07518796992481204,
+          "topn_complete": true,
+          "topn_excess": -0.01755627880725812
+        },
+        {
+          "run_date": "2026-09-21",
+          "entry_date": "2026-09-22",
+          "exit_date": "2026-10-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.21182213295578026,
+          "rank_ic": -0.20150375939849624,
+          "topn_complete": true,
+          "topn_excess": -0.037505299648419574
+        },
+        {
+          "run_date": "2026-09-22",
+          "entry_date": "2026-09-23",
+          "exit_date": "2026-10-02",
+          "valid_rows": 90,
+          "prediction_ic": -0.2478237785399252,
+          "rank_ic": -0.18045112781954883,
+          "topn_complete": true,
+          "topn_excess": -0.021449190186746736
+        },
+        {
+          "run_date": "2026-09-23",
+          "entry_date": "2026-09-28",
+          "exit_date": "2026-10-06",
+          "valid_rows": 90,
+          "prediction_ic": -0.3408665303009909,
+          "rank_ic": -0.5699248120300753,
+          "topn_complete": true,
+          "topn_excess": -0.05362509157673321
+        },
+        {
+          "run_date": "2026-09-24",
+          "entry_date": "2026-09-28",
+          "exit_date": "2026-10-06",
+          "valid_rows": 90,
+          "prediction_ic": -0.3270142570325797,
+          "rank_ic": -0.4917293233082707,
+          "topn_complete": true,
+          "topn_excess": -0.04428659828467953
+        },
+        {
+          "run_date": "2026-09-25",
+          "entry_date": "2026-09-28",
+          "exit_date": "2026-10-06",
+          "valid_rows": 90,
+          "prediction_ic": -0.3270142570325797,
+          "rank_ic": -0.4917293233082707,
+          "topn_complete": true,
+          "topn_excess": -0.04428659828467953
+        },
+        {
+          "run_date": "2026-09-28",
+          "entry_date": "2026-09-29",
+          "exit_date": "2026-10-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.36736113397649084,
+          "rank_ic": -0.6421052631578947,
+          "topn_complete": true,
+          "topn_excess": -0.030348120867397778
+        },
+        {
+          "run_date": "2026-09-29",
+          "entry_date": "2026-09-30",
+          "exit_date": "2026-10-08",
+          "valid_rows": 90,
+          "prediction_ic": -0.2789420829174875,
+          "rank_ic": -0.22105263157894736,
+          "topn_complete": true,
+          "topn_excess": -0.009418988676690642
+        },
+        {
+          "run_date": "2026-09-30",
+          "entry_date": "2026-10-01",
+          "exit_date": "2026-10-12",
+          "valid_rows": 90,
+          "prediction_ic": -0.011968605048481943,
+          "rank_ic": 0.46917293233082696,
+          "topn_complete": true,
+          "topn_excess": 0.07168866049278921
+        },
+        {
+          "run_date": "2026-10-01",
+          "entry_date": "2026-10-02",
+          "exit_date": "2026-10-13",
+          "valid_rows": 90,
+          "prediction_ic": 0.15374041026499588,
+          "rank_ic": 0.24060150375939854,
+          "topn_complete": true,
+          "topn_excess": 0.10276027130954121
+        },
+        {
+          "run_date": "2026-10-02",
+          "entry_date": "2026-10-06",
+          "exit_date": "2026-10-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.20446145614684932,
+          "rank_ic": 0.09624060150375945,
+          "topn_complete": true,
+          "topn_excess": 0.047559833008101585
+        },
+        {
+          "run_date": "2026-10-05",
+          "entry_date": "2026-10-06",
+          "exit_date": "2026-10-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.22886141385649086,
+          "rank_ic": -0.17443609022556392,
+          "topn_complete": true,
+          "topn_excess": 0.047559833008101585
+        },
+        {
+          "run_date": "2026-10-06",
+          "entry_date": "2026-10-07",
+          "exit_date": "2026-10-15",
+          "valid_rows": 90,
+          "prediction_ic": 0.3271157281708992,
+          "rank_ic": 0.0766917293233083,
+          "topn_complete": true,
+          "topn_excess": 0.12317099770291966
+        },
+        {
+          "run_date": "2026-10-07",
+          "entry_date": "2026-10-08",
+          "exit_date": "2026-10-16",
+          "valid_rows": 86,
+          "prediction_ic": 0.17941496964664763,
+          "rank_ic": -0.05112781954887222,
+          "topn_complete": true,
+          "topn_excess": 0.06857561161312502
+        }
+      ]
+    },
+    "10": {
+      "valid_rows": 9029,
+      "row_coverage": 0.8822552276724643,
+      "row_rejections": {
+        "missing_exact_entry_or_exit_close": 35,
+        "not_mature_or_no_future_benchmark": 1170
+      },
+      "cohort_rejections": {
+        "incomplete_topn_ranks_or_prices": 3,
+        "not_mature_or_no_future_benchmark": 13
+      },
+      "valid_rows_without_recorded_timestamp": 0,
+      "prediction_ic": {
+        "n_cohorts": 104,
+        "n_entry_sessions": 81,
+        "mean": -0.029248814242805565,
+        "nw_t": -0.5484378041372692,
+        "positive_share": 0.5185185185185185,
+        "rough_nonoverlapping_blocks": 8,
+        "small_sample": true
+      },
+      "saved_rank_ic": {
+        "n_cohorts": 104,
+        "n_entry_sessions": 81,
+        "mean": 0.03650563635714345,
+        "nw_t": 0.9867656879945046,
+        "positive_share": 0.6172839506172839,
+        "rough_nonoverlapping_blocks": 8,
+        "small_sample": true
+      },
+      "topn_gross_return": {
+        "n_cohorts": 104,
+        "n_entry_sessions": 81,
+        "mean": -0.02650867825689938,
+        "nw_t": -2.667209494601699,
+        "positive_share": 0.2716049382716049,
+        "rough_nonoverlapping_blocks": 8,
+        "small_sample": true
+      },
+      "topn_excess_return": {
+        "n_cohorts": 104,
+        "n_entry_sessions": 81,
+        "mean": 0.0013030516916120445,
+        "nw_t": 0.06766122233648131,
+        "positive_share": 0.5308641975308642,
+        "rough_nonoverlapping_blocks": 8,
+        "small_sample": true
+      },
+      "topn_minus_same_cohort_available_universe": {
+        "n_cohorts": 104,
+        "n_entry_sessions": 81,
+        "mean": -0.010232348927334257,
+        "nw_t": -0.9464679861291261,
+        "positive_share": 0.3950617283950617,
+        "rough_nonoverlapping_blocks": 8,
+        "small_sample": true
+      },
+      "available_universe_excess_return": {
+        "n_cohorts": 107,
+        "n_entry_sessions": 82,
+        "mean": 0.013894139214496313,
+        "nw_t": 0.826611509341383,
+        "positive_share": 0.5365853658536586,
+        "rough_nonoverlapping_blocks": 8,
+        "small_sample": true
+      },
+      "daily": [
+        {
+          "run_date": "2026-05-29",
+          "entry_date": "2026-06-01",
+          "exit_date": "2026-06-16",
+          "valid_rows": 10,
+          "prediction_ic": -0.1272727272727273,
+          "rank_ic": 0.05454545454545452,
+          "topn_complete": true,
+          "topn_excess": -0.010374849635137772
+        },
+        {
+          "run_date": "2026-05-31",
+          "entry_date": "2026-06-01",
+          "exit_date": "2026-06-16",
+          "valid_rows": 30,
+          "prediction_ic": 0.02157953281423808,
+          "rank_ic": 0.08609566184649611,
+          "topn_complete": true,
+          "topn_excess": -0.04846468445072556
+        },
+        {
+          "run_date": "2026-06-02",
+          "entry_date": "2026-06-04",
+          "exit_date": "2026-06-18",
+          "valid_rows": 30,
+          "prediction_ic": -0.04916573971078974,
+          "rank_ic": -0.2596218020022247,
+          "topn_complete": true,
+          "topn_excess": -0.09462104062703083
+        },
+        {
+          "run_date": "2026-06-03",
+          "entry_date": "2026-06-04",
+          "exit_date": "2026-06-18",
+          "valid_rows": 30,
+          "prediction_ic": -0.3285873192436041,
+          "rank_ic": -0.31479421579532824,
+          "topn_complete": true,
+          "topn_excess": -0.15159928614501045
+        },
+        {
+          "run_date": "2026-06-04",
+          "entry_date": "2026-06-05",
+          "exit_date": "2026-06-19",
+          "valid_rows": 30,
+          "prediction_ic": -0.28631813125695205,
+          "rank_ic": -0.2778642936596218,
+          "topn_complete": true,
+          "topn_excess": -0.18712986831708467
+        },
+        {
+          "run_date": "2026-06-05",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-06-22",
+          "valid_rows": 30,
+          "prediction_ic": 0.02958843159065615,
+          "rank_ic": 0.09187986651835361,
+          "topn_complete": true,
+          "topn_excess": -0.10998199256220856
+        },
+        {
+          "run_date": "2026-06-06",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-06-22",
+          "valid_rows": 1,
+          "prediction_ic": null,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-07",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-06-22",
+          "valid_rows": 1,
+          "prediction_ic": null,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-08",
+          "entry_date": "2026-06-09",
+          "exit_date": "2026-06-23",
+          "valid_rows": 51,
+          "prediction_ic": 0.13023109399360241,
+          "rank_ic": 0.10423116615067084,
+          "topn_complete": true,
+          "topn_excess": 0.008762338242310052
+        },
+        {
+          "run_date": "2026-06-09",
+          "entry_date": "2026-06-10",
+          "exit_date": "2026-06-24",
+          "valid_rows": 90,
+          "prediction_ic": null,
+          "rank_ic": 0.08431590656284758,
+          "topn_complete": true,
+          "topn_excess": -0.1025065345935505
+        },
+        {
+          "run_date": "2026-06-10",
+          "entry_date": "2026-06-11",
+          "exit_date": "2026-06-25",
+          "valid_rows": 90,
+          "prediction_ic": -0.08924094444924559,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-11",
+          "entry_date": "2026-06-12",
+          "exit_date": "2026-06-26",
+          "valid_rows": 90,
+          "prediction_ic": 0.1141453940629886,
+          "rank_ic": 0.5181312569521692,
+          "topn_complete": true,
+          "topn_excess": -0.11328960897350819
+        },
+        {
+          "run_date": "2026-06-13",
+          "entry_date": "2026-06-15",
+          "exit_date": "2026-06-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.12710211137177435,
+          "rank_ic": 0.3408866995073892,
+          "topn_complete": true,
+          "topn_excess": -0.028385535114540096
+        },
+        {
+          "run_date": "2026-06-14",
+          "entry_date": "2026-06-15",
+          "exit_date": "2026-06-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.09702432399061615,
+          "rank_ic": 0.35789473684210527,
+          "topn_complete": true,
+          "topn_excess": -0.028385535114540096
+        },
+        {
+          "run_date": "2026-06-15",
+          "entry_date": "2026-06-16",
+          "exit_date": "2026-06-30",
+          "valid_rows": 90,
+          "prediction_ic": 0.07363048936082629,
+          "rank_ic": 0.356390977443609,
+          "topn_complete": true,
+          "topn_excess": -0.04607837336637677
+        },
+        {
+          "run_date": "2026-06-16",
+          "entry_date": "2026-06-17",
+          "exit_date": "2026-07-01",
+          "valid_rows": 90,
+          "prediction_ic": 0.17163435815121206,
+          "rank_ic": 0.3684210526315789,
+          "topn_complete": true,
+          "topn_excess": 0.017519059675730086
+        },
+        {
+          "run_date": "2026-06-17",
+          "entry_date": "2026-06-18",
+          "exit_date": "2026-07-02",
+          "valid_rows": 90,
+          "prediction_ic": 0.18964481211672224,
+          "rank_ic": 0.26466165413533843,
+          "topn_complete": true,
+          "topn_excess": 0.10739512636111134
+        },
+        {
+          "run_date": "2026-06-18",
+          "entry_date": "2026-06-19",
+          "exit_date": "2026-07-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.1766720171214554,
+          "rank_ic": 0.4030075187969925,
+          "topn_complete": true,
+          "topn_excess": 0.1028217654672476
+        },
+        {
+          "run_date": "2026-06-19",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-07-06",
+          "valid_rows": 90,
+          "prediction_ic": 0.2823970037453182,
+          "rank_ic": 0.19097744360902252,
+          "topn_complete": true,
+          "topn_excess": 0.12486198914261981
+        },
+        {
+          "run_date": "2026-06-20",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-07-06",
+          "valid_rows": 90,
+          "prediction_ic": 0.17206239453430458,
+          "rank_ic": -0.10827067669172945,
+          "topn_complete": true,
+          "topn_excess": 0.07687511135847687
+        },
+        {
+          "run_date": "2026-06-21",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-07-06",
+          "valid_rows": 90,
+          "prediction_ic": 0.19430382351730646,
+          "rank_ic": 0.04812030075187968,
+          "topn_complete": true,
+          "topn_excess": 0.12679417773073676
+        },
+        {
+          "run_date": "2026-06-22",
+          "entry_date": "2026-06-23",
+          "exit_date": "2026-07-07",
+          "valid_rows": 90,
+          "prediction_ic": 0.16042309750174918,
+          "rank_ic": -0.15789473684210528,
+          "topn_complete": true,
+          "topn_excess": 0.10482922595970205
+        },
+        {
+          "run_date": "2026-06-23",
+          "entry_date": "2026-06-24",
+          "exit_date": "2026-07-08",
+          "valid_rows": 90,
+          "prediction_ic": 0.14603448985471457,
+          "rank_ic": -0.17142857142857143,
+          "topn_complete": true,
+          "topn_excess": 0.1628107779734105
+        },
+        {
+          "run_date": "2026-06-24",
+          "entry_date": "2026-06-25",
+          "exit_date": "2026-07-09",
+          "valid_rows": 90,
+          "prediction_ic": 0.12492900358068912,
+          "rank_ic": -0.03909774436090208,
+          "topn_complete": true,
+          "topn_excess": 0.13477621075011512
+        },
+        {
+          "run_date": "2026-06-25",
+          "entry_date": "2026-06-26",
+          "exit_date": "2026-07-10",
+          "valid_rows": 90,
+          "prediction_ic": 0.13507017327242057,
+          "rank_ic": 0.12330827067669173,
+          "topn_complete": true,
+          "topn_excess": 0.1540917968147087
+        },
+        {
+          "run_date": "2026-06-26",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-07-13",
+          "valid_rows": 90,
+          "prediction_ic": 0.13888957484463102,
+          "rank_ic": 0.22255639097744362,
+          "topn_complete": true,
+          "topn_excess": 0.14842890080296117
+        },
+        {
+          "run_date": "2026-06-27",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-07-13",
+          "valid_rows": 90,
+          "prediction_ic": 0.1184755319586781,
+          "rank_ic": 0.17593984962406017,
+          "topn_complete": true,
+          "topn_excess": 0.09493124251072378
+        },
+        {
+          "run_date": "2026-06-28",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-07-13",
+          "valid_rows": 90,
+          "prediction_ic": 0.1502983907478289,
+          "rank_ic": 0.22406015037593982,
+          "topn_complete": true,
+          "topn_excess": 0.16234329444701187
+        },
+        {
+          "run_date": "2026-06-29",
+          "entry_date": "2026-06-30",
+          "exit_date": "2026-07-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.045808124459809876,
+          "rank_ic": 0.06766917293233075,
+          "topn_complete": true,
+          "topn_excess": 0.08600049846638232
+        },
+        {
+          "run_date": "2026-06-30",
+          "entry_date": "2026-07-01",
+          "exit_date": "2026-07-15",
+          "valid_rows": 90,
+          "prediction_ic": 0.08263571634358159,
+          "rank_ic": 0.087218045112782,
+          "topn_complete": true,
+          "topn_excess": 0.04709723601184592
+        },
+        {
+          "run_date": "2026-07-01",
+          "entry_date": "2026-07-02",
+          "exit_date": "2026-07-16",
+          "valid_rows": 90,
+          "prediction_ic": 0.2368111289459604,
+          "rank_ic": -0.3112781954887217,
+          "topn_complete": true,
+          "topn_excess": 0.029776283009609238
+        },
+        {
+          "run_date": "2026-07-02",
+          "entry_date": "2026-07-03",
+          "exit_date": "2026-07-20",
+          "valid_rows": 90,
+          "prediction_ic": 0.11217022677696831,
+          "rank_ic": 0.058646616541353384,
+          "topn_complete": true,
+          "topn_excess": 0.06269710493819139
+        },
+        {
+          "run_date": "2026-07-03",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.0502203984874752,
+          "rank_ic": -0.14285714285714277,
+          "topn_complete": true,
+          "topn_excess": 0.04147139083795544
+        },
+        {
+          "run_date": "2026-07-04",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.06237832809999793,
+          "rank_ic": -0.18045112781954892,
+          "topn_complete": true,
+          "topn_excess": 0.053533282965140636
+        },
+        {
+          "run_date": "2026-07-05",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.08648839975543368,
+          "rank_ic": -0.1548872180451129,
+          "topn_complete": true,
+          "topn_excess": 0.04147139083795544
+        },
+        {
+          "run_date": "2026-07-06",
+          "entry_date": "2026-07-07",
+          "exit_date": "2026-07-22",
+          "valid_rows": 90,
+          "prediction_ic": 0.0557682018356175,
+          "rank_ic": 0.007518796992481209,
+          "topn_complete": true,
+          "topn_excess": 0.022394493568392272
+        },
+        {
+          "run_date": "2026-07-07",
+          "entry_date": "2026-07-08",
+          "exit_date": "2026-07-23",
+          "valid_rows": 90,
+          "prediction_ic": -0.04477095937770104,
+          "rank_ic": 0.03157894736842108,
+          "topn_complete": true,
+          "topn_excess": 0.0018405836444634004
+        },
+        {
+          "run_date": "2026-07-08",
+          "entry_date": "2026-07-09",
+          "exit_date": "2026-07-24",
+          "valid_rows": 90,
+          "prediction_ic": 0.0868996172366958,
+          "rank_ic": -0.10676691729323304,
+          "topn_complete": true,
+          "topn_excess": 0.04416297123295696
+        },
+        {
+          "run_date": "2026-07-09",
+          "entry_date": "2026-07-10",
+          "exit_date": "2026-07-27",
+          "valid_rows": 90,
+          "prediction_ic": 0.1355805243445692,
+          "rank_ic": 0.17593984962406015,
+          "topn_complete": true,
+          "topn_excess": 0.04469707612069307
+        },
+        {
+          "run_date": "2026-07-10",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.21585380911223598,
+          "rank_ic": -0.010526315789473684,
+          "topn_complete": true,
+          "topn_excess": 0.042570025789074914
+        },
+        {
+          "run_date": "2026-07-11",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.22862904885376792,
+          "rank_ic": 0.06015037593984956,
+          "topn_complete": true,
+          "topn_excess": 0.06621920780648219
+        },
+        {
+          "run_date": "2026-07-12",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.26267440424743793,
+          "rank_ic": -0.15939849624060143,
+          "topn_complete": true,
+          "topn_excess": 0.06621920780648219
+        },
+        {
+          "run_date": "2026-07-13",
+          "entry_date": "2026-07-14",
+          "exit_date": "2026-07-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.1882454624027658,
+          "rank_ic": -0.048120300751879744,
+          "topn_complete": true,
+          "topn_excess": 0.08183901200512896
+        },
+        {
+          "run_date": "2026-07-14",
+          "entry_date": "2026-07-15",
+          "exit_date": "2026-07-30",
+          "valid_rows": 90,
+          "prediction_ic": 0.2941350784047415,
+          "rank_ic": -0.11127819548872186,
+          "topn_complete": true,
+          "topn_excess": 0.049425486208125036
+        },
+        {
+          "run_date": "2026-07-15",
+          "entry_date": "2026-07-16",
+          "exit_date": "2026-07-31",
+          "valid_rows": 90,
+          "prediction_ic": 0.20823146890562616,
+          "rank_ic": 0.05263157894736841,
+          "topn_complete": true,
+          "topn_excess": 0.01761489417877704
+        },
+        {
+          "run_date": "2026-07-16",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-08-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.10141992838622052,
+          "rank_ic": -0.07819548872180447,
+          "topn_complete": true,
+          "topn_excess": 0.03779428854711327
+        },
+        {
+          "run_date": "2026-07-17",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-08-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.06987693953986085,
+          "rank_ic": 0.08120300751879694,
+          "topn_complete": true,
+          "topn_excess": 0.07637672037904826
+        },
+        {
+          "run_date": "2026-07-18",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-08-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.06600814915421653,
+          "rank_ic": 0.024060150375939914,
+          "topn_complete": true,
+          "topn_excess": 0.043804898999577846
+        },
+        {
+          "run_date": "2026-07-19",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-08-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.08304728978886285,
+          "rank_ic": -0.09774436090225562,
+          "topn_complete": true,
+          "topn_excess": 0.043804898999577846
+        },
+        {
+          "run_date": "2026-07-20",
+          "entry_date": "2026-07-21",
+          "exit_date": "2026-08-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.018479647693130846,
+          "rank_ic": 0.024060150375939872,
+          "topn_complete": true,
+          "topn_excess": 0.061998118235476095
+        },
+        {
+          "run_date": "2026-07-21",
+          "entry_date": "2026-07-22",
+          "exit_date": "2026-08-05",
+          "valid_rows": 90,
+          "prediction_ic": -0.07758191374273926,
+          "rank_ic": 0.19097744360902252,
+          "topn_complete": true,
+          "topn_excess": 0.030732292819132322
+        },
+        {
+          "run_date": "2026-07-22",
+          "entry_date": "2026-07-23",
+          "exit_date": "2026-08-06",
+          "valid_rows": 90,
+          "prediction_ic": 0.16002798699427914,
+          "rank_ic": -0.18796992481203015,
+          "topn_complete": true,
+          "topn_excess": 0.1063292676066369
+        },
+        {
+          "run_date": "2026-07-23",
+          "entry_date": "2026-07-24",
+          "exit_date": "2026-08-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.16261266823064577,
+          "rank_ic": 0.24962406015037586,
+          "topn_complete": true,
+          "topn_excess": 0.0626647180156729
+        },
+        {
+          "run_date": "2026-07-24",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-08-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.41423220973782776,
+          "rank_ic": 0.13834586466165424,
+          "topn_complete": true,
+          "topn_excess": 0.03624074692772883
+        },
+        {
+          "run_date": "2026-07-25",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-08-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.46199119232827096,
+          "rank_ic": 0.18947368421052624,
+          "topn_complete": true,
+          "topn_excess": 0.03624074692772883
+        },
+        {
+          "run_date": "2026-07-26",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-08-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.4454130139523399,
+          "rank_ic": 0.07368421052631573,
+          "topn_complete": true,
+          "topn_excess": 0.0320391857567867
+        },
+        {
+          "run_date": "2026-07-27",
+          "entry_date": "2026-07-28",
+          "exit_date": "2026-08-11",
+          "valid_rows": 90,
+          "prediction_ic": -0.47777914968926205,
+          "rank_ic": -0.25263157894736843,
+          "topn_complete": true,
+          "topn_excess": -0.039229457099827524
+        },
+        {
+          "run_date": "2026-07-28",
+          "entry_date": "2026-07-29",
+          "exit_date": "2026-08-12",
+          "valid_rows": 90,
+          "prediction_ic": -0.5819566201588674,
+          "rank_ic": -0.4556390977443609,
+          "topn_complete": true,
+          "topn_excess": -0.14696846130120617
+        },
+        {
+          "run_date": "2026-07-29",
+          "entry_date": "2026-07-30",
+          "exit_date": "2026-08-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.5928056961764826,
+          "rank_ic": -0.3308270676691729,
+          "topn_complete": true,
+          "topn_excess": -0.21104069267465508
+        },
+        {
+          "run_date": "2026-07-30",
+          "entry_date": "2026-07-31",
+          "exit_date": "2026-08-14",
+          "valid_rows": 90,
+          "prediction_ic": -0.5046466641972264,
+          "rank_ic": -0.3744360902255639,
+          "topn_complete": true,
+          "topn_excess": -0.05079631759338203
+        },
+        {
+          "run_date": "2026-07-31",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.4675556653084743,
+          "rank_ic": -0.1954887218045113,
+          "topn_complete": true,
+          "topn_excess": -0.08801083021421259
+        },
+        {
+          "run_date": "2026-08-01",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.4805943120549861,
+          "rank_ic": -0.2902255639097745,
+          "topn_complete": true,
+          "topn_excess": -0.08801083021421259
+        },
+        {
+          "run_date": "2026-08-02",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.4857801374655303,
+          "rank_ic": -0.18646616541353384,
+          "topn_complete": true,
+          "topn_excess": -0.10276210071034737
+        },
+        {
+          "run_date": "2026-08-03",
+          "entry_date": "2026-08-04",
+          "exit_date": "2026-08-19",
+          "valid_rows": 90,
+          "prediction_ic": -0.4270733012306048,
+          "rank_ic": -0.15789473684210528,
+          "topn_complete": true,
+          "topn_excess": -0.05483974256004502
+        },
+        {
+          "run_date": "2026-08-04",
+          "entry_date": "2026-08-05",
+          "exit_date": "2026-08-20",
+          "valid_rows": 90,
+          "prediction_ic": -0.32878268421352774,
+          "rank_ic": -0.2300751879699249,
+          "topn_complete": true,
+          "topn_excess": -0.07729611775870779
+        },
+        {
+          "run_date": "2026-08-05",
+          "entry_date": "2026-08-06",
+          "exit_date": "2026-08-21",
+          "valid_rows": 90,
+          "prediction_ic": -0.1803432522533646,
+          "rank_ic": 0.08421052631578943,
+          "topn_complete": true,
+          "topn_excess": -0.12678100638749346
+        },
+        {
+          "run_date": "2026-08-06",
+          "entry_date": "2026-08-07",
+          "exit_date": "2026-08-24",
+          "valid_rows": 90,
+          "prediction_ic": -0.27688191957854874,
+          "rank_ic": 0.03007518796992488,
+          "topn_complete": true,
+          "topn_excess": -0.11073919014008889
+        },
+        {
+          "run_date": "2026-08-07",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-08-25",
+          "valid_rows": 90,
+          "prediction_ic": -0.07924565578150558,
+          "rank_ic": 0.23759398496240602,
+          "topn_complete": true,
+          "topn_excess": -0.10169574131296497
+        },
+        {
+          "run_date": "2026-08-08",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-08-25",
+          "valid_rows": 90,
+          "prediction_ic": -0.08280891801081776,
+          "rank_ic": -0.06766917293233077,
+          "topn_complete": true,
+          "topn_excess": -0.10169574131296497
+        },
+        {
+          "run_date": "2026-08-09",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-08-25",
+          "valid_rows": 90,
+          "prediction_ic": -0.08969082348596663,
+          "rank_ic": 0.003007518796992545,
+          "topn_complete": true,
+          "topn_excess": -0.09112042705666909
+        },
+        {
+          "run_date": "2026-08-10",
+          "entry_date": "2026-08-11",
+          "exit_date": "2026-08-26",
+          "valid_rows": 90,
+          "prediction_ic": -0.011087788615878348,
+          "rank_ic": -0.19097744360902258,
+          "topn_complete": true,
+          "topn_excess": -0.08653590160366587
+        },
+        {
+          "run_date": "2026-08-11",
+          "entry_date": "2026-08-12",
+          "exit_date": "2026-08-27",
+          "valid_rows": 90,
+          "prediction_ic": 0.0499899164095125,
+          "rank_ic": 0.022556390977443646,
+          "topn_complete": true,
+          "topn_excess": -0.06070617341613864
+        },
+        {
+          "run_date": "2026-08-12",
+          "entry_date": "2026-08-13",
+          "exit_date": "2026-08-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.16351124427908198,
+          "rank_ic": 0.3413533834586465,
+          "topn_complete": true,
+          "topn_excess": 0.033882962626948364
+        },
+        {
+          "run_date": "2026-08-13",
+          "entry_date": "2026-08-14",
+          "exit_date": "2026-08-31",
+          "valid_rows": 90,
+          "prediction_ic": 0.03953737244047009,
+          "rank_ic": 0.2586466165413534,
+          "topn_complete": true,
+          "topn_excess": 0.06515143345794028
+        },
+        {
+          "run_date": "2026-08-14",
+          "entry_date": "2026-08-18",
+          "exit_date": "2026-09-01",
+          "valid_rows": 90,
+          "prediction_ic": 0.07225613144124839,
+          "rank_ic": 0.1458646616541354,
+          "topn_complete": true,
+          "topn_excess": 0.022114950517885056
+        },
+        {
+          "run_date": "2026-08-17",
+          "entry_date": "2026-08-18",
+          "exit_date": "2026-09-01",
+          "valid_rows": 90,
+          "prediction_ic": 0.07733496865920823,
+          "rank_ic": 0.10225563909774432,
+          "topn_complete": true,
+          "topn_excess": 0.03744531350613121
+        },
+        {
+          "run_date": "2026-08-18",
+          "entry_date": "2026-08-19",
+          "exit_date": "2026-09-02",
+          "valid_rows": 90,
+          "prediction_ic": 0.16039972342580236,
+          "rank_ic": 0.3624060150375941,
+          "topn_complete": true,
+          "topn_excess": 0.03621015269806147
+        },
+        {
+          "run_date": "2026-08-19",
+          "entry_date": "2026-08-20",
+          "exit_date": "2026-09-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.3627705592102141,
+          "rank_ic": 0.518796992481203,
+          "topn_complete": true,
+          "topn_excess": 0.11993222114861338
+        },
+        {
+          "run_date": "2026-08-20",
+          "entry_date": "2026-08-21",
+          "exit_date": "2026-09-04",
+          "valid_rows": 90,
+          "prediction_ic": 0.12644567553090086,
+          "rank_ic": 0.25413533834586477,
+          "topn_complete": true,
+          "topn_excess": 0.08493762419400006
+        },
+        {
+          "run_date": "2026-08-21",
+          "entry_date": "2026-08-24",
+          "exit_date": "2026-09-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.09508169732888835,
+          "rank_ic": 0.061654135338345885,
+          "topn_complete": true,
+          "topn_excess": -0.02352983043118746
+        },
+        {
+          "run_date": "2026-08-24",
+          "entry_date": "2026-08-25",
+          "exit_date": "2026-09-08",
+          "valid_rows": 90,
+          "prediction_ic": -0.06273228271972604,
+          "rank_ic": 0.05413533834586466,
+          "topn_complete": true,
+          "topn_excess": 0.04119722480525192
+        },
+        {
+          "run_date": "2026-08-25",
+          "entry_date": "2026-08-26",
+          "exit_date": "2026-09-09",
+          "valid_rows": 90,
+          "prediction_ic": -0.0945403659035294,
+          "rank_ic": 0.3332079964861373,
+          "topn_complete": true,
+          "topn_excess": -0.0385331387739339
+        },
+        {
+          "run_date": "2026-08-26",
+          "entry_date": "2026-08-27",
+          "exit_date": "2026-09-10",
+          "valid_rows": 90,
+          "prediction_ic": 0.011935728162137607,
+          "rank_ic": -0.23759398496240605,
+          "topn_complete": true,
+          "topn_excess": -0.03156167916818568
+        },
+        {
+          "run_date": "2026-08-27",
+          "entry_date": "2026-08-28",
+          "exit_date": "2026-09-11",
+          "valid_rows": 90,
+          "prediction_ic": 0.08405187493125853,
+          "rank_ic": -0.2646616541353384,
+          "topn_complete": true,
+          "topn_excess": -0.03983561660856509
+        },
+        {
+          "run_date": "2026-08-28",
+          "entry_date": "2026-08-31",
+          "exit_date": "2026-09-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.05762875099341314,
+          "rank_ic": -0.17744360902255626,
+          "topn_complete": true,
+          "topn_excess": -0.01347567716719784
+        },
+        {
+          "run_date": "2026-08-31",
+          "entry_date": "2026-09-01",
+          "exit_date": "2026-09-15",
+          "valid_rows": 90,
+          "prediction_ic": 0.005235235770862846,
+          "rank_ic": -0.18947368421052632,
+          "topn_complete": true,
+          "topn_excess": -0.03659831128497955
+        },
+        {
+          "run_date": "2026-09-01",
+          "entry_date": "2026-09-02",
+          "exit_date": "2026-09-16",
+          "valid_rows": 90,
+          "prediction_ic": -0.05941523163745469,
+          "rank_ic": 0.1714285714285715,
+          "topn_complete": true,
+          "topn_excess": -0.04218479181668942
+        },
+        {
+          "run_date": "2026-09-02",
+          "entry_date": "2026-09-03",
+          "exit_date": "2026-09-17",
+          "valid_rows": 90,
+          "prediction_ic": -0.2823981660235715,
+          "rank_ic": -0.21804511278195493,
+          "topn_complete": true,
+          "topn_excess": -0.03993990501339435
+        },
+        {
+          "run_date": "2026-09-03",
+          "entry_date": "2026-09-04",
+          "exit_date": "2026-09-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.1214532074487779,
+          "rank_ic": 0.0736842105263158,
+          "topn_complete": true,
+          "topn_excess": -0.05556058871455498
+        },
+        {
+          "run_date": "2026-09-04",
+          "entry_date": "2026-09-07",
+          "exit_date": "2026-09-21",
+          "valid_rows": 90,
+          "prediction_ic": -0.07846268454066754,
+          "rank_ic": 0.15939849624060154,
+          "topn_complete": true,
+          "topn_excess": -0.023593157773979433
+        },
+        {
+          "run_date": "2026-09-07",
+          "entry_date": "2026-09-08",
+          "exit_date": "2026-09-22",
+          "valid_rows": 90,
+          "prediction_ic": -0.06693062460900198,
+          "rank_ic": 0.07518796992481197,
+          "topn_complete": true,
+          "topn_excess": -0.016343330598871587
+        },
+        {
+          "run_date": "2026-09-08",
+          "entry_date": "2026-09-09",
+          "exit_date": "2026-09-23",
+          "valid_rows": 90,
+          "prediction_ic": 0.05886371867900296,
+          "rank_ic": 0.2556390977443609,
+          "topn_complete": true,
+          "topn_excess": -0.018617873423554476
+        },
+        {
+          "run_date": "2026-09-09",
+          "entry_date": "2026-09-10",
+          "exit_date": "2026-09-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.01727785323290937,
+          "rank_ic": 0.43909774436090226,
+          "topn_complete": true,
+          "topn_excess": 0.004041298294491647
+        },
+        {
+          "run_date": "2026-09-10",
+          "entry_date": "2026-09-11",
+          "exit_date": "2026-09-29",
+          "valid_rows": 90,
+          "prediction_ic": -0.11985940535785222,
+          "rank_ic": 0.28571428571428575,
+          "topn_complete": true,
+          "topn_excess": -0.022537021122264588
+        },
+        {
+          "run_date": "2026-09-11",
+          "entry_date": "2026-09-14",
+          "exit_date": "2026-09-30",
+          "valid_rows": 90,
+          "prediction_ic": -0.1832759181427703,
+          "rank_ic": 0.23458646616541354,
+          "topn_complete": true,
+          "topn_excess": -0.07416014866882988
+        },
+        {
+          "run_date": "2026-09-14",
+          "entry_date": "2026-09-15",
+          "exit_date": "2026-10-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.026793431287813304,
+          "rank_ic": 0.0932330827067668,
+          "topn_complete": true,
+          "topn_excess": -0.08718548694582107
+        },
+        {
+          "run_date": "2026-09-15",
+          "entry_date": "2026-09-16",
+          "exit_date": "2026-10-02",
+          "valid_rows": 90,
+          "prediction_ic": -0.17053204318390788,
+          "rank_ic": -0.20000000000000004,
+          "topn_complete": true,
+          "topn_excess": -0.07753755980096418
+        },
+        {
+          "run_date": "2026-09-16",
+          "entry_date": "2026-09-17",
+          "exit_date": "2026-10-06",
+          "valid_rows": 90,
+          "prediction_ic": -0.20098777626867512,
+          "rank_ic": -0.10676691729323302,
+          "topn_complete": true,
+          "topn_excess": -0.07981195729120674
+        },
+        {
+          "run_date": "2026-09-17",
+          "entry_date": "2026-09-18",
+          "exit_date": "2026-10-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.15119686543596117,
+          "rank_ic": 0.1609022556390978,
+          "topn_complete": true,
+          "topn_excess": 0.017926444215763216
+        },
+        {
+          "run_date": "2026-09-18",
+          "entry_date": "2026-09-21",
+          "exit_date": "2026-10-08",
+          "valid_rows": 90,
+          "prediction_ic": -0.21418370244945142,
+          "rank_ic": 0.02706766917293233,
+          "topn_complete": true,
+          "topn_excess": -0.018540363697885854
+        },
+        {
+          "run_date": "2026-09-21",
+          "entry_date": "2026-09-22",
+          "exit_date": "2026-10-12",
+          "valid_rows": 90,
+          "prediction_ic": -0.1642843325705669,
+          "rank_ic": 0.21503759398496244,
+          "topn_complete": true,
+          "topn_excess": 0.011170981293120242
+        },
+        {
+          "run_date": "2026-09-22",
+          "entry_date": "2026-09-23",
+          "exit_date": "2026-10-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.06232919561634901,
+          "rank_ic": 0.1834586466165413,
+          "topn_complete": true,
+          "topn_excess": 0.07358968056479127
+        },
+        {
+          "run_date": "2026-09-23",
+          "entry_date": "2026-09-28",
+          "exit_date": "2026-10-14",
+          "valid_rows": 90,
+          "prediction_ic": -0.1487514868164503,
+          "rank_ic": -0.06766917293233093,
+          "topn_complete": true,
+          "topn_excess": 0.027999989029459105
+        },
+        {
+          "run_date": "2026-09-24",
+          "entry_date": "2026-09-28",
+          "exit_date": "2026-10-14",
+          "valid_rows": 90,
+          "prediction_ic": -0.10322346976083144,
+          "rank_ic": -0.04360902255639096,
+          "topn_complete": true,
+          "topn_excess": 0.06947522122760152
+        },
+        {
+          "run_date": "2026-09-25",
+          "entry_date": "2026-09-28",
+          "exit_date": "2026-10-14",
+          "valid_rows": 90,
+          "prediction_ic": -0.10322346976083144,
+          "rank_ic": -0.04360902255639096,
+          "topn_complete": true,
+          "topn_excess": 0.06947522122760152
+        },
+        {
+          "run_date": "2026-09-28",
+          "entry_date": "2026-09-29",
+          "exit_date": "2026-10-15",
+          "valid_rows": 90,
+          "prediction_ic": -0.01994493124654191,
+          "rank_ic": -0.35789473684210515,
+          "topn_complete": true,
+          "topn_excess": 0.08558158899969308
+        },
+        {
+          "run_date": "2026-09-29",
+          "entry_date": "2026-09-30",
+          "exit_date": "2026-10-16",
+          "valid_rows": 86,
+          "prediction_ic": 0.11103406308941452,
+          "rank_ic": -0.052631578947368314,
+          "topn_complete": true,
+          "topn_excess": 0.10584035842918951
+        }
+      ]
+    },
+    "20": {
+      "valid_rows": 7949,
+      "row_coverage": 0.7767246433457103,
+      "row_rejections": {
+        "missing_exact_entry_or_exit_close": 35,
+        "not_mature_or_no_future_benchmark": 2250
+      },
+      "cohort_rejections": {
+        "incomplete_topn_ranks_or_prices": 3,
+        "not_mature_or_no_future_benchmark": 25
+      },
+      "valid_rows_without_recorded_timestamp": 0,
+      "prediction_ic": {
+        "n_cohorts": 92,
+        "n_entry_sessions": 71,
+        "mean": -0.05524016950838925,
+        "nw_t": -0.9648613161655453,
+        "positive_share": 0.38028169014084506,
+        "rough_nonoverlapping_blocks": 3,
+        "small_sample": true
+      },
+      "saved_rank_ic": {
+        "n_cohorts": 92,
+        "n_entry_sessions": 71,
+        "mean": 0.016955395015480757,
+        "nw_t": 0.38511079388562647,
+        "positive_share": 0.5070422535211268,
+        "rough_nonoverlapping_blocks": 3,
+        "small_sample": true
+      },
+      "topn_gross_return": {
+        "n_cohorts": 92,
+        "n_entry_sessions": 71,
+        "mean": -0.04543983770699383,
+        "nw_t": -2.8907557707417446,
+        "positive_share": 0.2676056338028169,
+        "rough_nonoverlapping_blocks": 3,
+        "small_sample": true
+      },
+      "topn_excess_return": {
+        "n_cohorts": 92,
+        "n_entry_sessions": 71,
+        "mean": 0.011201475004283028,
+        "nw_t": 0.3316926879089029,
+        "positive_share": 0.5070422535211268,
+        "rough_nonoverlapping_blocks": 3,
+        "small_sample": true
+      },
+      "topn_minus_same_cohort_available_universe": {
+        "n_cohorts": 92,
+        "n_entry_sessions": 71,
+        "mean": -0.019937774029009425,
+        "nw_t": -1.0031585386070836,
+        "positive_share": 0.38028169014084506,
+        "rough_nonoverlapping_blocks": 3,
+        "small_sample": true
+      },
+      "available_universe_excess_return": {
+        "n_cohorts": 95,
+        "n_entry_sessions": 72,
+        "mean": 0.03197626316740472,
+        "nw_t": 1.136599210556823,
+        "positive_share": 0.6388888888888888,
+        "rough_nonoverlapping_blocks": 3,
+        "small_sample": true
+      },
+      "daily": [
+        {
+          "run_date": "2026-05-29",
+          "entry_date": "2026-06-01",
+          "exit_date": "2026-06-30",
+          "valid_rows": 10,
+          "prediction_ic": 0.09090909090909087,
+          "rank_ic": 0.12727272727272726,
+          "topn_complete": true,
+          "topn_excess": -0.07638778618739554
+        },
+        {
+          "run_date": "2026-05-31",
+          "entry_date": "2026-06-01",
+          "exit_date": "2026-06-30",
+          "valid_rows": 30,
+          "prediction_ic": 0.09944382647385996,
+          "rank_ic": -0.027808676307007698,
+          "topn_complete": true,
+          "topn_excess": -0.12326944863899283
+        },
+        {
+          "run_date": "2026-06-02",
+          "entry_date": "2026-06-04",
+          "exit_date": "2026-07-02",
+          "valid_rows": 30,
+          "prediction_ic": 0.07185761957730814,
+          "rank_ic": -0.20266963292547277,
+          "topn_complete": true,
+          "topn_excess": 0.02825452990700352
+        },
+        {
+          "run_date": "2026-06-03",
+          "entry_date": "2026-06-04",
+          "exit_date": "2026-07-02",
+          "valid_rows": 30,
+          "prediction_ic": -0.20311457174638492,
+          "rank_ic": -0.17641824249165744,
+          "topn_complete": true,
+          "topn_excess": -0.04687564459986946
+        },
+        {
+          "run_date": "2026-06-04",
+          "entry_date": "2026-06-05",
+          "exit_date": "2026-07-03",
+          "valid_rows": 30,
+          "prediction_ic": -0.19021134593993325,
+          "rank_ic": -0.22447163515016685,
+          "topn_complete": true,
+          "topn_excess": -0.11836571477023598
+        },
+        {
+          "run_date": "2026-06-05",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-07-06",
+          "valid_rows": 30,
+          "prediction_ic": -0.3187986651835374,
+          "rank_ic": -0.24360400444938826,
+          "topn_complete": true,
+          "topn_excess": -0.06931850026965802
+        },
+        {
+          "run_date": "2026-06-06",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-07-06",
+          "valid_rows": 1,
+          "prediction_ic": null,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-07",
+          "entry_date": "2026-06-08",
+          "exit_date": "2026-07-06",
+          "valid_rows": 1,
+          "prediction_ic": null,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-08",
+          "entry_date": "2026-06-09",
+          "exit_date": "2026-07-07",
+          "valid_rows": 51,
+          "prediction_ic": 0.16368287656616826,
+          "rank_ic": 0.10423116615067078,
+          "topn_complete": true,
+          "topn_excess": 0.061690014098713705
+        },
+        {
+          "run_date": "2026-06-09",
+          "entry_date": "2026-06-10",
+          "exit_date": "2026-07-08",
+          "valid_rows": 90,
+          "prediction_ic": null,
+          "rank_ic": 0.02068965517241377,
+          "topn_complete": true,
+          "topn_excess": 0.10332152290625732
+        },
+        {
+          "run_date": "2026-06-10",
+          "entry_date": "2026-06-11",
+          "exit_date": "2026-07-09",
+          "valid_rows": 90,
+          "prediction_ic": -0.09339168605153632,
+          "rank_ic": null,
+          "topn_complete": false,
+          "topn_excess": null
+        },
+        {
+          "run_date": "2026-06-11",
+          "entry_date": "2026-06-12",
+          "exit_date": "2026-07-10",
+          "valid_rows": 90,
+          "prediction_ic": 0.12452224806871505,
+          "rank_ic": 0.47764182424916574,
+          "topn_complete": true,
+          "topn_excess": 0.07368791055523835
+        },
+        {
+          "run_date": "2026-06-13",
+          "entry_date": "2026-06-15",
+          "exit_date": "2026-07-13",
+          "valid_rows": 90,
+          "prediction_ic": 0.14623204510844964,
+          "rank_ic": 0.25123152709359603,
+          "topn_complete": true,
+          "topn_excess": 0.15197217048595082
+        },
+        {
+          "run_date": "2026-06-14",
+          "entry_date": "2026-06-15",
+          "exit_date": "2026-07-13",
+          "valid_rows": 90,
+          "prediction_ic": 0.16015969049676912,
+          "rank_ic": 0.46165413533834576,
+          "topn_complete": true,
+          "topn_excess": 0.15197217048595082
+        },
+        {
+          "run_date": "2026-06-15",
+          "entry_date": "2026-06-16",
+          "exit_date": "2026-07-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.14053586862575618,
+          "rank_ic": 0.4225563909774435,
+          "topn_complete": true,
+          "topn_excess": 0.1005232859795393
+        },
+        {
+          "run_date": "2026-06-16",
+          "entry_date": "2026-06-17",
+          "exit_date": "2026-07-15",
+          "valid_rows": 90,
+          "prediction_ic": 0.21137589002757537,
+          "rank_ic": 0.213533834586466,
+          "topn_complete": true,
+          "topn_excess": 0.11764499653044232
+        },
+        {
+          "run_date": "2026-06-17",
+          "entry_date": "2026-06-18",
+          "exit_date": "2026-07-16",
+          "valid_rows": 90,
+          "prediction_ic": 0.30771700209902475,
+          "rank_ic": 0.25714285714285723,
+          "topn_complete": true,
+          "topn_excess": 0.1847178068200034
+        },
+        {
+          "run_date": "2026-06-18",
+          "entry_date": "2026-06-19",
+          "exit_date": "2026-07-20",
+          "valid_rows": 90,
+          "prediction_ic": 0.24830225953821464,
+          "rank_ic": 0.24511278195488717,
+          "topn_complete": true,
+          "topn_excess": 0.18827880841329864
+        },
+        {
+          "run_date": "2026-06-19",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.2891961970613655,
+          "rank_ic": 0.3037593984962405,
+          "topn_complete": true,
+          "topn_excess": 0.21672331275901574
+        },
+        {
+          "run_date": "2026-06-20",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.17698481293986904,
+          "rank_ic": -0.012030075187970052,
+          "topn_complete": true,
+          "topn_excess": 0.12096593178577568
+        },
+        {
+          "run_date": "2026-06-21",
+          "entry_date": "2026-06-22",
+          "exit_date": "2026-07-21",
+          "valid_rows": 90,
+          "prediction_ic": 0.19601596904967686,
+          "rank_ic": 0.281203007518797,
+          "topn_complete": true,
+          "topn_excess": 0.19466004563590772
+        },
+        {
+          "run_date": "2026-06-22",
+          "entry_date": "2026-06-23",
+          "exit_date": "2026-07-22",
+          "valid_rows": 90,
+          "prediction_ic": 0.2519241058566902,
+          "rank_ic": -0.036090225563909825,
+          "topn_complete": true,
+          "topn_excess": 0.16780077239865188
+        },
+        {
+          "run_date": "2026-06-23",
+          "entry_date": "2026-06-24",
+          "exit_date": "2026-07-23",
+          "valid_rows": 90,
+          "prediction_ic": 0.22953451043338688,
+          "rank_ic": -0.055639097744360905,
+          "topn_complete": true,
+          "topn_excess": 0.154244230614998
+        },
+        {
+          "run_date": "2026-06-24",
+          "entry_date": "2026-06-25",
+          "exit_date": "2026-07-24",
+          "valid_rows": 90,
+          "prediction_ic": 0.19948964892785118,
+          "rank_ic": -0.07067669172932318,
+          "topn_complete": true,
+          "topn_excess": 0.22473984636910666
+        },
+        {
+          "run_date": "2026-06-25",
+          "entry_date": "2026-06-26",
+          "exit_date": "2026-07-27",
+          "valid_rows": 90,
+          "prediction_ic": 0.1896448121167223,
+          "rank_ic": 0.16842105263157892,
+          "topn_complete": true,
+          "topn_excess": 0.22014517261525396
+        },
+        {
+          "run_date": "2026-06-26",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.1279087953245255,
+          "rank_ic": 0.20902255639097744,
+          "topn_complete": true,
+          "topn_excess": 0.20747503645381138
+        },
+        {
+          "run_date": "2026-06-27",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.10701732724204627,
+          "rank_ic": 0.17894736842105272,
+          "topn_complete": true,
+          "topn_excess": 0.13443488528491335
+        },
+        {
+          "run_date": "2026-06-28",
+          "entry_date": "2026-06-29",
+          "exit_date": "2026-07-28",
+          "valid_rows": 90,
+          "prediction_ic": 0.15482569864592316,
+          "rank_ic": 0.21203007518796993,
+          "topn_complete": true,
+          "topn_excess": 0.2161125970789505
+        },
+        {
+          "run_date": "2026-06-29",
+          "entry_date": "2026-06-30",
+          "exit_date": "2026-07-29",
+          "valid_rows": 90,
+          "prediction_ic": 0.010626826357163463,
+          "rank_ic": 0.024060150375939775,
+          "topn_complete": true,
+          "topn_excess": 0.13138781736153932
+        },
+        {
+          "run_date": "2026-06-30",
+          "entry_date": "2026-07-01",
+          "exit_date": "2026-07-30",
+          "valid_rows": 90,
+          "prediction_ic": 0.10058031855784673,
+          "rank_ic": 0.016541353383458645,
+          "topn_complete": true,
+          "topn_excess": 0.10718875592267225
+        },
+        {
+          "run_date": "2026-07-01",
+          "entry_date": "2026-07-02",
+          "exit_date": "2026-07-31",
+          "valid_rows": 90,
+          "prediction_ic": 0.15484216158373457,
+          "rank_ic": -0.05714285714285716,
+          "topn_complete": true,
+          "topn_excess": 0.005787347751583139
+        },
+        {
+          "run_date": "2026-07-02",
+          "entry_date": "2026-07-03",
+          "exit_date": "2026-08-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.051965263201218255,
+          "rank_ic": 0.081203007518797,
+          "topn_complete": true,
+          "topn_excess": 0.10209235103284305
+        },
+        {
+          "run_date": "2026-07-03",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-08-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.06207350701732743,
+          "rank_ic": -0.09624060150375953,
+          "topn_complete": true,
+          "topn_excess": 0.11399367218842489
+        },
+        {
+          "run_date": "2026-07-04",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-08-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.0235008437255629,
+          "rank_ic": 0.024060150375939796,
+          "topn_complete": true,
+          "topn_excess": 0.09099339200605772
+        },
+        {
+          "run_date": "2026-07-05",
+          "entry_date": "2026-07-06",
+          "exit_date": "2026-08-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.0055891673869203394,
+          "rank_ic": -0.007518796992481224,
+          "topn_complete": true,
+          "topn_excess": 0.11399367218842489
+        },
+        {
+          "run_date": "2026-07-06",
+          "entry_date": "2026-07-07",
+          "exit_date": "2026-08-05",
+          "valid_rows": 90,
+          "prediction_ic": -0.0536938716713998,
+          "rank_ic": -0.08571428571428567,
+          "topn_complete": true,
+          "topn_excess": 0.018725183069292384
+        },
+        {
+          "run_date": "2026-07-07",
+          "entry_date": "2026-07-08",
+          "exit_date": "2026-08-06",
+          "valid_rows": 90,
+          "prediction_ic": -0.13729266987693958,
+          "rank_ic": -0.15338345864661648,
+          "topn_complete": true,
+          "topn_excess": 0.022348447714725994
+        },
+        {
+          "run_date": "2026-07-08",
+          "entry_date": "2026-07-09",
+          "exit_date": "2026-08-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.05203111495246328,
+          "rank_ic": -0.1714285714285714,
+          "topn_complete": true,
+          "topn_excess": 0.05665159187088844
+        },
+        {
+          "run_date": "2026-07-09",
+          "entry_date": "2026-07-10",
+          "exit_date": "2026-08-10",
+          "valid_rows": 90,
+          "prediction_ic": -0.1543153475737745,
+          "rank_ic": -0.18796992481203,
+          "topn_complete": true,
+          "topn_excess": 0.02205795634552581
+        },
+        {
+          "run_date": "2026-07-10",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-08-11",
+          "valid_rows": 90,
+          "prediction_ic": -0.14942585504383257,
+          "rank_ic": -0.1666666666666667,
+          "topn_complete": true,
+          "topn_excess": -0.005529357533724322
+        },
+        {
+          "run_date": "2026-07-11",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-08-11",
+          "valid_rows": 90,
+          "prediction_ic": -0.124929003580689,
+          "rank_ic": -0.2827067669172933,
+          "topn_complete": true,
+          "topn_excess": 0.004207381748127181
+        },
+        {
+          "run_date": "2026-07-12",
+          "entry_date": "2026-07-13",
+          "exit_date": "2026-08-11",
+          "valid_rows": 90,
+          "prediction_ic": -0.1277112400707906,
+          "rank_ic": -0.3458646616541354,
+          "topn_complete": true,
+          "topn_excess": 0.004207381748127181
+        },
+        {
+          "run_date": "2026-07-13",
+          "entry_date": "2026-07-14",
+          "exit_date": "2026-08-12",
+          "valid_rows": 90,
+          "prediction_ic": -0.2765208730355272,
+          "rank_ic": -0.17894736842105263,
+          "topn_complete": true,
+          "topn_excess": -0.019422634049576937
+        },
+        {
+          "run_date": "2026-07-14",
+          "entry_date": "2026-07-15",
+          "exit_date": "2026-08-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.19955550067909622,
+          "rank_ic": -0.14736842105263157,
+          "topn_complete": true,
+          "topn_excess": -0.000508236363131398
+        },
+        {
+          "run_date": "2026-07-15",
+          "entry_date": "2026-07-16",
+          "exit_date": "2026-08-14",
+          "valid_rows": 90,
+          "prediction_ic": -0.28460303741202614,
+          "rank_ic": -0.20902255639097744,
+          "topn_complete": true,
+          "topn_excess": -0.043146882656244424
+        },
+        {
+          "run_date": "2026-07-16",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.26647734288183733,
+          "rank_ic": -0.23157894736842105,
+          "topn_complete": true,
+          "topn_excess": -0.04592032246802067
+        },
+        {
+          "run_date": "2026-07-17",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.26814009960077373,
+          "rank_ic": -0.2616541353383458,
+          "topn_complete": true,
+          "topn_excess": -0.017499395988561317
+        },
+        {
+          "run_date": "2026-07-18",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.2722558340535869,
+          "rank_ic": -0.22406015037593985,
+          "topn_complete": true,
+          "topn_excess": -0.026071895854649484
+        },
+        {
+          "run_date": "2026-07-19",
+          "entry_date": "2026-07-20",
+          "exit_date": "2026-08-18",
+          "valid_rows": 90,
+          "prediction_ic": -0.25697822776474466,
+          "rank_ic": -0.23909774436090225,
+          "topn_complete": true,
+          "topn_excess": -0.026071895854649484
+        },
+        {
+          "run_date": "2026-07-20",
+          "entry_date": "2026-07-21",
+          "exit_date": "2026-08-19",
+          "valid_rows": 90,
+          "prediction_ic": -0.34100506235337696,
+          "rank_ic": -0.13233082706766916,
+          "topn_complete": true,
+          "topn_excess": 0.024420817291129993
+        },
+        {
+          "run_date": "2026-07-21",
+          "entry_date": "2026-07-22",
+          "exit_date": "2026-08-20",
+          "valid_rows": 90,
+          "prediction_ic": -0.39396633329217595,
+          "rank_ic": 0.015037593984962374,
+          "topn_complete": true,
+          "topn_excess": -0.04709825662574489
+        },
+        {
+          "run_date": "2026-07-22",
+          "entry_date": "2026-07-23",
+          "exit_date": "2026-08-21",
+          "valid_rows": 90,
+          "prediction_ic": -0.04524838457422728,
+          "rank_ic": -0.058646616541353364,
+          "topn_complete": true,
+          "topn_excess": -0.012829380490839681
+        },
+        {
+          "run_date": "2026-07-23",
+          "entry_date": "2026-07-24",
+          "exit_date": "2026-08-24",
+          "valid_rows": 90,
+          "prediction_ic": -0.2848335185413839,
+          "rank_ic": 0.03909774436090234,
+          "topn_complete": true,
+          "topn_excess": -0.03322112033533455
+        },
+        {
+          "run_date": "2026-07-24",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-08-25",
+          "valid_rows": 90,
+          "prediction_ic": -0.3390555996884283,
+          "rank_ic": 0.03458646616541351,
+          "topn_complete": true,
+          "topn_excess": -0.02122039323913887
+        },
+        {
+          "run_date": "2026-07-25",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-08-25",
+          "valid_rows": 90,
+          "prediction_ic": -0.36728142273605224,
+          "rank_ic": 0.04661654135338341,
+          "topn_complete": true,
+          "topn_excess": -0.02122039323913887
+        },
+        {
+          "run_date": "2026-07-26",
+          "entry_date": "2026-07-27",
+          "exit_date": "2026-08-25",
+          "valid_rows": 90,
+          "prediction_ic": -0.3635607834775143,
+          "rank_ic": -0.01353383458646622,
+          "topn_complete": true,
+          "topn_excess": -0.04261445148786867
+        },
+        {
+          "run_date": "2026-07-27",
+          "entry_date": "2026-07-28",
+          "exit_date": "2026-08-26",
+          "valid_rows": 90,
+          "prediction_ic": -0.3662098201424044,
+          "rank_ic": -0.2661654135338346,
+          "topn_complete": true,
+          "topn_excess": -0.11334393586637977
+        },
+        {
+          "run_date": "2026-07-28",
+          "entry_date": "2026-07-29",
+          "exit_date": "2026-08-27",
+          "valid_rows": 90,
+          "prediction_ic": -0.46577766802485887,
+          "rank_ic": -0.14586466165413536,
+          "topn_complete": true,
+          "topn_excess": -0.2075131544624984
+        },
+        {
+          "run_date": "2026-07-29",
+          "entry_date": "2026-07-30",
+          "exit_date": "2026-08-28",
+          "valid_rows": 90,
+          "prediction_ic": -0.44332222085031064,
+          "rank_ic": -0.23007518796992477,
+          "topn_complete": true,
+          "topn_excess": -0.16616497868152347
+        },
+        {
+          "run_date": "2026-07-30",
+          "entry_date": "2026-07-31",
+          "exit_date": "2026-08-31",
+          "valid_rows": 90,
+          "prediction_ic": -0.33947400913693065,
+          "rank_ic": -0.39849624060150385,
+          "topn_complete": true,
+          "topn_excess": -0.02657607609121526
+        },
+        {
+          "run_date": "2026-07-31",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-09-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.3030086018850064,
+          "rank_ic": -0.312781954887218,
+          "topn_complete": true,
+          "topn_excess": -0.07103844103875627
+        },
+        {
+          "run_date": "2026-08-01",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-09-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.3228464419475655,
+          "rank_ic": -0.5142857142857142,
+          "topn_complete": true,
+          "topn_excess": -0.07103844103875627
+        },
+        {
+          "run_date": "2026-08-02",
+          "entry_date": "2026-08-03",
+          "exit_date": "2026-09-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.32337325595752536,
+          "rank_ic": -0.2721804511278195,
+          "topn_complete": true,
+          "topn_excess": -0.09206830311036576
+        },
+        {
+          "run_date": "2026-08-03",
+          "entry_date": "2026-08-04",
+          "exit_date": "2026-09-02",
+          "valid_rows": 90,
+          "prediction_ic": -0.11435203668054493,
+          "rank_ic": -0.11127819548872186,
+          "topn_complete": true,
+          "topn_excess": -0.0585038779484087
+        },
+        {
+          "run_date": "2026-08-04",
+          "entry_date": "2026-08-05",
+          "exit_date": "2026-09-03",
+          "valid_rows": 90,
+          "prediction_ic": 0.11862369839897925,
+          "rank_ic": 0.14135338345864656,
+          "topn_complete": true,
+          "topn_excess": 0.008806454007930786
+        },
+        {
+          "run_date": "2026-08-05",
+          "entry_date": "2026-08-06",
+          "exit_date": "2026-09-04",
+          "valid_rows": 90,
+          "prediction_ic": -0.05915956702473551,
+          "rank_ic": 0.29323308270676696,
+          "topn_complete": true,
+          "topn_excess": -0.061691223994295205
+        },
+        {
+          "run_date": "2026-08-06",
+          "entry_date": "2026-08-07",
+          "exit_date": "2026-09-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.09206897970942907,
+          "rank_ic": -0.12330827067669169,
+          "topn_complete": true,
+          "topn_excess": -0.1459966069586543
+        },
+        {
+          "run_date": "2026-08-07",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-09-08",
+          "valid_rows": 90,
+          "prediction_ic": 0.05937456270406139,
+          "rank_ic": 0.022556390977443545,
+          "topn_complete": true,
+          "topn_excess": -0.1108460230811402
+        },
+        {
+          "run_date": "2026-08-08",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-09-08",
+          "valid_rows": 90,
+          "prediction_ic": 0.050706057151753324,
+          "rank_ic": -0.08721804511278199,
+          "topn_complete": true,
+          "topn_excess": -0.1108460230811402
+        },
+        {
+          "run_date": "2026-08-09",
+          "entry_date": "2026-08-10",
+          "exit_date": "2026-09-08",
+          "valid_rows": 90,
+          "prediction_ic": 0.061415495046695495,
+          "rank_ic": 0.036090225563909804,
+          "topn_complete": true,
+          "topn_excess": -0.12345917679858838
+        },
+        {
+          "run_date": "2026-08-10",
+          "entry_date": "2026-08-11",
+          "exit_date": "2026-09-09",
+          "valid_rows": 90,
+          "prediction_ic": -0.0012923406181832285,
+          "rank_ic": -0.19097744360902244,
+          "topn_complete": true,
+          "topn_excess": -0.1376465156625514
+        },
+        {
+          "run_date": "2026-08-11",
+          "entry_date": "2026-08-12",
+          "exit_date": "2026-09-10",
+          "valid_rows": 90,
+          "prediction_ic": 0.13845444667610535,
+          "rank_ic": 0.07067669172932335,
+          "topn_complete": true,
+          "topn_excess": -0.09203959205538517
+        },
+        {
+          "run_date": "2026-08-12",
+          "entry_date": "2026-08-13",
+          "exit_date": "2026-09-11",
+          "valid_rows": 90,
+          "prediction_ic": 0.2401540937341563,
+          "rank_ic": 0.3518796992481203,
+          "topn_complete": true,
+          "topn_excess": 0.020035662447865123
+        },
+        {
+          "run_date": "2026-08-13",
+          "entry_date": "2026-08-14",
+          "exit_date": "2026-09-14",
+          "valid_rows": 90,
+          "prediction_ic": 0.2271803103263778,
+          "rank_ic": 0.21052631578947367,
+          "topn_complete": true,
+          "topn_excess": 0.0781955390279632
+        },
+        {
+          "run_date": "2026-08-14",
+          "entry_date": "2026-08-18",
+          "exit_date": "2026-09-15",
+          "valid_rows": 90,
+          "prediction_ic": 0.13794352366056525,
+          "rank_ic": 0.38646616541353374,
+          "topn_complete": true,
+          "topn_excess": 0.0519256720941643
+        },
+        {
+          "run_date": "2026-08-17",
+          "entry_date": "2026-08-18",
+          "exit_date": "2026-09-15",
+          "valid_rows": 90,
+          "prediction_ic": 0.13529297976399637,
+          "rank_ic": 0.4496240601503759,
+          "topn_complete": true,
+          "topn_excess": 0.0645392848918934
+        },
+        {
+          "run_date": "2026-08-18",
+          "entry_date": "2026-08-19",
+          "exit_date": "2026-09-16",
+          "valid_rows": 90,
+          "prediction_ic": 0.048302855943808856,
+          "rank_ic": 0.16691729323308288,
+          "topn_complete": true,
+          "topn_excess": -0.009232244820213032
+        },
+        {
+          "run_date": "2026-08-19",
+          "entry_date": "2026-08-20",
+          "exit_date": "2026-09-17",
+          "valid_rows": 90,
+          "prediction_ic": 0.14855331933983604,
+          "rank_ic": 0.3052631578947367,
+          "topn_complete": true,
+          "topn_excess": 0.05335656480596167
+        },
+        {
+          "run_date": "2026-08-20",
+          "entry_date": "2026-08-21",
+          "exit_date": "2026-09-18",
+          "valid_rows": 90,
+          "prediction_ic": 0.043750797436731347,
+          "rank_ic": 0.2511278195488722,
+          "topn_complete": true,
+          "topn_excess": 0.03163885669442581
+        },
+        {
+          "run_date": "2026-08-21",
+          "entry_date": "2026-08-24",
+          "exit_date": "2026-09-21",
+          "valid_rows": 90,
+          "prediction_ic": -0.14503025064822814,
+          "rank_ic": 0.07067669172932331,
+          "topn_complete": true,
+          "topn_excess": -0.08805131518316625
+        },
+        {
+          "run_date": "2026-08-24",
+          "entry_date": "2026-08-25",
+          "exit_date": "2026-09-22",
+          "valid_rows": 90,
+          "prediction_ic": -0.1096683115962352,
+          "rank_ic": 0.07969924812030081,
+          "topn_complete": true,
+          "topn_excess": 0.013751163694840685
+        },
+        {
+          "run_date": "2026-08-25",
+          "entry_date": "2026-08-26",
+          "exit_date": "2026-09-23",
+          "valid_rows": 90,
+          "prediction_ic": -0.2008099899023401,
+          "rank_ic": 0.32481203007518794,
+          "topn_complete": true,
+          "topn_excess": -0.056972904882788764
+        },
+        {
+          "run_date": "2026-08-26",
+          "entry_date": "2026-08-27",
+          "exit_date": "2026-09-28",
+          "valid_rows": 90,
+          "prediction_ic": -0.056772908368457185,
+          "rank_ic": -0.25112781954887226,
+          "topn_complete": true,
+          "topn_excess": -0.03361265573254071
+        },
+        {
+          "run_date": "2026-08-27",
+          "entry_date": "2026-08-28",
+          "exit_date": "2026-09-29",
+          "valid_rows": 90,
+          "prediction_ic": -0.034514833229067204,
+          "rank_ic": -0.18045112781954886,
+          "topn_complete": true,
+          "topn_excess": -0.06950883700553581
+        },
+        {
+          "run_date": "2026-08-28",
+          "entry_date": "2026-08-31",
+          "exit_date": "2026-09-30",
+          "valid_rows": 90,
+          "prediction_ic": -0.1687787330908359,
+          "rank_ic": -0.11879699248120294,
+          "topn_complete": true,
+          "topn_excess": -0.08934214776451355
+        },
+        {
+          "run_date": "2026-08-31",
+          "entry_date": "2026-09-01",
+          "exit_date": "2026-10-01",
+          "valid_rows": 90,
+          "prediction_ic": -0.13631368610925892,
+          "rank_ic": -0.3278195488721805,
+          "topn_complete": true,
+          "topn_excess": -0.1221554202756181
+        },
+        {
+          "run_date": "2026-09-01",
+          "entry_date": "2026-09-02",
+          "exit_date": "2026-10-02",
+          "valid_rows": 90,
+          "prediction_ic": -0.21187152218293787,
+          "rank_ic": 0.218045112781955,
+          "topn_complete": true,
+          "topn_excess": -0.10077207551482834
+        },
+        {
+          "run_date": "2026-09-02",
+          "entry_date": "2026-09-03",
+          "exit_date": "2026-10-06",
+          "valid_rows": 90,
+          "prediction_ic": -0.4075581658600015,
+          "rank_ic": -0.2541353383458647,
+          "topn_complete": true,
+          "topn_excess": -0.1371773400598884
+        },
+        {
+          "run_date": "2026-09-03",
+          "entry_date": "2026-09-04",
+          "exit_date": "2026-10-07",
+          "valid_rows": 90,
+          "prediction_ic": -0.28780040089942405,
+          "rank_ic": -0.12330827067669181,
+          "topn_complete": true,
+          "topn_excess": -0.09717704011768273
+        },
+        {
+          "run_date": "2026-09-04",
+          "entry_date": "2026-09-07",
+          "exit_date": "2026-10-08",
+          "valid_rows": 90,
+          "prediction_ic": -0.2191308356228612,
+          "rank_ic": -0.20601503759398496,
+          "topn_complete": true,
+          "topn_excess": -0.06360454299760739
+        },
+        {
+          "run_date": "2026-09-07",
+          "entry_date": "2026-09-08",
+          "exit_date": "2026-10-12",
+          "valid_rows": 90,
+          "prediction_ic": -0.03589758364266159,
+          "rank_ic": 0.04210526315789475,
+          "topn_complete": true,
+          "topn_excess": -0.004955130927859175
+        },
+        {
+          "run_date": "2026-09-08",
+          "entry_date": "2026-09-09",
+          "exit_date": "2026-10-13",
+          "valid_rows": 90,
+          "prediction_ic": -0.008025715214766093,
+          "rank_ic": 0.40451127819548865,
+          "topn_complete": true,
+          "topn_excess": 0.10743003365537276
+        },
+        {
+          "run_date": "2026-09-09",
+          "entry_date": "2026-09-10",
+          "exit_date": "2026-10-14",
+          "valid_rows": 90,
+          "prediction_ic": -0.041379594188582926,
+          "rank_ic": 0.23007518796992477,
+          "topn_complete": true,
+          "topn_excess": 0.07510967412007641
+        },
+        {
+          "run_date": "2026-09-10",
+          "entry_date": "2026-09-11",
+          "exit_date": "2026-10-15",
+          "valid_rows": 90,
+          "prediction_ic": -0.05701985446836363,
+          "rank_ic": 0.2902255639097744,
+          "topn_complete": true,
+          "topn_excess": 0.10602957846202736
+        },
+        {
+          "run_date": "2026-09-11",
+          "entry_date": "2026-09-14",
+          "exit_date": "2026-10-16",
+          "valid_rows": 86,
+          "prediction_ic": -0.06788120082570899,
+          "rank_ic": 0.46616541353383456,
+          "topn_complete": true,
+          "topn_excess": 0.1179748735356588
+        }
+      ]
+    }
+  },
+  "generated_at_utc": "2026-10-19T21:34:38.787841+00:00",
+  "separately_verified_completed_batch_count": 0,
+  "source_sha256": {
+    "recommendations": "aee55ebaab77584384a324d30cb91bb028ceb6a0172bd4f5942a04f9b60f69c9",
+    "prices": "dff6c2ccef47407d2b38452407f13f6935f2c76b706d86e53f17f11e0df19a3f"
+  }
+}

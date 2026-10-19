@@ -12,7 +12,7 @@ export function hasFreshTradeTime(tradedAt: string | undefined, now = Date.now()
 }
 export function effectivePrice(price: number, side: OrderSide, costs = DEFAULT_COSTS): number {
   if (!Number.isFinite(price) || price <= 0) throw new Error("유효하지 않은 기준가");
-  for (const value of Object.values(costs)) {
+  for (const value of [costs.feeRate, costs.sellTaxRate, costs.slippageRate]) {
     if (!Number.isFinite(value) || value < 0 || value >= 0.5) throw new Error("유효하지 않은 거래 비용");
   }
   const multiplier = side === "BUY"
