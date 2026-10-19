@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getQuote } from "@/lib/server/yahoo-finance";
 import { createBrokerProvider } from "@/lib/server/providers";
 import type { BrokerType } from "@/lib/server/providers";
+import { marketTickerRequest } from "@/lib/server/market-request";
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 30;
@@ -10,7 +11,9 @@ type Ctx = { params: Promise<{ ticker: string }> };
 
 export async function GET(req: NextRequest, { params }: Ctx) {
   const { ticker } = await params;
-  const t = ticker.toUpperCase();
+  const input = await marketTickerRequest(ticker);
+  if (!input.ok) return input.response;
+  const t = input.ticker;
 
   // 요청 헤더에 증권사 자격증명이 있으면 broker API 우선 사용
   const brokerType = req.headers.get("x-broker-type") as BrokerType | null;

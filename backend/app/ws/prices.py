@@ -1,93 +1,119 @@
-"""
-WebSocket 실시간 가격 스트리밍.
-연결 시 ?tickers=005930,000660 쿼리 파라미터로 종목 지정.
-5초마다 가격 브로드캐스트.
-"""
+"""One bounded quote producer per process; legacy access middleware authenticates first."""
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from typing import Dict, Set
+import re
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from app.services.market_service import MarketService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+MAX_CONNECTIONS = 64
+MAX_TICKERS_PER_CONNECTION = 20
+MAX_ACTIVE_TICKERS = 128
+TICKER_PATTERN = re.compile(r"(?:[0-9]{6}|[A-Z][A-Z0-9.-]{0,14})", re.ASCII)
+
+
+def parse_tickers(raw: str) -> list[str]:
+    if len(raw) > 512:
+        raise ValueError("Ticker list too long")
+    tickers = list(dict.fromkeys(part.strip().upper() for part in raw.split(",") if part.strip()))
+    if not tickers or len(tickers) > MAX_TICKERS_PER_CONNECTION:
+        raise ValueError("Specify between 1 and 20 tickers")
+    if any(not TICKER_PATTERN.fullmatch(ticker) for ticker in tickers):
+        raise ValueError("Invalid ticker")
+    return tickers
 
 
 class ConnectionManager:
     def __init__(self):
-        # {ticker: {websocket, ...}}
-        self._connections: Dict[str, Set[WebSocket]] = {}
-        # {websocket: [tickers]}
-        self._ws_tickers: Dict[WebSocket, list[str]] = {}
-
-    async def connect(self, ws: WebSocket, tickers: list[str]) -> None:
-        await ws.accept()
-        self._ws_tickers[ws] = tickers
-        for ticker in tickers:
-            self._connections.setdefault(ticker, set()).add(ws)
-        logger.info(f"WS connected: {tickers}")
-
-    def disconnect(self, ws: WebSocket) -> None:
-        tickers = self._ws_tickers.pop(ws, [])
-        for ticker in tickers:
-            self._connections.get(ticker, set()).discard(ws)
-        logger.info(f"WS disconnected: {tickers}")
+        self._ws_tickers: dict[WebSocket, list[str]] = {}
+        self._producer: asyncio.Task | None = None
 
     @property
     def active_tickers(self) -> list[str]:
-        return [t for t, ws_set in self._connections.items() if ws_set]
+        return sorted({ticker for tickers in self._ws_tickers.values() for ticker in tickers})
+
+    async def connect(self, ws: WebSocket, tickers: list[str]) -> bool:
+        if len(self._ws_tickers) >= MAX_CONNECTIONS or len(set(self.active_tickers) | set(tickers)) > MAX_ACTIVE_TICKERS:
+            await ws.close(code=1013, reason="Stream capacity reached")
+            return False
+        # Reserve before yielding so concurrent accept calls cannot bypass limits.
+        self._ws_tickers[ws] = tickers
+        try:
+            await ws.accept()
+        except BaseException:
+            self.disconnect(ws)
+            raise
+        if self._producer is None or self._producer.done():
+            self._producer = asyncio.create_task(self._produce())
+        return True
+
+    def disconnect(self, ws: WebSocket) -> None:
+        self._ws_tickers.pop(ws, None)
+        if not self._ws_tickers and self._producer is not None:
+            # Let a producer disconnect its final failed recipient without cancelling itself.
+            if self._producer is not asyncio.current_task():
+                self._producer.cancel()
+            self._producer = None
+
+    async def _send(self, ws: WebSocket, data: dict) -> None:
+        try:
+            await asyncio.wait_for(ws.send_json(data), timeout=2)
+        except Exception:
+            self.disconnect(ws)
+            try:
+                await asyncio.wait_for(ws.close(code=1011), timeout=1)
+            except Exception:
+                pass
 
     async def broadcast(self, ticker: str, data: dict) -> None:
-        ws_set = self._connections.get(ticker, set()).copy()
-        dead: Set[WebSocket] = set()
-        for ws in ws_set:
-            try:
-                await ws.send_json(data)
-            except Exception:
-                dead.add(ws)
-        for ws in dead:
-            self.disconnect(ws)
+        recipients = [ws for ws, tickers in list(self._ws_tickers.items()) if ticker in tickers]
+        await asyncio.gather(*(self._send(ws, data) for ws in recipients))
+
+    async def _produce(self) -> None:
+        semaphore = asyncio.Semaphore(4)
+
+        async def update(ticker: str):
+            async with semaphore:
+                try:
+                    quote = await asyncio.wait_for(MarketService.get_quote(ticker), timeout=8)
+                    if quote:
+                        await self.broadcast(ticker, {"type": "price", **quote})
+                except Exception as error:
+                    logger.warning("WS price fetch [%s]: %s", ticker, error)
+
+        try:
+            while self._ws_tickers:
+                await asyncio.gather(*(update(ticker) for ticker in self.active_tickers))
+                await asyncio.gather(*(self._send(ws, {"type": "heartbeat"}) for ws in list(self._ws_tickers)))
+                await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            pass
 
 
 manager = ConnectionManager()
 
 
 @router.websocket("/ws/prices")
-async def price_stream(
-    websocket: WebSocket,
-    tickers: str = Query(""),
-):
-    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
-    if not ticker_list:
-        await websocket.close(code=1008, reason="tickers 파라미터 필요")
+async def price_stream(websocket: WebSocket, tickers: str = Query("")):
+    # InternalAccessMiddleware checks Authorization before this handler can accept.
+    try:
+        ticker_list = parse_tickers(tickers)
+    except ValueError as error:
+        await websocket.close(code=1008, reason=str(error))
         return
-
-    await manager.connect(websocket, ticker_list)
-
+    if not await manager.connect(websocket, ticker_list):
+        return
     try:
         while True:
-            # 5초마다 가격 업데이트
-            for ticker in ticker_list:
-                try:
-                    quote = await MarketService.get_quote(ticker)
-                    if quote:
-                        await manager.broadcast(ticker, {"type": "price", **quote})
-                except Exception as e:
-                    logger.warning(f"WS price fetch [{ticker}]: {e}")
-
-            # heartbeat
-            try:
-                await websocket.send_json({"type": "heartbeat"})
-            except Exception:
+            message = await websocket.receive_text()
+            if len(message) > 4096:
+                await websocket.close(code=1009, reason="Message too large")
                 break
-
-            await asyncio.sleep(5)
-
     except WebSocketDisconnect:
         pass
     finally:

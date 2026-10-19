@@ -12,15 +12,20 @@ export type TradingEngineDeps = Partial<CoreDeps>;
 
 export class TradingEngineService extends CoreEngine {
   constructor(broker: BrokerPort, deps: TradingEngineDeps = {}) {
+    const execution = deps.execution ?? new SupabaseExecutionControl();
+    if (broker instanceof MockBrokerAdapter && execution instanceof SupabaseExecutionControl)
+      broker.bindExecutionOwner(execution.owner);
     super(broker, {
       marketData: deps.marketData ?? new YahooMarketDataAdapter(),
       recommendations: deps.recommendations ?? new SupabaseRecommendationAdapter(),
       clock: deps.clock ?? new KrMarketClock(),
-      execution: deps.execution ?? new SupabaseExecutionControl(),
+      execution,
       costs: deps.costs ?? mockCosts,
     });
   }
   static mockForUser(userId: string, deps: TradingEngineDeps = {}) {
-    return new TradingEngineService(new MockBrokerAdapter(userId, deps.marketData), deps);
+    const execution = deps.execution ?? new SupabaseExecutionControl();
+    const owner = execution instanceof SupabaseExecutionControl ? execution.owner : undefined;
+    return new TradingEngineService(new MockBrokerAdapter(userId, deps.marketData, owner), { ...deps, execution });
   }
 }

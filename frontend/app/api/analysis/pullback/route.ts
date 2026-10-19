@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChart } from "@/lib/server/yahoo-finance";
 import { analyzePullback } from "@/lib/server/pullback-analysis";
+import { analysisBatchRequest } from "@/lib/server/analysis-request";
+import { boundedSettled } from "@/lib/server/api-security-policy";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -10,19 +12,20 @@ export const maxDuration = 30;
 // 여러 종목을 병렬 분석하여 눌림목 패턴 결과 반환
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null);
-    const tickers: string[] = Array.isArray(body?.tickers) ? body.tickers : [];
+    const input = await analysisBatchRequest(req);
+    if (!input.ok) return input.response;
+    const { tickers } = input;
 
     if (tickers.length === 0) {
       return NextResponse.json({ error: "tickers 배열이 필요합니다." }, { status: 400 });
     }
 
-    const results = await Promise.allSettled(
-      tickers.map(async (ticker) => {
+    const results = await boundedSettled(tickers,
+      async (ticker) => {
         // 90일 데이터: MA60 + RSI14 + 여유분 확보
         const candles = await getChart(ticker.toUpperCase(), "3m");
         return analyzePullback(ticker.toUpperCase(), candles);
-      }),
+      },
     );
 
     const data = results.map((r, i) =>

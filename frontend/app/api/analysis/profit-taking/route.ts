@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChart } from "@/lib/server/yahoo-finance";
 import { analyzeProfitTaking } from "@/lib/server/profit-taking";
+import { analysisBatchRequest } from "@/lib/server/analysis-request";
+import { boundedSettled } from "@/lib/server/api-security-policy";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -9,19 +11,20 @@ export const maxDuration = 30;
 // body: { tickers: string[] }
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null);
-    const tickers: string[] = Array.isArray(body?.tickers) ? body.tickers : [];
+    const input = await analysisBatchRequest(req);
+    if (!input.ok) return input.response;
+    const { tickers } = input;
 
     if (tickers.length === 0) {
       return NextResponse.json({ error: "tickers 배열이 필요합니다." }, { status: 400 });
     }
 
-    const results = await Promise.allSettled(
-      tickers.map(async (ticker) => {
+    const results = await boundedSettled(tickers,
+      async (ticker) => {
         // 6개월 데이터: 저항선 탐색 + 다이버전스 분석에 충분한 범위
         const candles = await getChart(ticker.toUpperCase(), "6m");
         return analyzeProfitTaking(ticker.toUpperCase(), candles);
-      }),
+      },
     );
 
     const data = results.map((r, i) =>

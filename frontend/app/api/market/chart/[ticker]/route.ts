@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getChart, toYahooTicker } from "@/lib/server/yahoo-finance";
 import { calcIndicators } from "@/lib/server/indicators";
 import { calculateRelativeStrength } from "@/lib/server/relative-strength";
+import { marketTickerRequest } from "@/lib/server/market-request";
 
 export const maxDuration = 30;
 export const revalidate  = 300; // 5분 — 일봉 데이터, 잦은 갱신 불필요. force-dynamic 제거해야 revalidate 작동
@@ -10,8 +11,11 @@ type Ctx = { params: Promise<{ ticker: string }> };
 
 export async function GET(req: NextRequest, { params }: Ctx) {
   const { ticker } = await params;
-  const t      = ticker.toUpperCase();
+  const input = await marketTickerRequest(ticker);
+  if (!input.ok) return input.response;
+  const t = input.ticker;
   const period = req.nextUrl.searchParams.get("period") ?? "1y";
+  if (!["1d", "5d", "1m", "3m", "6m", "1y", "2y", "5y"].includes(period)) return NextResponse.json({ error: "invalid period" }, { status: 400 });
 
   // 종목 차트 + KOSPI 차트 병렬 조회 — RS 계산을 위해 동시 fetch
   const [candles, kospiCandles] = await Promise.all([

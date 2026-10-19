@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import YahooFinance from "yahoo-finance2";
 import { supabase } from "@/lib/server/supabase";
+import { hasFreshTradeTime } from "../core/execution-policy";
 
 // v3.x: 반드시 new YahooFinance()로 인스턴스 생성 (v2의 default export 직접 사용 불가)
 const yf = new (YahooFinance as any)({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
@@ -45,26 +46,21 @@ const TTL = { QUOTE: 60_000, CHART: 300_000, FINANCIALS: 3_600_000, SEARCH: 600_
 const L2_KEYS = new Set(["quote:", "chart:", "financials:", "financials-v2:", "search:"]);
 
 // L2→L1 워밍업 시 키 접두사에 맞는 TTL 반환
-const L2_TTL_MAP: Record<string, number> = {
-  "quote:":      TTL.QUOTE,
-  "chart:":      TTL.CHART,
-  "financials:": TTL.FINANCIALS,
-  "search:":     TTL.SEARCH,
-};
-function l2Ttl(key: string): number {
-  return Object.entries(L2_TTL_MAP).find(([p]) => key.startsWith(p))?.[1] ?? TTL.CHART;
-}
-
 function l1Get<T>(key: string): T | null {
   const e = _l1.get(key);
-  if (!e || Date.now() > e.exp) return null;
+  if (!e) return null;
+  if (Date.now() >= e.exp) { _l1.delete(key); return null; }
+  _l1.delete(key); _l1.set(key, e);
   return e.data as T;
 }
 function l1Set<T>(key: string, data: T, ttlMs: number) {
+  if (ttlMs <= 0) return;
+  _l1.delete(key);
   _l1.set(key, { data, exp: Date.now() + ttlMs });
+  while (_l1.size > 500) _l1.delete(_l1.keys().next().value!);
 }
 
-async function l2Get<T>(key: string): Promise<T | null> {
+async function l2Get<T>(key: string): Promise<{ value: T; remainingMs: number } | null> {
   try {
     const { data } = await supabase
       .from("quote_cache")
@@ -72,8 +68,9 @@ async function l2Get<T>(key: string): Promise<T | null> {
       .eq("key", key)
       .single();
     if (!data) return null;
-    if (new Date(data.expires_at) <= new Date()) return null;
-    return data.data as T;
+    const remainingMs = Date.parse(data.expires_at) - Date.now();
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) return null;
+    return { value: data.data as T, remainingMs };
   } catch {
     return null;
   }
@@ -100,8 +97,8 @@ async function cacheGet<T>(key: string): Promise<T | null> {
     const l2 = await l2Get<T>(key);
     if (l2 !== null) {
       // L2 → L1 워밍업 (키 타입에 맞는 TTL 적용)
-      l1Set(key, l2, l2Ttl(key));
-      return l2;
+      l1Set(key, l2.value, l2.remainingMs);
+      return l2.value;
     }
   }
   return null;
@@ -357,7 +354,41 @@ export interface QuoteData {
   market_cap: number | null;
 }
 
+const executableInFlight = new Map<string, Promise<QuoteData | null>>();
+
+/** Execution has a separate source path: display-only Naver/cache must never win. */
+export async function getExecutableQuote(ticker: string): Promise<QuoteData | null> {
+  if (!KR_CODE.test(ticker)) return null; // KRW paper account has no FX conversion.
+  const existing = executableInFlight.get(ticker);
+  if (existing) return existing;
+  const pending = (async () => {
+    const candidates = [`${ticker}.KS`, `${ticker}.KQ`].map(async symbol => {
+      const quote = await getQuoteDirect(symbol);
+      if (!quote || !Number.isFinite(quote.price) || quote.price <= 0 || !hasFreshTradeTime(quote.traded_at)) {
+        throw new Error("No fresh exchange quote");
+      }
+      return { ...quote, ticker };
+    });
+    return Promise.any(candidates).catch(() => null);
+  })();
+  executableInFlight.set(ticker, pending);
+  try { return await pending; }
+  finally { executableInFlight.delete(ticker); }
+}
+
+const displayInFlight = new Map<string, Promise<QuoteData | null>>();
 export async function getQuote(ticker: string, nocache = false): Promise<QuoteData | null> {
+  const key = `${ticker}:${nocache}`;
+  const existing = displayInFlight.get(key);
+  if (existing) return existing;
+  const pending = loadQuote(ticker, nocache);
+  if (displayInFlight.size >= 500) return pending;
+  displayInFlight.set(key, pending);
+  try { return await pending; }
+  finally { displayInFlight.delete(key); }
+}
+
+async function loadQuote(ticker: string, nocache = false): Promise<QuoteData | null> {
   const yt  = toYahooTicker(ticker);
   const key = `quote:${yt}`;
   if (!nocache) {

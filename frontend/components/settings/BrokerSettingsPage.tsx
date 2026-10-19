@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -62,7 +62,7 @@ function BrokerCard({
   const [saving,  setSaving]          = useState(false);
   const [deleting, setDeleting]       = useState(false);
   const [showSecret, setShowSecret]   = useState(false);
-  const [form, setForm] = useState({ appKey: "", appSecret: "", accountNumber: "" });
+  const [form, setForm] = useState({ appKey: "", appSecret: "", accountNumber: "", isDemo: false });
 
   async function handleSave() {
     // 모바일 키보드 자동완성·공백 제거
@@ -70,6 +70,7 @@ function BrokerCard({
       appKey:        form.appKey.trim(),
       appSecret:     form.appSecret.trim(),
       accountNumber: form.accountNumber.trim(),
+      isDemo: form.isDemo,
     };
     if (!trimmed.appKey || !trimmed.appSecret) {
       toast.error("App Key와 App Secret을 모두 입력해주세요.");
@@ -86,7 +87,7 @@ function BrokerCard({
       if (!res.ok) throw new Error(data.error ?? "저장 실패");
       toast.success("설정이 저장되었습니다.");
       setEditing(false);
-      setForm({ appKey: "", appSecret: "", accountNumber: "" });
+      setForm({ appKey: "", appSecret: "", accountNumber: "", isDemo: false });
       onSaved();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "저장 실패");
@@ -99,9 +100,12 @@ function BrokerCard({
     if (!confirm(`${info.name} 설정을 삭제하시겠습니까?`)) return;
     setDeleting(true);
     try {
-      await fetch(`/api/settings/broker/${type}`, { method: "DELETE" });
+      const response = await fetch(`/api/settings/broker/${type}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("증권사 설정 삭제 실패");
       toast.success("삭제 완료");
       onDeleted();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "삭제 실패");
     } finally {
       setDeleting(false);
     }
@@ -124,6 +128,11 @@ function BrokerCard({
         <div className="px-5 pb-5">
           {editing ? (
             <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.isDemo} disabled={saving}
+                  onChange={(event) => setForm((f) => ({ ...f, isDemo: event.target.checked }))} />
+                KIS 모의투자 API 환경 (모의투자용 키로 저장)
+              </label>
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">App Key</label>
                 <input
@@ -180,7 +189,7 @@ function BrokerCard({
                 <Button onClick={handleSave} disabled={saving} className="flex-1">
                   {saving ? <><Loader2 size={13} className="animate-spin" /> 저장 중…</> : "저장"}
                 </Button>
-                <Button variant="ghost" onClick={() => { setEditing(false); setForm({ appKey: "", appSecret: "", accountNumber: "" }); }} disabled={saving}>
+                <Button variant="ghost" onClick={() => { setEditing(false); setForm({ appKey: "", appSecret: "", accountNumber: "", isDemo: false }); }} disabled={saving}>
                   취소
                 </Button>
               </div>
@@ -218,15 +227,6 @@ function SimpleApiKeyCard({
 }) {
   const [value, setValue]   = useState("");
   const [show,  setShow]    = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    setValue(ApiKeyManager.getKey(name));
-  }, [name]);
-
-  if (!mounted) return null;
-
   return (
     <Card className={`border-${color}-500/20 bg-${color}-500/5`}>
       <CardHeader>
@@ -255,9 +255,9 @@ function SimpleApiKeyCard({
           <Button
             className="flex-1"
             disabled={!value}
-            onClick={() => { ApiKeyManager.saveKey(name, value); toast.success(`${title} 저장 완료`); }}
+            onClick={() => { ApiKeyManager.saveKey(name, value); toast.success(`${title} 현재 탭에 적용되었습니다.`); }}
           >
-            저장
+            현재 탭에 적용
           </Button>
           {!!value && (
             <Button variant="ghost" className="text-red-400 hover:text-red-300"
@@ -266,6 +266,9 @@ function SimpleApiKeyCard({
             </Button>
           )}
         </div>
+        <p className="text-xs text-muted-foreground">
+          키는 현재 탭 메모리에만 보관하며 새로고침·로그아웃 시 삭제됩니다. 기존 브라우저 저장 키는 삭제됩니다.
+        </p>
         <p className="text-xs text-muted-foreground">
           <a href={linkHref} target="_blank" rel="noopener noreferrer" className={`text-${color}-400 hover:underline`}>
             {linkLabel}
@@ -299,16 +302,10 @@ export function BrokerSettingsPage() {
         <div className="flex gap-3">
           <AlertCircle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
           <div className="text-sm space-y-1 min-w-0">
-            <div className="font-semibold text-yellow-400">Vercel 환경변수 필수 설정</div>
+            <div className="font-semibold text-yellow-400">증권사 API 키 등록 안내</div>
             <div className="text-xs text-muted-foreground space-y-1">
-              <p>증권사 키를 저장하려면 Vercel 대시보드에 아래 환경변수가 필요합니다.</p>
-              <code className="block bg-black/20 rounded px-2 py-1 font-mono text-xs break-all">
-                BROKER_ENCRYPTION_KEY = &lt;64자리 hex 문자열&gt;
-              </code>
-              <p>생성 방법 (터미널):</p>
-              <code className="block bg-black/20 rounded px-2 py-1 font-mono text-xs break-all">
-                node -e &quot;console.log(require(&apos;crypto&apos;).randomBytes(32).toString(&apos;hex&apos;))&quot;
-              </code>
+              <p>키는 서버에 암호화하여 보관하며 화면에서 다시 조회하지 않습니다. 키를 변경하려면 새 키를 입력해주세요.</p>
+              <p>기존 브라우저에 저장했던 키와 마스터 비밀번호는 삭제됩니다. 필요한 증권사 키는 이 화면에서 다시 등록해주세요.</p>
             </div>
           </div>
         </div>

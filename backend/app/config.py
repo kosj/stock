@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     # 앱
     APP_ENV: str = "development"
     SECRET_KEY: str = "dev-secret-key-change-in-production"
+    # Server-to-server only. Never expose this value in frontend bundles or URLs.
+    LEGACY_INTERNAL_API_SECRET: str = ""
 
     @property
     def cors_origins_list(self) -> List[str]:

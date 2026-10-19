@@ -4,13 +4,13 @@
  * 기존 lib/server/yahoo-finance.ts의 getQuote/getChart를 포트 계약으로 어댑팅.
  */
 
-import { getQuote, getChart } from "../yahoo-finance";
+import { getExecutableQuote, getChart } from "../yahoo-finance";
 import { hasFreshTradeTime } from "../../core/execution-policy";
 import type { MarketDataPort, MarketQuote, MarketCandle } from "@/lib/core/ports/market-data-port";
 
 export class YahooMarketDataAdapter implements MarketDataPort {
   async getQuote(ticker: string): Promise<MarketQuote | null> {
-    const q = await getQuote(ticker);
+    const q = await getExecutableQuote(ticker);
     if (!q || !Number.isFinite(q.price) || q.price <= 0) return null;
     // Fetch time is not a freshness guarantee (holiday/stale last price).
     if (!hasFreshTradeTime(q.traded_at)) return null;

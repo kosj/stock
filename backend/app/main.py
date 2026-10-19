@@ -2,16 +2,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import settings
 from app.db import create_tables
 from app.api import portfolio, market, analysis, macro, sectors, push, krx, broker
 from app.ws.prices import router as ws_router
-from app.services.alert_service import check_alerts
-
-
-scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
+from app.security import InternalAccessMiddleware
 
 
 @asynccontextmanager
@@ -19,14 +15,7 @@ async def lifespan(app: FastAPI):
     # 시작
     await create_tables()
 
-    # 가격 알림 체크 (1분마다)
-    scheduler.add_job(check_alerts, "interval", minutes=1, id="alert_check")
-    scheduler.start()
-
     yield
-
-    # 종료
-    scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -46,6 +35,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(InternalAccessMiddleware, secret=settings.LEGACY_INTERNAL_API_SECRET)
 
 # API 라우터 등록
 app.include_router(portfolio.router,  prefix="/api/portfolio",  tags=["포트폴리오"])

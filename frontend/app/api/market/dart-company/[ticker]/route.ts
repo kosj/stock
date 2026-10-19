@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDartCompanyInfo } from "@/lib/server/dart";
+import { marketTickerRequest } from "@/lib/server/market-request";
 
 export const dynamic    = "force-dynamic";
 export const maxDuration = 20;
@@ -8,7 +9,10 @@ type Ctx = { params: Promise<{ ticker: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const { ticker } = await params;
-  const t = ticker.toUpperCase().replace(/[^0-9A-Z]/g, "");
+  const input = await marketTickerRequest(ticker);
+  if (!input.ok) return input.response;
+  const t = input.ticker;
+  if (!/^\d{6}$/.test(t)) return NextResponse.json({ error: "국내 종목코드가 필요합니다." }, { status: 400 });
 
   const { info, error } = await getDartCompanyInfo(t);
 

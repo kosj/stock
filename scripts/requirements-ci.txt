@@ -1,0 +1,16 @@
+# Offline model tests only. Runtime/training dependencies remain in requirements.txt.
+numpy==2.3.5
+pandas==2.2.3
+scikit-learn==1.8.0
+scipy==1.17.0
+threadpoolctl==3.6.0
+joblib==1.5.3
+python-dateutil==2.9.0.post0
+pytz==2026.5
+tzdata==2026.5
+six==1.17.0
+requests==2.34.2
+charset-normalizer==3.5.2
+idna==3.19
+urllib3==2.8.0
+certifi==2026.10.18

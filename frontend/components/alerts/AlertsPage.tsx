@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -35,20 +35,9 @@ type PositionWithTarget = {
 
 // ── 푸시 알림 활성화 ──────────────────────────────────────────────────────────
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const output = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; i++) output[i] = rawData.charCodeAt(i);
-  return output;
-}
-
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export function AlertsPage() {
-  const [pushEnabled, setPushEnabled]     = useState(false);
-  const [pushLoading, setPushLoading]     = useState(false);
   const [showAdd,     setShowAdd]         = useState(false);
   const [addingAlert, setAddingAlert]     = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -67,61 +56,6 @@ export function AlertsPage() {
     { revalidateOnFocus: false },
   );
   const positionList = positions ?? [];
-
-  useEffect(() => {
-    if ("Notification" in window) {
-      setPushEnabled(Notification.permission === "granted");
-    }
-  }, []);
-
-  // ── 푸시 활성화 ─────────────────────────────────────────────────────────────
-
-  async function enablePush() {
-    if (!("Notification" in window)) {
-      toast.error("이 브라우저는 알림을 지원하지 않습니다.");
-      return;
-    }
-    setPushLoading(true);
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        toast.error("알림 권한이 거부되었습니다.");
-        return;
-      }
-
-      // Service Worker 등록 (sw.js가 없거나 실패해도 알림 권한은 유지)
-      try {
-        const reg = await navigator.serviceWorker.register("/sw.js");
-        await navigator.serviceWorker.ready;
-
-        const { public_key } = await api.push.vapidKey();
-        if (public_key) {
-          const sub = await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(public_key).buffer as ArrayBuffer,
-          });
-          const json = sub.toJSON();
-          await api.push.subscribe({
-            endpoint: json.endpoint!,
-            p256dh: json.keys!.p256dh,
-            auth:   json.keys!.auth,
-          });
-          toast.success("웹 푸시 알림이 활성화되었습니다.");
-        } else {
-          toast.success("알림 권한이 허용되었습니다. (앱 내 알림 모드)");
-        }
-      } catch {
-        // 서비스 워커 실패해도 브라우저 알림 권한은 얻었으므로 성공 처리
-        toast.success("알림 권한이 허용되었습니다.");
-      }
-
-      setPushEnabled(true);
-    } catch (e: unknown) {
-      toast.error("알림 설정 실패: " + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setPushLoading(false);
-    }
-  }
 
   // ── 알림 추가 (수동 폼) ──────────────────────────────────────────────────────
 
@@ -204,19 +138,10 @@ export function AlertsPage() {
       <Card>
         <CardHeader>
           <CardTitle>웹 푸시 알림</CardTitle>
-          {pushEnabled ? (
-            <span className="flex items-center gap-1.5 text-xs text-green-400">
-              <Bell size={13} /> 활성화됨
-            </span>
-          ) : (
-            <Button size="sm" onClick={enablePush} disabled={pushLoading}>
-              <Bell size={13} />
-              {pushLoading ? "설정 중..." : "알림 활성화"}
-            </Button>
-          )}
+          <Button size="sm" disabled><Bell size={13} /> 발송 기능 준비 중</Button>
         </CardHeader>
         <p className="text-sm text-muted-foreground">
-          손절가·목표가 도달 시 브라우저 알림을 받습니다. 모바일에서 홈화면에 추가(PWA)하면 앱 알림처럼 동작합니다.
+          가격 알림 조건은 저장할 수 있습니다. 웹 푸시 발송은 아직 지원되지 않으며, 브라우저 알림 권한만으로 활성화되지 않습니다.
         </p>
       </Card>
 

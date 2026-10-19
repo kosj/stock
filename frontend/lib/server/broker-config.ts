@@ -16,6 +16,7 @@ export interface BrokerCredentials {
   appKey:        string;
   appSecret:     string;
   accountNumber?: string;
+  isDemo?: boolean;
 }
 
 export interface BrokerConfig {
@@ -23,13 +24,14 @@ export interface BrokerConfig {
   appKey:        string;
   appSecret:     string;
   accountNumber?: string;
+  isDemo?: boolean;
 }
 
 // ── 암호화 / 복호화 ────────────────────────────────────────────────────────────
 
 function getEncryptionKey(): Buffer {
   const hex = process.env.BROKER_ENCRYPTION_KEY ?? "";
-  if (hex.length !== 64) {
+  if (!/^[0-9a-f]{64}$/i.test(hex)) {
     throw new Error(
       "BROKER_ENCRYPTION_KEY 환경변수가 없거나 형식이 잘못됐습니다. " +
       "64자리 hex 문자열(32바이트)을 Vercel 환경변수에 등록하세요.\n" +
@@ -91,12 +93,13 @@ export async function getBrokerConfig(
   userId:     string,
   brokerType: string,
 ): Promise<BrokerCredentials | null> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("user_broker_configs")
     .select("config_enc")
     .eq("user_id",     userId)
     .eq("broker_type", brokerType)
     .single();
+  if (error && error.code !== "PGRST116") throw new Error("증권사 설정 조회 실패");
   if (!data?.config_enc) return null;
   try {
     return decrypt<BrokerCredentials>(data.config_enc);
@@ -107,13 +110,14 @@ export async function getBrokerConfig(
 
 /** 첫 번째(가장 최근 갱신) 증권사 자격증명 조회 */
 export async function getFirstBrokerConfig(userId: string): Promise<BrokerConfig | null> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("user_broker_configs")
     .select("broker_type, config_enc")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .single();
+  if (error && error.code !== "PGRST116") throw new Error("증권사 설정 조회 실패");
   if (!data?.config_enc) return null;
   try {
     const creds = decrypt<BrokerCredentials>(data.config_enc);
@@ -125,19 +129,21 @@ export async function getFirstBrokerConfig(userId: string): Promise<BrokerConfig
 
 /** 설정된 증권사 타입 목록 */
 export async function listBrokerTypes(userId: string): Promise<string[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("user_broker_configs")
     .select("broker_type")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
+  if (error) throw new Error("증권사 설정 목록 조회 실패");
   return (data ?? []).map((r: { broker_type: string }) => r.broker_type);
 }
 
 /** 증권사 자격증명 삭제 */
 export async function deleteBrokerConfig(userId: string, brokerType: string): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from("user_broker_configs")
     .delete()
     .eq("user_id",     userId)
     .eq("broker_type", brokerType);
+  if (error) throw new Error("자격증명 삭제 실패");
 }

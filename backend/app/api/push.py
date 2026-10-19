@@ -8,7 +8,11 @@ from app.models.alerts import PushSubscription, PriceAlert
 from app.services.push_service import send_push_notification
 from app.config import settings
 
-router = APIRouter()
+def require_owned_alert_schema():
+    raise HTTPException(status_code=503, detail="Legacy push disabled until alert and subscription ownership is migrated")
+
+
+router = APIRouter(dependencies=[Depends(require_owned_alert_schema)])
 
 
 class PushSubscribeBody(BaseModel):

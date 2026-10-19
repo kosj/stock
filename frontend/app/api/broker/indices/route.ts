@@ -1,43 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createBrokerProvider } from "@/lib/server/providers";
-import type { BrokerType, BrokerCredentials } from "@/lib/server/providers";
+import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/server/require-user";
+import { getFirstBrokerConfig } from "@/lib/server/broker-config";
+import { createBrokerProvider, type BrokerType } from "@/lib/server/providers";
 
-export const dynamic     = "force-dynamic";
+export const dynamic = "force-dynamic";
 export const maxDuration = 20;
 
-export async function POST(request: NextRequest) {
+export async function POST() {
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
   try {
-    const body = await request.json();
-
-    const { broker, appKey, appSecret } = body;
-
-    if (!broker || !appKey || !appSecret) {
-      return NextResponse.json(
-        { error: "Missing broker credentials" },
-        { status: 400 }
-      );
-    }
-
-    const credentials: BrokerCredentials = {
-      appKey,
-      appSecret
-    };
-
-    const provider = createBrokerProvider(broker as BrokerType, credentials);
-    const indices = await provider.getIndices();
-
-    return NextResponse.json(indices, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    });
-  } catch (error) {
-    console.error("Broker indices API error:", error);
-    return NextResponse.json(
-      { error: String(error) },
-      { status: 500 }
-    );
-  }
+    const config = await getFirstBrokerConfig(auth.userId);
+    if (!config) return NextResponse.json({ error: "설정 → API 설정에서 증권사 키를 등록해주세요." }, { status: 400 });
+    const provider = createBrokerProvider(config.type as BrokerType, { ...config, cacheScope: auth.userId });
+    return NextResponse.json(await provider.getIndices(), { headers: { "Cache-Control": "private, no-store" } });
+  } catch { return NextResponse.json({ error: "증권사 지수 조회 실패" }, { status: 502 }); }
 }

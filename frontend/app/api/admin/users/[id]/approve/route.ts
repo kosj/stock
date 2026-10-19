@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
@@ -7,11 +8,8 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, { params }: Ctx) {
   // 관리자 권한 확인
-  const supabase = await createSupabaseServerClient();
-  const { data: { user: me } } = await supabase.auth.getUser();
-  if (!me || me.app_metadata?.role !== "admin") {
-    return NextResponse.json({ error: "권한 없음" }, { status: 403 });
-  }
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
 
   const { id } = await params;
   const admin  = createSupabaseAdminClient();
@@ -26,7 +24,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   await admin.from("user_profiles").update({
     role:        "user",
     approved_at: new Date().toISOString(),
-    approved_by: me.email,
+    approved_by: auth.email,
   }).eq("id", id);
 
   return NextResponse.json({ success: true });

@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { searchStocks, searchStocksNaver } from "@/lib/server/yahoo-finance";
 import { createBrokerProvider } from "@/lib/server/providers";
 import type { BrokerType } from "@/lib/server/providers";
+import { requireApprovedUser } from "@/lib/server/require-user";
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 20;
 
 export async function GET(req: NextRequest) {
+  const auth = await requireApprovedUser();
+  if (!auth.ok) return auth.response;
   const q = req.nextUrl.searchParams.get("q") ?? "";
+  if (q.length > 80 || /[\x00-\x1F\x7F]/.test(q)) return NextResponse.json({ error: "invalid search query" }, { status: 400 });
   if (!q.trim()) return NextResponse.json([]);
 
   const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
@@ -17,7 +21,7 @@ export async function GET(req: NextRequest) {
   const hasKorean  = /[가-힣]/.test(q);
 
   // 브로커 프로바이더 (재사용)
-  let provider = hasBroker
+  const provider = hasBroker
     ? createBrokerProvider(brokerType!, { appKey: appKey!, appSecret: appSecret! })
     : null;
 

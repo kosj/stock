@@ -98,11 +98,12 @@ export const api = {
     setCapital:    (capital: number | null) =>
       request("/api/mock/account", { method: "PUT", body: JSON.stringify({ auto_trade_capital: capital }) }),
     reset:         () => request("/api/mock/account/reset", { method: "POST" }),
-    trade:         (body: { ticker: string; name: string; trade_type: "BUY" | "SELL"; quantity: number }) =>
-      request("/api/mock/trade", { method: "POST", body: JSON.stringify(body) }),
+    trade:         (body: { ticker: string; name: string; trade_type: "BUY" | "SELL"; quantity: number; client_order_id: string; account_epoch: number }) =>
+      request<{ price: number; quantity: number; total_amount: number; duplicate?: boolean }>("/api/mock/trade", { method: "POST", body: JSON.stringify(body) }),
+    estimate: (ticker: string, side: "BUY" | "SELL") => request<{ price: number; effective_price: number }>(`/api/mock/trade?ticker=${encodeURIComponent(ticker)}&side=${side}`),
     trades:        () => request("/api/mock/trades"),
     autoTrade:     () => request("/api/mock/auto-trade/run", { method: "POST" }),
-    autoTradeLogs: () => request("/api/mock/auto-trade/logs"),
+    autoTradeLogs: (offset = 0, limit = 20) => request(`/api/mock/auto-trade/logs?offset=${offset}&limit=${limit}`),
   },
 
   macro: {

@@ -43,16 +43,17 @@ import requests
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
-TABLE = "price_daily"
 COLS = ["Open", "High", "Low", "Close", "Volume"]
+_snapshot_revisions: dict[str, int] = {}
+
+
+def revision(ticker: str) -> int | None:
+    """Revision actually read/published by this process (None for live input)."""
+    return _snapshot_revisions.get(ticker)
 
 # 중복 구간 괴리율이 이 값을 넘으면 기업행위로 보고 전량 재적재.
 # 관측된 잡음은 0.1% 미만, 배당 조정은 통상 1~3%, 분할은 수십~수백 %.
 RESYNC_PCT = 0.01
-# PostgREST 페이지 크기 (Supabase max-rows 기본값과 동일하게 잡아 잘림 방지)
-PAGE = 1000
-# 한 번에 보낼 upsert 행 수
-CHUNK = 1000
 
 
 def _headers(extra: dict | None = None) -> dict:
@@ -66,95 +67,49 @@ def enabled() -> bool:
     return bool(SUPABASE_URL and SUPABASE_KEY)
 
 
-def read(ticker: str) -> pd.DataFrame:
-    """저장된 전 구간 조회. 테이블 부재·오류 시 빈 DataFrame.
-
-    PostgREST 는 기본 1,000행에서 잘리므로 반드시 페이지네이션한다
-    (조용히 잘리면 과거 구간이 통째로 사라져 피처가 오염된다).
-    """
-    if not enabled():
-        return pd.DataFrame()
-    frames, offset = [], 0
-    while True:
-        url = (f"{SUPABASE_URL}/rest/v1/{TABLE}"
-               f"?ticker=eq.{requests.utils.quote(ticker, safe='')}"
-               f"&select=date,open,high,low,close,volume"
-               f"&order=date.asc&limit={PAGE}&offset={offset}")
-        try:
-            r = requests.get(url, headers=_headers(), timeout=20)
-        except Exception:
-            return pd.DataFrame()
-        if not r.ok:
-            return pd.DataFrame()
-        rows = r.json()
-        if not rows:
-            break
-        frames.append(pd.DataFrame(rows))
-        if len(rows) < PAGE:
-            break
-        offset += PAGE
-
-    if not frames:
-        return pd.DataFrame()
-    out = pd.concat(frames, ignore_index=True)
+def _read_snapshot(ticker: str) -> tuple[pd.DataFrame, int]:
+    """One DB statement reads the entire ticker and revision consistently."""
+    resp = requests.post(
+        f"{SUPABASE_URL}/rest/v1/rpc/read_price_snapshot",
+        headers=_headers(), json={"p_ticker": ticker}, timeout=60,
+    )
+    resp.raise_for_status()
+    snapshot = resp.json()
+    rows, revision = snapshot["rows"], int(snapshot["revision"])
+    _snapshot_revisions[ticker] = revision
+    if not rows:
+        return pd.DataFrame(), revision
+    out = pd.DataFrame(rows)
     out["date"] = pd.to_datetime(out["date"])
     out = out.set_index("date").sort_index()
-    out = out[~out.index.duplicated(keep="last")]
     out = out.rename(columns={"open": "Open", "high": "High", "low": "Low",
                               "close": "Close", "volume": "Volume"})
-    return out[COLS].astype(float)
+    return out[COLS].astype(float), revision
 
 
-def _write(ticker: str, df: pd.DataFrame) -> int:
-    """행 삽입(멱등 upsert). 반환: 전송 행 수."""
-    if df.empty or not enabled():
-        return 0
-
-    def _num(x):
-        return None if pd.isna(x) else float(x)
-
-    rows = [{
-        "ticker": ticker,
-        "date":   pd.Timestamp(idx).strftime("%Y-%m-%d"),
-        "open":   _num(r.get("Open")),
-        "high":   _num(r.get("High")),
-        "low":    _num(r.get("Low")),
-        "close":  _num(r.get("Close")),
-        "volume": _num(r.get("Volume")),
-    } for idx, r in df.iterrows() if not pd.isna(r.get("Close"))]
-
-    sent = 0
-    for i in range(0, len(rows), CHUNK):
-        batch = rows[i:i + CHUNK]
-        try:
-            resp = requests.post(
-                f"{SUPABASE_URL}/rest/v1/{TABLE}?on_conflict=ticker,date",
-                headers=_headers({
-                    "Content-Type": "application/json",
-                    "Prefer": "resolution=merge-duplicates,return=minimal",
-                }),
-                json=batch, timeout=60,
-            )
-        except Exception as exc:
-            print(f"    [warn] {ticker} 시세 적재 실패(네트워크): {exc}")
-            return sent
-        if not resp.ok:
-            print(f"    [warn] {ticker} 시세 적재 실패: {resp.status_code} {resp.text[:160]}")
-            return sent
-        sent += len(batch)
-    return sent
+def read(ticker: str) -> pd.DataFrame:
+    """Read a committed snapshot; configured storage failures are fatal."""
+    return _read_snapshot(ticker)[0] if enabled() else pd.DataFrame()
 
 
-def _delete(ticker: str) -> bool:
-    try:
-        resp = requests.delete(
-            f"{SUPABASE_URL}/rest/v1/{TABLE}"
-            f"?ticker=eq.{requests.utils.quote(ticker, safe='')}",
-            headers=_headers({"Prefer": "return=minimal"}), timeout=60,
-        )
-        return resp.ok
-    except Exception:
-        return False
+def _publish(ticker: str, df: pd.DataFrame, revision: int, reason: str) -> None:
+    """Atomic compare-and-swap: no destructive DELETE or partial chunk writes."""
+    def number(value):
+        return float(value) if pd.notna(value) and np.isfinite(value) else None
+
+    rows = [{"date": pd.Timestamp(idx).strftime("%Y-%m-%d"),
+             **{col.lower(): number(row.get(col)) for col in COLS}}
+            for idx, row in df.iterrows()]
+    resp = requests.post(
+        f"{SUPABASE_URL}/rest/v1/rpc/publish_price_snapshot",
+        headers=_headers(), json={"p_ticker": ticker, "p_rows": rows,
+                                  "p_expected_revision": revision, "p_reason": reason},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    if int(resp.json()) != revision + 1:
+        raise RuntimeError("Invalid snapshot publication receipt")
+    _snapshot_revisions[ticker] = revision + 1
 
 
 def load(ticker: str, fetcher: Callable[[str], pd.DataFrame]) -> tuple[pd.DataFrame, str]:
@@ -165,19 +120,20 @@ def load(ticker: str, fetcher: Callable[[str], pd.DataFrame]) -> tuple[pd.DataFr
       상태: "snapshot"  저장본 사용(+신규 일자만 추가) — 재현 가능
             "seed"      최초 적재
             "resync"    기업행위 감지 → 전량 재적재
-            "live"      저장소 사용 불가 → 야후 응답 그대로(재현 불가)
+            "live"      저장소 미설정 → 야후 응답 그대로(재현 불가)
+    설정된 저장소의 읽기/쓰기 오류는 전파한다. 미적재 가격으로 학습하지 않는다.
     """
     fresh = fetcher(ticker)
 
     if not enabled():
         return fresh, "live"
 
-    stored = read(ticker)
+    stored, revision = _read_snapshot(ticker)
 
     if stored.empty:
         if fresh.empty:
             return fresh, "live"
-        _write(ticker, fresh)
+        _publish(ticker, fresh, revision, "seed")
         return fresh, "seed"
 
     if fresh.empty:
@@ -196,16 +152,14 @@ def load(ticker: str, fetcher: Callable[[str], pd.DataFrame]) -> tuple[pd.DataFr
                 # 저장본을 유지하면 신·구 스케일이 이어붙어 가짜 급등락이 생긴다.
                 print(f"    [resync] {ticker}: 중복구간 괴리 {drift*100:.2f}% "
                       f"(> {RESYNC_PCT*100:.0f}%) — 기업행위로 보고 전량 재적재")
-                if _delete(ticker):
-                    _write(ticker, fresh)
-                    return fresh, "resync"
-                return fresh, "live"
+                _publish(ticker, fresh, revision, "resync")
+                return fresh, "resync"
 
     # 저장본 우선 + 신규 일자만 추가 (저장된 값은 절대 덮어쓰지 않는다)
     new_idx = fresh.index.difference(stored.index)
     if len(new_idx) > 0:
-        _write(ticker, fresh.loc[new_idx])
         merged = pd.concat([stored, fresh.loc[new_idx][COLS]]).sort_index()
+        _publish(ticker, merged, revision, "append")
     else:
         merged = stored
     return merged[COLS], "snapshot"

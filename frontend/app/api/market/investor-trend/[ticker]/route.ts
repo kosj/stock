@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { InvestorTrendService } from "@/lib/server/investor-trend";
+import { marketTickerRequest } from "@/lib/server/market-request";
 
 export const revalidate = 3600; // 1시간 — 수급 데이터는 장 중 빈번한 갱신 불필요
 
@@ -11,7 +12,9 @@ type Ctx = { params: Promise<{ ticker: string }> };
  */
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const { ticker } = await params;
-  const code = ticker.toUpperCase();
+  const input = await marketTickerRequest(ticker);
+  if (!input.ok) return input.response;
+  const code = input.ticker;
 
   const result = await InvestorTrendService.getTrend(code);
   if (!result) {

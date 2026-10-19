@@ -177,7 +177,10 @@ def _rsi(prices: pd.Series, n: int = 14) -> pd.Series:
     d    = prices.diff()
     gain = d.clip(lower=0).rolling(n).mean()
     loss = (-d.clip(upper=0)).rolling(n).mean()
-    return 100 - 100 / (1 + gain / loss.replace(0, np.nan))
+    rsi = 100 - 100 / (1 + gain / loss.replace(0, np.nan))
+    # Preserve the warm-up NaNs; a flat window is neutral, not missing.
+    rsi = rsi.mask((loss == 0) & (gain > 0), 100.0)
+    return rsi.mask((loss == 0) & (gain == 0), 50.0)
 
 
 def _macd_hist(prices: pd.Series, f: int = 12, s: int = 26, sig: int = 9) -> pd.Series:
@@ -738,8 +741,7 @@ def main() -> None:
     if not 0 <= (date.fromisoformat(run_date) - data_as_of).days <= 4:
         sys.exit("벤치마크 기준일이 오래되었거나 미래 데이터입니다")
     if _mkt_src == "live":
-        print("  ⚠ 시세 스냅샷 미사용(live) — price_daily 마이그레이션 미적용 또는 "
-              "Supabase 접근 실패. 실행 간 재현성이 보장되지 않는다.")
+        print("  ⚠ 시세 스냅샷 미설정(live) — 실행 간 재현성이 보장되지 않는다.")
     # 재현성 추적: 실행마다 훈련 입력 해시가 달라지는 원인이 시세 수집에 있음을
     # 확인했다. 벤치마크와 종목 시세 중 어느 쪽이 흔들리는지 분리해 기록한다.
     print(f"  [지문] ^KS11 행={len(mkt_df)} "
@@ -1283,6 +1285,9 @@ def main() -> None:
                 "relative_score":         round(float(row["risk_adj_score"]), 4),
                 "return_calibrated":      False,
                 "data_as_of":             data_as_of.isoformat(),
+                "price_snapshot_revision": price_store.revision(to_yf(ticker, row["market"])),
+                "benchmark_snapshot_revision": price_store.revision(BENCHMARK_YF),
+                "point_in_time_universe": False,
             }),
         })
 

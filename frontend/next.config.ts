@@ -1,9 +1,13 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
 
   compress: true,
+  // npm hoists Next and shared tooling to the workspace root.
+  turbopack: { root: path.resolve(__dirname, "..") },
+  outputFileTracingRoot: path.resolve(__dirname, ".."),
 
   experimental: {
     optimizePackageImports: [

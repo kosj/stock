@@ -76,13 +76,24 @@ def _norm_series(s: pd.Series) -> pd.Series:
 
 def fetch_recommendations() -> pd.DataFrame:
     """prophet_recommendations 전체 조회 (예측 칼럼 + rank + market)."""
-    url = (f"{SUPABASE_URL}/rest/v1/prophet_recommendations"
-           f"?select=run_date,ticker,market,rank,predicted_return_7d,predicted_return_30d"
-           f"&order=run_date.asc&limit=100000")
-    r = requests.get(url, headers={"apikey": SUPABASE_KEY,
-                                   "Authorization": f"Bearer {SUPABASE_KEY}"}, timeout=30)
-    r.raise_for_status()
-    df = pd.DataFrame(r.json())
+    # Continue until an empty page: PostgREST can cap pages below our limit.
+    # The run_date/ticker pair is unique; tie-breaker prevents page-boundary loss.
+    rows, offset = [], 0
+    while True:
+        url = (f"{SUPABASE_URL}/rest/v1/prophet_recommendations"
+               f"?select=run_date,ticker,market,rank,predicted_return_7d,predicted_return_30d"
+               f"&order=run_date.asc,ticker.asc&limit=1000&offset={offset}")
+        r = requests.get(url, headers={"apikey": SUPABASE_KEY,
+                                       "Authorization": f"Bearer {SUPABASE_KEY}"}, timeout=30)
+        r.raise_for_status()
+        page = r.json()
+        if not isinstance(page, list):
+            raise ValueError("Invalid recommendations response")
+        if not page:
+            break
+        rows.extend(page)
+        offset += len(page)
+    df = pd.DataFrame(rows)
     if df.empty:
         return df
     df["run_date"] = pd.to_datetime(df["run_date"])
@@ -100,7 +111,11 @@ def realized_alpha(close: pd.Series, mkt: pd.Series, d0: pd.Timestamp,
     """
     d0 = pd.Timestamp(d0)
     idx = close.index
-    pos = int(idx.searchsorted(d0)) + lag
+    if lag < 0 or horizon < 1:
+        raise ValueError("lag must be nonnegative and horizon positive")
+    # lag=1 means the first session strictly AFTER d0 even on a holiday.
+    pos = (int(idx.searchsorted(d0, side="right")) + lag - 1
+           if lag else int(idx.searchsorted(d0, side="left")))
     if pos >= len(idx) or pos + horizon >= len(idx):
         return None
     d_in, d_out = idx[pos], idx[pos + horizon]

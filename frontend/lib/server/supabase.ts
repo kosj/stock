@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 
 const url = process.env.SUPABASE_URL!;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+// The server API owns all database access. Anonymous fallback hides bad deployment
+// configuration and cannot safely execute privileged account operations.
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export const supabase = createClient(url, key, {
   auth: { persistSession: false },

@@ -1,21 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prophetForecast } from "@/lib/server/prophet-forecast";
+import { analysisBatchRequest } from "@/lib/server/analysis-request";
+import { boundedSettled } from "@/lib/server/api-security-policy";
 
 export const dynamic    = "force-dynamic";
 export const maxDuration = 45;
 
 export async function POST(request: NextRequest) {
   try {
-    const { tickers } = await request.json();
+    const input = await analysisBatchRequest(request, 10);
+    if (!input.ok) return input.response;
+    const { tickers } = input;
 
     if (!Array.isArray(tickers) || tickers.length === 0) {
       return NextResponse.json({ error: "tickers 배열 필요" }, { status: 400 });
     }
 
     // Cap to 10 tickers per request (each takes ~300-600ms)
-    const targets = (tickers as string[]).slice(0, 10).map(t => t.toUpperCase());
+    const targets = tickers;
 
-    const settled = await Promise.allSettled(targets.map(t => prophetForecast(t)));
+    const settled = await boundedSettled(targets, prophetForecast);
 
     const results = settled.map((r, i) =>
       r.status === "fulfilled"

@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { formatNumber } from "@/lib/utils";
@@ -22,12 +23,13 @@ interface SellTarget {
 interface Props {
   mode:        "BUY" | "SELL";
   cash:        number;       // 보유 현금 (매수 시 사용)
+  accountEpoch: number;
   sellTarget?: SellTarget;  // SELL 모드 시 종목 정보
   onClose:     () => void;
   onTraded:    () => void;
 }
 
-export function MockTradeModal({ mode, cash, sellTarget, onClose, onTraded }: Props) {
+export function MockTradeModal({ mode, cash, accountEpoch, sellTarget, onClose, onTraded }: Props) {
   const isSell = mode === "SELL";
 
   // 매수: 종목 검색
@@ -39,34 +41,19 @@ export function MockTradeModal({ mode, cash, sellTarget, onClose, onTraded }: Pr
 
   // 공통
   const [quantity,    setQuantity]    = useState("");
-  const [quotePrice,  setQuotePrice]  = useState<number | null>(null);
-  const [quoteLoading, setQuoteLoading] = useState(false);
+  const submittingRef = useRef(false);
   const [submitting,  setSubmitting]  = useState(false);
 
   const ticker = isSell ? sellTarget!.ticker : selected?.ticker ?? "";
   const name   = isSell ? sellTarget!.name   : selected?.name   ?? "";
 
-  // 현재가 조회
-  const fetchQuote = useCallback(async (t: string) => {
-    if (!t) return;
-    setQuoteLoading(true);
-    try {
-      const q = await api.market.quote(t) as any;
-      setQuotePrice(q?.price ?? null);
-    } catch {
-      setQuotePrice(null);
-    } finally {
-      setQuoteLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isSell) fetchQuote(sellTarget!.ticker);
-  }, [isSell, sellTarget, fetchQuote]);
-
-  useEffect(() => {
-    if (selected?.ticker) fetchQuote(selected.ticker);
-  }, [selected, fetchQuote]);
+  const { data: quote, isLoading: quoteLoading, error: quoteError } = useSWR(
+    ticker ? ["mock-estimate", ticker, mode] : null,
+    () => api.mock.estimate(ticker, mode), { refreshInterval: 30_000, shouldRetryOnError: false },
+  );
+  const quotePrice = quoteError ? null : quote?.price ?? null;
+  const effectiveQuote = quoteError ? null : quote?.effective_price ?? null;
+  useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
 
   // 종목 검색 (매수 모드)
   const handleSearch = (q: string) => {
@@ -78,7 +65,7 @@ export function MockTradeModal({ mode, cash, sellTarget, onClose, onTraded }: Pr
       setSearching(true);
       try {
         const data = await api.market.search(q) as SearchResult[];
-        setResults(data.slice(0, 8));
+        setResults(data.filter(r => /^\d{6}$/.test(r.ticker)).slice(0, 8));
       } catch {
         setResults([]);
       } finally {
@@ -88,23 +75,29 @@ export function MockTradeModal({ mode, cash, sellTarget, onClose, onTraded }: Pr
   };
 
   const qty     = Number(quantity) || 0;
-  const total   = quotePrice ? Math.round(quotePrice * qty) : 0;
-  const canBuy  = !isSell && !!ticker && qty > 0 && !!quotePrice && total <= cash;
-  const canSell = isSell && qty > 0 && qty <= (sellTarget?.quantity ?? 0) && !!quotePrice;
+  const total   = effectiveQuote ? Math.round(effectiveQuote * qty * 100) / 100 : 0;
+  const canBuy  = !isSell && !!ticker && Number.isSafeInteger(qty) && qty > 0 && !!effectiveQuote && total <= cash;
+  const canSell = isSell && Number.isSafeInteger(qty) && qty > 0 && qty <= (sellTarget?.quantity ?? 0) && !!effectiveQuote;
   const canSubmit = isSell ? canSell : canBuy;
 
   async function handleSubmit() {
-    if (!ticker || !name || qty <= 0 || !quotePrice) return;
+    if (!canSubmit || submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
-      await api.mock.trade({ ticker, name, trade_type: mode, quantity: qty });
-      toast.success(`${name} ${qty}주 ${isSell ? "매도" : "매수"} 완료 (체결가 ${formatNumber(quotePrice)})`);
+      const key = `mock-order:${accountEpoch}:${mode}:${ticker}:${qty}`;
+      let orderId = sessionStorage.getItem(key);
+      if (!orderId) { orderId = crypto.randomUUID(); sessionStorage.setItem(key, orderId); }
+      const receipt = await api.mock.trade({ ticker, name, trade_type: mode, quantity: qty, client_order_id: orderId, account_epoch: accountEpoch });
+      sessionStorage.removeItem(key);
+      toast.success(`${name} ${receipt.quantity}주 ${isSell ? "매도" : "매수"} 완료 (비용 포함 실효단가 ${formatNumber(receipt.price)}, 금액 ${formatNumber(receipt.total_amount)}원)`);
       onTraded();
       onClose();
-    } catch (err: any) {
-      toast.error(err.message ?? "주문 실패");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "주문 실패");
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   }
 
@@ -134,7 +127,7 @@ export function MockTradeModal({ mode, cash, sellTarget, onClose, onTraded }: Pr
               <input
                 value={query}
                 onChange={(e) => handleSearch(e.target.value)}
-                placeholder="삼성전자, AAPL…"
+                placeholder="국내 종목: 삼성전자, 005930…"
                 className="w-full pl-8 pr-3 py-2 rounded-lg border border-border bg-muted text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               {searching && <Loader2 size={13} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />}
@@ -180,6 +173,7 @@ export function MockTradeModal({ mode, cash, sellTarget, onClose, onTraded }: Pr
             ? <Loader2 size={13} className="animate-spin text-muted-foreground" />
             : <span className="font-bold tabular-nums">{quotePrice ? formatNumber(quotePrice) : "-"}</span>}
         </div>
+        {quoteError && <p className="text-xs text-amber-400">실제 거래시각이 확인된 최신 시세가 없습니다. 국내 정규장에서 다시 확인하세요.</p>}
 
         {/* 수량 */}
         <div className="space-y-1">
@@ -205,7 +199,7 @@ export function MockTradeModal({ mode, cash, sellTarget, onClose, onTraded }: Pr
         {quotePrice && qty > 0 && (
           <div className="rounded-lg bg-muted px-3 py-2 space-y-1 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">예상 {isSell ? "수령" : "필요"} 금액</span>
+              <span className="text-muted-foreground">비용 포함 예상 {isSell ? "수령" : "필요"} 금액</span>
               <span className="font-bold tabular-nums">{formatNumber(total)}원</span>
             </div>
             {!isSell && (

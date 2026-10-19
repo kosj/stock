@@ -1,0 +1,14 @@
+{
+  "files": {
+    "20260808_mock_realized_pnl.sql": "8a41b509223c5a9d0c02d4468998808790d591cb7f73ff96555c8982c3ed6fda",
+    "20260810_etf_pick_history.sql": "5c0349e6ee658b241938c2f6a7d6ab632b61d6890aa60fd2b74df6c442784855",
+    "20260810_price_alerts_user_scope.sql": "68e4d430ded4d1e702a68b145d4c4aed8368517c4bde33a8a92309552fd039be",
+    "20260816_price_daily.sql": "641cd6b8a36fafcb7182916f53d3cbf373ef33151694a8145ea864a5b3a41b61",
+    "20261019_mock_order_guards.sql": "6f0153813675a0ef6c379931ea36d06d3de651b5ca1e4367d4beef1562957430",
+    "20261019_trading_safety.sql": "4a4c7ef62355d1e4504b33c6358b1a20d6cf94dede8b88ff44608a0588a3281c"
+  },
+  "duplicateVersions": {
+    "20260810": ["20260810_etf_pick_history.sql", "20260810_price_alerts_user_scope.sql"],
+    "20261019": ["20261019_mock_order_guards.sql", "20261019_trading_safety.sql"]
+  }
+}

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
@@ -7,15 +8,12 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function DELETE(req: NextRequest, { params }: Ctx) {
   // 관리자 권한 확인
-  const supabase = await createSupabaseServerClient();
-  const { data: { user: me } } = await supabase.auth.getUser();
-  if (!me || me.app_metadata?.role !== "admin") {
-    return NextResponse.json({ error: "권한 없음" }, { status: 403 });
-  }
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
 
   // 자기 자신 삭제 방지
   const { id } = await params;
-  if (id === me.id) {
+  if (id === auth.userId) {
     return NextResponse.json({ error: "본인 계정은 삭제할 수 없습니다." }, { status: 400 });
   }
 

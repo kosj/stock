@@ -1,17 +1,19 @@
-/**
- * 증권사 API 설정 관리 (클라이언트 사이드).
- * Web Crypto API 기반 — 외부 패키지 의존성 없음.
- */
-
-import { encryptWithPassword, decryptWithPassword, hashPassword } from "./crypto";
+/** Legacy browser credential compatibility. Broker secrets now live only in the
+ * authenticated /api/settings/broker flow. Optional API keys live in tab memory. */
 import type { BrokerType, BrokerCredentials } from "./server/providers";
-
 export type { BrokerType, BrokerCredentials } from "./server/providers";
 
-const STORAGE_KEY_PREFIX   = "broker-config-";
-const MASTER_PWD_HASH_KEY  = "__master_pwd_hash__";
-// 평문은 localStorage에 영구 저장 — 브라우저 재시작 후 자동 복원
-const MASTER_PWD_KEY       = "__master_password__";
+const LEGACY_KEYS = ["__master_password__", "__master_pwd_hash__", "kis-token-cache",
+  "api-key-anthropic", "api-key-fred", ...["kis", "kb", "shinhan", "meritz", "miraeasset"].map((t) => `broker-config-${t}`)];
+
+/** Storage may be disabled; cleanup failures never restore old secrets. */
+export function purgeLegacyCredentials(): void {
+  if (typeof window === "undefined") return;
+  for (const store of ["localStorage", "sessionStorage"] as const) {
+    try { for (const key of LEGACY_KEYS) window[store].removeItem(key); } catch { /* storage unavailable */ }
+  }
+}
+purgeLegacyCredentials();
 
 export interface StoredBrokerConfig {
   type: BrokerType;
@@ -20,173 +22,47 @@ export interface StoredBrokerConfig {
   algorithm: "aes-256-cbc-hmac";
 }
 
-function isClient(): boolean {
-  return typeof window !== "undefined";
-}
-
-// ---------------------------------------------------------------------------
-// BrokerConfigManager
-// ---------------------------------------------------------------------------
-
+/** Legacy consumers receive no browser credentials and use server/default market data. */
 export class BrokerConfigManager {
-  /**
-   * 현재 활성 마스터 패스워드를 반환.
-   * sessionStorage → localStorage 순으로 탐색해 sessionStorage에 복원.
-   */
-  private static getActiveMasterPassword(): string | null {
-    if (!isClient()) return null;
-    const session = sessionStorage.getItem(MASTER_PWD_KEY);
-    if (session) return session;
-    // 브라우저 재시작 후 localStorage 영구 저장값으로 자동 복원
-    const persistent = localStorage.getItem(MASTER_PWD_KEY);
-    if (persistent) {
-      sessionStorage.setItem(MASTER_PWD_KEY, persistent);
-      return persistent;
-    }
-    return null;
+  static async setMasterPassword(_password: string): Promise<void> {
+    void _password;
+    purgeLegacyCredentials();
+    throw new Error("설정 → API 설정에서 증권사 키를 서버에 저장해주세요. 브라우저 마스터 비밀번호는 사용하지 않습니다.");
   }
-
-  /** 마스터 패스워드 설정 (비동기 — SHA-256 해시 생성 필요) */
-  static async setMasterPassword(password: string): Promise<void> {
-    if (!isClient()) throw new Error("클라이언트 환경에서만 사용 가능합니다");
-    if (!password || password.length < 8) throw new Error("마스터 패스워드는 최소 8자 이상이어야 합니다");
-    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
-      throw new Error("마스터 패스워드는 대문자, 소문자, 숫자를 포함해야 합니다");
-    }
-    const hash = await hashPassword(password);
-    localStorage.setItem(MASTER_PWD_HASH_KEY, hash);
-    localStorage.setItem(MASTER_PWD_KEY, password);      // 영구 저장
-    sessionStorage.setItem(MASTER_PWD_KEY, password);    // 세션 복사
-  }
-
-  /** 마스터 패스워드 검증 (비동기) */
-  static async verifyMasterPassword(password: string): Promise<boolean> {
-    if (!isClient()) return false;
-    const stored = localStorage.getItem(MASTER_PWD_HASH_KEY);
-    if (!stored) return false;
-    const hash = await hashPassword(password);
-    if (hash !== stored) return false;
-    localStorage.setItem(MASTER_PWD_KEY, password);      // 영구 저장
-    sessionStorage.setItem(MASTER_PWD_KEY, password);    // 세션 복사
-    return true;
-  }
-
-  /** 마스터 패스워드가 설정된 적 있는지 (localStorage 해시 존재 여부) */
-  static isMasterPasswordSet(): boolean {
-    if (!isClient()) return false;
-    return localStorage.getItem(MASTER_PWD_HASH_KEY) !== null;
-  }
-
-  /** 현재 세션이 잠금 해제 상태인지 (localStorage 영구값 포함) */
-  static isSessionUnlocked(): boolean {
-    return BrokerConfigManager.getActiveMasterPassword() !== null;
-  }
-
-  /** 현재 세션 잠금 + 영구 저장 삭제 (다음 열 때 "비밀번호 입력" 화면) */
-  static clearMasterPassword(): void {
-    if (!isClient()) return;
-    sessionStorage.removeItem(MASTER_PWD_KEY);
-    localStorage.removeItem(MASTER_PWD_KEY);  // 영구값도 삭제
-  }
-
-  /** 마스터 패스워드 완전 초기화 (해시 포함 삭제 → 다음 열 때 "신규 설정" 화면) */
-  static resetMasterPassword(): void {
-    if (!isClient()) return;
-    sessionStorage.removeItem(MASTER_PWD_KEY);
-    localStorage.removeItem(MASTER_PWD_KEY);
-    localStorage.removeItem(MASTER_PWD_HASH_KEY);
-  }
-
-  /** 증권사 설정 저장 (비동기 — AES 암호화 필요) */
+  static async verifyMasterPassword(_password: string): Promise<boolean> { void _password; purgeLegacyCredentials(); return false; }
+  static isMasterPasswordSet(): boolean { purgeLegacyCredentials(); return false; }
+  static isSessionUnlocked(): boolean { purgeLegacyCredentials(); return false; }
+  static clearMasterPassword(): void { purgeLegacyCredentials(); }
+  static resetMasterPassword(): void { purgeLegacyCredentials(); }
   static async saveBrokerConfig(type: BrokerType, credentials: BrokerCredentials): Promise<void> {
-    const masterPassword = BrokerConfigManager.getActiveMasterPassword();
-    if (!masterPassword) throw new Error("마스터 패스워드로 인증 후 사용할 수 있습니다");
-
-    const encrypted = await encryptWithPassword(JSON.stringify(credentials), masterPassword);
-    const config: StoredBrokerConfig = {
-      type,
-      encrypted,
-      savedAt: Date.now(),
-      algorithm: "aes-256-cbc-hmac",
-    };
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}${type}`, JSON.stringify(config));
+    purgeLegacyCredentials();
+    const response = await fetch("/api/settings/broker", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, ...credentials }),
+    });
+    if (!response.ok) throw new Error("증권사 키 저장 실패. 설정 → API 설정에서 다시 등록해주세요.");
   }
-
-  /** 증권사 설정 조회 (비동기 — AES 복호화 필요) */
-  static async getBrokerConfig(type: BrokerType): Promise<BrokerCredentials | null> {
-    if (!isClient()) return null;
-    const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}${type}`);
-    if (!raw) return null;
-    const masterPassword = BrokerConfigManager.getActiveMasterPassword();
-    if (!masterPassword) return null;
-    try {
-      const config: StoredBrokerConfig = JSON.parse(raw);
-      const decrypted = await decryptWithPassword(config.encrypted, masterPassword);
-      return JSON.parse(decrypted);
-    } catch {
-      return null;
-    }
-  }
-
-  static removeBrokerConfig(type: BrokerType): void {
-    localStorage.removeItem(`${STORAGE_KEY_PREFIX}${type}`);
-  }
-
-  static hasBrokerConfig(type: BrokerType): boolean {
-    if (!isClient()) return false;
-    return localStorage.getItem(`${STORAGE_KEY_PREFIX}${type}`) !== null;
-  }
-
-  static getConfiguredBrokers(): BrokerType[] {
-    return (["kis", "kb", "shinhan", "meritz"] as BrokerType[]).filter(
-      (t) => BrokerConfigManager.hasBrokerConfig(t),
-    );
-  }
-
-  /** 기본 증권사의 자격증명 반환 (비동기) — 대시보드/종목 페이지에서 사용 */
+  static async getBrokerConfig(_type: BrokerType): Promise<BrokerCredentials | null> { void _type; purgeLegacyCredentials(); return null; }
+  static removeBrokerConfig(_type: BrokerType): void { void _type; purgeLegacyCredentials(); }
+  static hasBrokerConfig(_type: BrokerType): boolean { void _type; purgeLegacyCredentials(); return false; }
+  static getConfiguredBrokers(): BrokerType[] { purgeLegacyCredentials(); return []; }
   static async getDefaultBrokerConfig(): Promise<{ type: BrokerType; credentials: BrokerCredentials } | null> {
-    const types = BrokerConfigManager.getConfiguredBrokers();
-    for (const type of types) {
-      const creds = await BrokerConfigManager.getBrokerConfig(type);
-      if (creds) return { type, credentials: creds };
-    }
-    return null;
+    purgeLegacyCredentials(); return null;
   }
 }
+export function isBrokerConfigured(type: BrokerType): boolean { return BrokerConfigManager.hasBrokerConfig(type); }
+export function getConfiguredBrokersList(): BrokerType[] { return BrokerConfigManager.getConfiguredBrokers(); }
 
-export function isBrokerConfigured(type: BrokerType): boolean {
-  return BrokerConfigManager.hasBrokerConfig(type);
-}
-
-export function getConfiguredBrokersList(): BrokerType[] {
-  return BrokerConfigManager.getConfiguredBrokers();
-}
-
-// ---------------------------------------------------------------------------
-// 단순 API 키 관리 (Anthropic, FRED) — 암호화 없이 localStorage
-// ---------------------------------------------------------------------------
-
-const SIMPLE_KEY_PREFIX = "api-key-";
 export type SimpleApiKeyType = "anthropic" | "fred";
-
+const tabKeys = new Map<SimpleApiKeyType, string>();
 export class ApiKeyManager {
+  static clearKeys(): void { purgeLegacyCredentials(); tabKeys.clear(); }
   static saveKey(name: SimpleApiKeyType, value: string): void {
-    if (!isClient()) return;
-    if (value) localStorage.setItem(`${SIMPLE_KEY_PREFIX}${name}`, value);
-    else localStorage.removeItem(`${SIMPLE_KEY_PREFIX}${name}`);
+    purgeLegacyCredentials();
+    if (typeof window === "undefined") return;
+    if (value.trim()) tabKeys.set(name, value.trim()); else tabKeys.delete(name);
   }
-
-  static getKey(name: SimpleApiKeyType): string {
-    if (!isClient()) return "";
-    return localStorage.getItem(`${SIMPLE_KEY_PREFIX}${name}`) ?? "";
-  }
-
-  static removeKey(name: SimpleApiKeyType): void {
-    if (!isClient()) return;
-    localStorage.removeItem(`${SIMPLE_KEY_PREFIX}${name}`);
-  }
-
-  static hasKey(name: SimpleApiKeyType): boolean {
-    return ApiKeyManager.getKey(name).length > 0;
-  }
+  static getKey(name: SimpleApiKeyType): string { purgeLegacyCredentials(); return tabKeys.get(name) ?? ""; }
+  static removeKey(name: SimpleApiKeyType): void { purgeLegacyCredentials(); tabKeys.delete(name); }
+  static hasKey(name: SimpleApiKeyType): boolean { return ApiKeyManager.getKey(name).length > 0; }
 }

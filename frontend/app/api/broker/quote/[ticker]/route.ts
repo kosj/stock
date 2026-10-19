@@ -1,47 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createBrokerProvider } from "@/lib/server/providers";
-import type { BrokerType, BrokerCredentials } from "@/lib/server/providers";
+import { requireUser } from "@/lib/server/require-user";
+import { getFirstBrokerConfig } from "@/lib/server/broker-config";
+import { createBrokerProvider, type BrokerType } from "@/lib/server/providers";
 
-export const dynamic     = "force-dynamic";
+export const dynamic = "force-dynamic";
 export const maxDuration = 20;
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ ticker: string }> }
-) {
+export async function POST(_request: NextRequest, { params }: { params: Promise<{ ticker: string }> }) {
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const { ticker } = await params;
+  if (!/^\d{6}$/.test(ticker)) return NextResponse.json({ error: "KIS 국내 종목코드는 6자리 숫자입니다." }, { status: 400 });
   try {
-    const { ticker } = await params;
-    const body = await request.json();
-
-    const { broker, appKey, appSecret } = body;
-
-    if (!broker || !appKey || !appSecret) {
-      return NextResponse.json(
-        { error: "Missing broker credentials" },
-        { status: 400 }
-      );
-    }
-
-    const credentials: BrokerCredentials = {
-      appKey,
-      appSecret
-    };
-
-    const provider = createBrokerProvider(broker as BrokerType, credentials);
-    const quote = await provider.getQuote(ticker);
-
-    return NextResponse.json(quote, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    });
-  } catch (error) {
-    console.error("Broker quote API error:", error);
-    return NextResponse.json(
-      { error: String(error) },
-      { status: 500 }
-    );
-  }
+    const config = await getFirstBrokerConfig(auth.userId);
+    if (!config) return NextResponse.json({ error: "설정 → API 설정에서 증권사 키를 등록해주세요." }, { status: 400 });
+    const provider = createBrokerProvider(config.type as BrokerType, { ...config, cacheScope: auth.userId });
+    return NextResponse.json(await provider.getQuote(ticker), { headers: { "Cache-Control": "private, no-store" } });
+  } catch { return NextResponse.json({ error: "증권사 시세 조회 실패" }, { status: 502 }); }
 }

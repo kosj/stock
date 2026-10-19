@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, CheckCircle, XCircle, RefreshCw } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { ApiKeyManager } from "@/lib/apiConfig";
 
 export default function PendingPage() {
   const router = useRouter();
@@ -35,6 +36,7 @@ export default function PendingPage() {
   async function handleLogout() {
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
+    ApiKeyManager.clearKeys();
     router.push("/login");
     router.refresh();
   }

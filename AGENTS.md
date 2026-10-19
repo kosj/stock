@@ -3,6 +3,8 @@
 Before changing recommendation generation or mock trading, read
 `docs/trading-safety-handoff.md`. It records the 2026-10-19 safety changes,
 required DB migrations, tests, execution assumptions and incomplete deployment work.
+Also read `docs/parallel-implementation-handoff-20261019.md` for subsequent
+parallel implementation, five new migrations, rollout gates and remaining work.
 
 - Preserve unrelated existing changes. The existing modification of
   `ml/hybrid_stacking_ensemble.py` was NOT part of the 2026-10-19 task.

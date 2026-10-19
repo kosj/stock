@@ -1,15 +1,18 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { apiAccessPolicy, isApprovedRole } from "./lib/server/api-security-policy";
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const { pathname } = request.nextUrl;
 
-  // 정적 자산 및 API 제외
+  const isApi = pathname.startsWith("/api/");
+  const policy = isApi ? apiAccessPolicy(pathname) : null;
+  // Public auth endpoints self-authenticate where needed; cron uses its own secret.
   if (
     pathname.startsWith("/_next/") ||
-    pathname.startsWith("/api/") ||
+    policy === "public" ||
     pathname === "/favicon.ico" ||
     pathname === "/manifest.json" ||
     pathname === "/sw.js"
@@ -22,8 +25,7 @@ export async function middleware(request: NextRequest) {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    // 환경변수 미설정 시 미들웨어 무력화 (500 방지) — Vercel에 NEXT_PUBLIC_ 변수를 추가하세요
-    return response;
+    return NextResponse.json({ error: "인증 서비스 설정이 필요합니다." }, { status: 503 });
   }
 
   const supabase = createServerClient(
@@ -47,7 +49,15 @@ export async function middleware(request: NextRequest) {
     const { data } = await supabase.auth.getUser();
     user = data.user;
   } catch {
-    // Supabase 연결 실패 시 인증 없이 통과 (503 방지)
+    return NextResponse.json({ error: "인증 서비스를 사용할 수 없습니다." }, { status: 503 });
+  }
+
+  if (isApi) {
+    if (!user) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+    const role: unknown = user.app_metadata?.role;
+    if (!isApprovedRole(role) || (policy === "admin" && role !== "admin")) {
+      return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+    }
     return response;
   }
 
@@ -72,7 +82,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // 대기중/거절된 사용자 → pending 페이지만 허용
-  if ((role === "pending" || role === "rejected") && pathname !== "/pending") {
+  if (!isApprovedRole(role) && pathname !== "/pending") {
     return NextResponse.redirect(new URL("/pending", request.url));
   }
 

@@ -7,6 +7,7 @@ export interface BrokerCredentials {
   appSecret: string;
   accountNumber?: string;
   isDemo?: boolean; // 모의투자 여부 (기본: 실전)
+  cacheScope?: string; // authenticated user id where available (never returned to client)
 }
 
 export interface StockQuoteResponse {
@@ -66,8 +67,7 @@ export abstract class BrokerProvider {
 // ── 한국투자증권 (KIS) API ────────────────────────────────────────────────────
 
 import axios from 'axios';
-
-const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
+import { kisBaseUrl, kisTokenCache, collectKisBalance } from './kis-session';
 
 interface KISTokenResponse {
   access_token: string;
@@ -88,8 +88,7 @@ interface KISBalanceItem {
 }
 
 export class KISProvider extends BrokerProvider {
-  private accessToken: string | null = null;
-  private tokenExpireTime = 0;
+  private get baseUrl(): string { return kisBaseUrl(this.credentials.isDemo); }
 
   async validateCredentials(): Promise<boolean> {
     try {
@@ -101,14 +100,14 @@ export class KISProvider extends BrokerProvider {
   }
 
   private async getAccessToken(): Promise<string> {
-    if (this.accessToken && this.tokenExpireTime > Date.now() + 5 * 60_000) {
-      return this.accessToken;
-    }
+    return kisTokenCache.get(this.credentials, () => this.issueAccessToken());
+  }
 
+  private async issueAccessToken(): Promise<{ token: string; expiresIn: number }> {
     let res: Awaited<ReturnType<typeof axios.post<KISTokenResponse>>>;
     try {
       res = await axios.post<KISTokenResponse>(
-        `${KIS_BASE}/oauth2/tokenP`,
+        `${this.baseUrl}/oauth2/tokenP`,
         {
           grant_type: 'client_credentials',
           appkey: this.credentials.appKey,
@@ -139,13 +138,12 @@ export class KISProvider extends BrokerProvider {
     const token = res.data.access_token;
     if (!token) throw new Error('KIS 인증 실패: access_token 없음 — AppKey/AppSecret 확인 필요');
 
-    this.accessToken = token;
-    this.tokenExpireTime = Date.now() + (res.data.expires_in ?? 86400) * 1000;
-    return token;
+    return { token, expiresIn: Number(res.data.expires_in ?? 86400) };
   }
 
   private parseAccountNumber(raw: string): { cano: string; acntPrdtCd: string } {
     const cleaned = raw.replace(/[-\s]/g, '');
+    if (!/^\d{8}(\d{2})?$/.test(cleaned)) throw new Error('계좌번호는 8자리 또는 10자리 숫자여야 합니다.');
     return {
       cano: cleaned.slice(0, 8),
       acntPrdtCd: cleaned.slice(8, 10) || '01',
@@ -161,9 +159,10 @@ export class KISProvider extends BrokerProvider {
     const { cano, acntPrdtCd } = this.parseAccountNumber(this.credentials.accountNumber);
     const trId = this.credentials.isDemo ? 'VTTC8434R' : 'TTTC8434R';
 
-    // axios 오류는 kisApiError()로 의미 있는 메시지로 변환
+    const items = await collectKisBalance<KISBalanceItem>(async (cursor) => {
+    if (cursor.continuation) await new Promise((resolve) => setTimeout(resolve, 200));
     const resData = await axios.get(
-      `${KIS_BASE}/uapi/domestic-stock/v1/trading/inquire-balance`,
+      `${this.baseUrl}/uapi/domestic-stock/v1/trading/inquire-balance`,
       {
         headers: {
           'content-type': 'application/json; charset=utf-8',
@@ -172,6 +171,7 @@ export class KISProvider extends BrokerProvider {
           appsecret: this.credentials.appSecret,
           tr_id: trId,
           custtype: 'P',
+          tr_cont: cursor.continuation,
         },
         params: {
           CANO: cano,
@@ -183,8 +183,8 @@ export class KISProvider extends BrokerProvider {
           FUND_STTL_ICLD_YN: 'N',
           FNCG_AMT_AUTO_RDPT_YN: 'N',
           PRCS_DVSN: '01',
-          CTX_AREA_FK100: '',
-          CTX_AREA_NK100: '',
+          CTX_AREA_FK100: cursor.fk,
+          CTX_AREA_NK100: cursor.nk,
         },
         timeout: 15_000,
       },
@@ -209,7 +209,10 @@ export class KISProvider extends BrokerProvider {
       throw new Error(`KIS 잔고조회 오류: ${msg}`);
     }
 
-    const items: KISBalanceItem[] = resData.data.output1 ?? [];
+    if (!Array.isArray(resData.data.output1)) throw new Error('KIS 잔고 응답 형식 오류');
+    return { items: resData.data.output1, continuation: String(resData.headers.tr_cont ?? ''),
+      fk: String(resData.data.ctx_area_fk100 ?? ''), nk: String(resData.data.ctx_area_nk100 ?? '') };
+    });
     return items
       .filter((h: KISBalanceItem) => parseInt(h.hldg_qty, 10) > 0)
       .map((h: KISBalanceItem) => ({
@@ -227,7 +230,7 @@ export class KISProvider extends BrokerProvider {
     try {
       const token = await this.getAccessToken();
       const res = await axios.get(
-        `${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`,
+        `${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-price`,
         {
           headers: {
             'content-type': 'application/json; charset=utf-8',
@@ -259,7 +262,8 @@ export class KISProvider extends BrokerProvider {
         timestamp:   new Date().toISOString(),
       };
     } catch (err) {
-      console.error(`[KIS] getQuote ${ticker}:`, err);
+      // Axios errors include request headers (AppSecret/Bearer); never log them.
+      console.error(`[KIS] getQuote ${ticker}: request failed`);
       throw err;
     }
   }
@@ -271,7 +275,7 @@ export class KISProvider extends BrokerProvider {
       const results = await Promise.allSettled(
         Object.entries(codes).map(async ([name, code]) => {
           const res = await axios.get(
-            `${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-index-price`,
+            `${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-index-price`,
             {
               headers: {
                 'content-type': 'application/json; charset=utf-8',
@@ -299,8 +303,8 @@ export class KISProvider extends BrokerProvider {
         }
       });
       return out;
-    } catch (err) {
-      console.error('[KIS] getIndices:', err);
+    } catch {
+      console.error('[KIS] getIndices: request failed');
       return {
         KOSPI: { name: 'KOSPI', price: 0, change: 0, change_pct: 0 },
         KOSDAQ: { name: 'KOSDAQ', price: 0, change: 0, change_pct: 0 },
@@ -323,7 +327,7 @@ export class KISProvider extends BrokerProvider {
     try {
       const token = await this.getAccessToken();
       const res = await axios.get(
-        `${KIS_BASE}/uapi/domestic-stock/v1/quotations/search-stock-info`,
+        `${this.baseUrl}/uapi/domestic-stock/v1/quotations/search-stock-info`,
         {
           headers: {
             'content-type': 'application/json; charset=utf-8',
@@ -341,19 +345,19 @@ export class KISProvider extends BrokerProvider {
       if (res.data.rt_cd !== '0') return [];
 
       const raw = res.data.output;
-      const output: any[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      const output: Record<string, string>[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
 
       return output
         .slice(0, 10)
-        .map((item: any) => ({
+        .map((item) => ({
           ticker: (item.pdno ?? '').trim(),
           name:   item.prdt_abrv_name || item.prdt_name || item.pdno || '',
           market: 'KSE',
           sector: item.bstp_kor_isnm ?? '',
         }))
         .filter((r) => r.ticker);
-    } catch (err) {
-      console.error('[KIS] searchStocks error:', err);
+    } catch {
+      console.error('[KIS] searchStocks: request failed');
       return [];
     }
   }

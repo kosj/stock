@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { ApiInputError, readBoundedJson } from "@/lib/server/api-security-policy";
 
 export const dynamic = "force-dynamic";
 
-const ADMIN_EMAIL = "godkosj@gmail.com";
-
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null);
-    if (!body) {
+    const body = await readBoundedJson(req);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
       return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
     }
 
@@ -18,7 +17,9 @@ export async function POST(req: NextRequest) {
       fullName?: string;
     };
 
-    if (!email || !password) {
+    if (typeof email !== "string" || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+      || typeof password !== "string" || password.length < 8 || password.length > 128
+      || (fullName !== undefined && (typeof fullName !== "string" || fullName.length > 100))) {
       return NextResponse.json({ error: "이메일과 비밀번호를 입력해주세요." }, { status: 400 });
     }
 
@@ -29,7 +30,8 @@ export async function POST(req: NextRequest) {
     }
 
     const admin = createSupabaseAdminClient();
-    const role  = email === ADMIN_EMAIL ? "admin" : "pending";
+    // Roles are assigned by an existing administrator; supplied email is never authority.
+    const role = "pending";
 
     // ── Supabase Auth 사용자 생성 ──────────────────────────────────────────────
     const { data, error: authError } = await admin.auth.admin.createUser({
@@ -75,6 +77,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (e) {
+    if (e instanceof ApiInputError) return NextResponse.json({ error: e.message }, { status: e.status });
     console.error("[signup] 예상치 못한 오류:", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "서버 오류가 발생했습니다." },

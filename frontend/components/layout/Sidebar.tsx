@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { ApiKeyManager } from "@/lib/apiConfig";
 
 const NAV = [
   { href: "/",              label: "대시보드",     icon: LayoutDashboard },
@@ -53,6 +54,7 @@ export function Sidebar() {
   async function handleLogout() {
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
+    ApiKeyManager.clearKeys();
     router.push("/login");
     router.refresh();
   }

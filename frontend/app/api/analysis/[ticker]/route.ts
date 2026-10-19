@@ -4,6 +4,7 @@ import { calcSignals } from "@/lib/server/indicators";
 import { analyzeStock } from "@/lib/server/ai-analysis";
 import { SectorService } from "@/lib/server/sector-service";
 import { calculateRelativeStrength } from "@/lib/server/relative-strength";
+import { analysisTickerRequest } from "@/lib/server/analysis-request";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -12,7 +13,9 @@ type Ctx = { params: Promise<{ ticker: string }> };
 
 export async function GET(req: NextRequest, { params }: Ctx) {
   const { ticker } = await params;
-  const t = ticker.toUpperCase();
+  const input = await analysisTickerRequest(ticker);
+  if (!input.ok) return input.response;
+  const t = input.ticker;
   const anthropicKey = req.headers.get("x-anthropic-key") ?? "";
 
   const url = new URL(req.url);
@@ -27,7 +30,8 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     SectorService.getMomentum(),
   ]);
 
-  const fin     = financials.status === "fulfilled" ? financials.value : { ticker: t } as any;
+  if (financials.status !== "fulfilled") return NextResponse.json({ error: "재무 데이터를 사용할 수 없습니다." }, { status: 502 });
+  const fin = financials.value;
   const cdls    = candles.status    === "fulfilled" ? candles.value    : [];
   const kospi   = kospiCandles.status === "fulfilled" ? kospiCandles.value : [];
   const sectors = sectorPerf.status === "fulfilled"

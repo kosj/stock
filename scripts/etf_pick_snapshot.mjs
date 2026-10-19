@@ -65,7 +65,14 @@ function rankZ(values) {
   if (n === 0) return [];
   const order = values.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
   const pct = new Array(n);
-  order.forEach((e, r) => { pct[e.i] = (r + 1) / n; });
+  // Average ranks give equal signals equal scores, independent of input order.
+  for (let start = 0; start < n;) {
+    let end = start + 1;
+    while (end < n && order[end].v === order[start].v) end++;
+    const averagePct = (start + 1 + end) / (2 * n);
+    for (let j = start; j < end; j++) pct[order[j].i] = averagePct;
+    start = end;
+  }
   const mean = pct.reduce((a, b) => a + b, 0) / n;
   return pct.map((p) => (p - mean) / RANK_Z_DENOM);
 }

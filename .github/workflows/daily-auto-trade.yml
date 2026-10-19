@@ -1,36 +1,46 @@
 name: "Daily Auto Trade (Mock)"
-
-# 월~금 09:12 KST (= 00:12 UTC). 금요일 마감 추천은 다음 거래일에 사용.
-# 실제 시작이 장 종료 후로 밀리면 엔진은 주문을 거부한다.
 on:
   schedule:
     - cron: "12 0 * * 1-5"
-  workflow_dispatch:          # GitHub Actions UI에서 수동 실행 가능
-
+  workflow_dispatch:
+concurrency:
+  group: daily-auto-trade
+  cancel-in-progress: false
+permissions:
+  contents: read
 jobs:
   auto-trade:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    timeout-minutes: 35
     steps:
-      - name: "자동매매 실행"
+      - name: Drain durable queue with bounded retries
+        env:
+          APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        shell: python
         run: |
-          # -f 제거: HTTP 오류 시 curl이 exit 22로 죽지 않도록
-          RESPONSE=$(curl -sL --max-time 120 \
-            -X POST "${{ secrets.VERCEL_APP_URL }}/api/cron/auto-trade" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -w "\nHTTP_STATUS:%{http_code}")
-
-          HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
-          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
-
-          echo "HTTP Status: $HTTP_STATUS"
-          echo "Response: $BODY"
-
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "요청 실패 (HTTP $HTTP_STATUS)"
-            exit 1
-          fi
-
-          echo "$BODY" | python3 -m json.tool || true
+          import json, os, time, urllib.request, urllib.error
+          url = os.environ['APP_URL'].rstrip('/') + '/api/cron/auto-trade'
+          for attempt in range(20):
+              req = urllib.request.Request(url, method='POST', headers={
+                  'Authorization': 'Bearer ' + os.environ['CRON_SECRET']})
+              try:
+                  response = urllib.request.urlopen(req, timeout=65)
+              except urllib.error.HTTPError as error:
+                  response = error
+              except (TimeoutError, OSError):
+                  if attempt == 19: raise
+                  time.sleep(30)
+                  continue
+              with response:
+                  status = response.code
+                  body = json.loads(response.read())
+              print(json.dumps({'attempt': attempt + 1, 'status': status,
+                  'pending': body.get('pending'), 'failed': body.get('failed') }))
+              if status == 200 and body.get('success'):
+                  break
+              if status in (401, 403, 409) or (status == 503 and body.get('failed') and not body.get('pending')):
+                  raise SystemExit('Queue blocked or terminal job failure; inspect database receipts')
+              if attempt == 19:
+                  raise SystemExit('Queue not drained; pending jobs remain durable for manual retry')
+              time.sleep(30)

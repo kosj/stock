@@ -15,6 +15,7 @@
  */
 
 import { getChart } from "./yahoo-finance";
+import { BoundedWorkCache, createWorkGate } from "../core/bounded-work";
 import { fetchNaverEtfList, type NaverEtf } from "./naver-etf";
 import {
   getEtfUniverse, isEligible, ineligibleReason,
@@ -42,6 +43,9 @@ const NAVER_NATIVE: Record<string, "return1D" | "return3M" | undefined> = {
 /** 일봉 계산이 필요한 구간에서 조회할 최대 종목 수(시가총액 상위) */
 const CHART_LIMIT = 120;
 const CONCURRENCY = 8;
+const chartGate = createWorkGate(CONCURRENCY, 256);
+const rankingCache = new BoundedWorkCache<EtfRankingResult>(32, 30_000);
+const getRankingChart: typeof getChart = (...args) => chartGate(() => getChart(...args));
 
 // ── 추천 품질 가드 ───────────────────────────────────────────────────────────
 /**
@@ -96,7 +100,14 @@ function rankZ(values: number[]): number[] {
   if (n === 0) return [];
   const order = values.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
   const pct = new Array<number>(n);
-  order.forEach((o, r) => { pct[o.i] = (r + 1) / n; });
+  // Average ranks give equal signals equal scores, independent of input order.
+  for (let start = 0; start < n;) {
+    let end = start + 1;
+    while (end < n && order[end].v === order[start].v) end++;
+    const averagePct = (start + 1 + end) / (2 * n);
+    for (let j = start; j < end; j++) pct[order[j].i] = averagePct;
+    start = end;
+  }
   const mean = pct.reduce((a, b) => a + b, 0) / n;
   return pct.map((p) => (p - mean) / RANK_Z_DENOM);
 }
@@ -127,7 +138,7 @@ async function blendByVolatility(rows: EtfReturnRow[]): Promise<EtfReturnRow[]> 
 
   const vols = await mapLimit(pool, CONCURRENCY, async (r) => {
     try {
-      const candles = await getChart(r.ticker, "6m");
+      const candles = await getRankingChart(r.ticker, "6m");
       const closes = (candles ?? []).map((c) => c.close).filter((v) => v > 0);
       return annualizedVolPct(closes);
     } catch {
@@ -271,7 +282,31 @@ function finalize(
  * @param period  정렬 기준 구간(기본 1M)
  * @param account 지정 시 해당 계좌 편입 가능 종목만
  */
+type RankingOptions = {
+  safeOnly?: boolean;
+  liquidityFilter?: boolean;
+  dedup?: boolean;
+  demoteRisky?: boolean;
+  blendVolatility?: boolean;
+};
+
+/** Shared display ranking only; never used as an executable quote. */
 export async function getEtfRanking(
+  period: ReturnPeriod = "1M", account?: AccountType, opts: RankingOptions = {},
+): Promise<EtfRankingResult> {
+  const normalized = {
+    safeOnly: opts.safeOnly ?? false, liquidityFilter: opts.liquidityFilter ?? true,
+    dedup: opts.dedup ?? false, demoteRisky: opts.demoteRisky ?? false,
+    blendVolatility: opts.blendVolatility ?? false,
+  };
+  const key = JSON.stringify([period, account ?? null, normalized]);
+  const result = await rankingCache.load(key,
+    () => computeEtfRanking(period, account, normalized), (value) => value.covered > 0);
+  // Callers can slice/reorder their own result without mutating the shared cache.
+  return structuredClone(result);
+}
+
+async function computeEtfRanking(
   period: ReturnPeriod = "1M",
   account?: AccountType,
   opts: {
@@ -338,7 +373,7 @@ export async function getEtfRanking(
     const days = RETURN_WINDOWS[period];
     const computed = await mapLimit(targets, CONCURRENCY, async (e) => {
       try {
-        const candles = await getChart(e.ticker, "1y");
+        const candles = await getRankingChart(e.ticker, "1y");
         const closes = (candles ?? []).map((c) => c.close).filter((v) => v > 0);
         const value = periodReturn(closes, days);
         if (value == null) return null;
@@ -375,7 +410,7 @@ export async function getEtfRanking(
   const days = RETURN_WINDOWS[period];
   const computed = await mapLimit(universe, CONCURRENCY, async (m) => {
     try {
-      const candles = await getChart(m.ticker, "1y");
+      const candles = await getRankingChart(m.ticker, "1y");
       const closes = (candles ?? []).map((c) => c.close).filter((v) => v > 0);
       const value = periodReturn(closes, days);
       if (value == null) return null;

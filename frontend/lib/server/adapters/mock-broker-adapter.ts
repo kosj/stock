@@ -14,6 +14,7 @@ import { YahooMarketDataAdapter } from "./yahoo-market-data-adapter";
 import { KrMarketClock } from "./kr-market-clock";
 import { effectivePrice } from "../../core/execution-policy";
 import { mockCosts } from "../mock-execution";
+import { accountEpoch } from "../mock-account-control";
 import type { BrokerPort } from "@/lib/core/ports/broker-port";
 import type { MarketDataPort } from "@/lib/core/ports/market-data-port";
 import type { AccountBalance, BrokerPosition } from "@/lib/core/domain/account";
@@ -32,12 +33,17 @@ interface RpcOrderResponse {
 }
 
 export class MockBrokerAdapter implements BrokerPort {
+  private epoch: number | null = null;
   constructor(
     private readonly userId: string,
     private readonly market: MarketDataPort = new YahooMarketDataAdapter(),
+    private executionOwner?: string,
   ) {}
 
+  bindExecutionOwner(owner: string): void { this.executionOwner = owner; }
+
   async getBalance(): Promise<AccountBalance> {
+    this.epoch ??= await accountEpoch(this.userId);
     // 없으면 INITIAL_CASH로 생성, 있으면 유지
     const { error: initError } = await supabase
       .from("mock_accounts")
@@ -94,9 +100,10 @@ export class MockBrokerAdapter implements BrokerPort {
   }
 
   async placeOrder(req: OrderRequest): Promise<OrderResult> {
+    if (!/^\d{6}$/.test(req.ticker)) return this.rejected(req.clientOrderId, "원화 모의계좌는 국내 6자리 종목만 지원합니다.");
     if (!new KrMarketClock().isMarketOpen()) return this.rejected(req.clientOrderId, "정규장 외 주문 거부");
     if (!Number.isSafeInteger(req.quantity) || req.quantity <= 0) return this.rejected(req.clientOrderId, "유효하지 않은 주문 수량");
-    const rpcName = req.side === "BUY" ? "execute_mock_buy" : "execute_mock_sell";
+    if (!this.executionOwner || this.epoch === null) return this.rejected(req.clientOrderId, "계좌 실행 잠금/세대 미확인");
     // 모의 체결가 = 기준가(현재가). 소수 2자리 반올림.
     const price = effectivePrice(req.referencePrice, req.side, mockCosts(req.ticker));
 
@@ -109,7 +116,8 @@ export class MockBrokerAdapter implements BrokerPort {
       p_price:    price,
     };
 
-    const { data, error } = await supabase.rpc(rpcName, { ...base, p_client_order_id: req.clientOrderId });
+    const { data, error } = await supabase.rpc("execute_mock_order", { ...base, p_client_order_id: req.clientOrderId,
+      p_side: req.side, p_account_epoch: this.epoch, p_execution_owner: this.executionOwner, p_reference_price: req.referencePrice });
 
     if (error) {
       return this.rejected(req.clientOrderId, error.message);
@@ -133,7 +141,7 @@ export class MockBrokerAdapter implements BrokerPort {
       .from("mock_trades")
       .select("quantity, price, total_amount")
       .eq("user_id", this.userId)
-      .eq("client_order_id", clientOrderId)
+      .eq("client_order_id", `${this.epoch ?? await accountEpoch(this.userId)}:${clientOrderId}`)
       .maybeSingle();
 
     if (error || !data) return null;

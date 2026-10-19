@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   // 관리자 권한 확인
-  const supabase = await createSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user || user.app_metadata?.role !== "admin") {
-    return NextResponse.json({ error: "권한 없음" }, { status: 403 });
-  }
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
 
   const admin = createSupabaseAdminClient();
 

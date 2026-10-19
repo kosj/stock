@@ -4,20 +4,23 @@
  * 각 단계별 결과를 반환해 어디서 실패하는지 확인
  */
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
 const DART_BASE = "https://opendart.fss.or.kr/api";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
   const ticker = req.nextUrl.searchParams.get("ticker") ?? "005930";
+  if (!/^\d{6}$/.test(ticker)) return NextResponse.json({ error: "invalid ticker" }, { status: 400 });
   const apiKey = process.env.DART_API_KEY ?? "";
 
   const result: Record<string, unknown> = {
     ticker,
     env_key_present: !!apiKey,
     env_key_length:  apiKey.length,
-    env_key_preview: apiKey ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : "(없음)",
   };
 
   if (!apiKey) {

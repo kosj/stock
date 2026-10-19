@@ -1,22 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/server/require-user";
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-
-    // 웹 푸시 구독 정보를 저장 (실제 환경에서는 데이터베이스에 저장)
-    // const subscription = body;
-    // await saveSubscriptionToDatabase(subscription);
-
-    return NextResponse.json({
-      success: true,
-      message: "구독이 완료되었습니다."
-    }, { status: 201 });
-  } catch (error) {
-    console.error("Push subscribe API error:", error);
-    return NextResponse.json(
-      { error: String(error) },
-      { status: 500 }
-    );
-  }
+export async function POST() {
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  // There is no user-scoped sender/worker in the Next.js deployment yet.
+  // Accepting a subscription here would promise delivery that cannot occur.
+  return NextResponse.json({ error: "웹 푸시 발송 기능은 준비 중입니다. 구독이 저장되지 않았습니다." },
+    { status: 501, headers: { "Cache-Control": "no-store" } });
 }

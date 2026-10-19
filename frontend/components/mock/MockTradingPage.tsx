@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -41,7 +41,14 @@ type Account = {
   stock_value:         number;
   total_value:         number;
   total_pnl:           number;
-  total_pnl_pct:       number;
+  total_pnl_pct:       number | null;
+  account_epoch: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  recorded_costs: number;
+  cost_history_complete: boolean;
+  baseline_at: string;
+  valuation_stale: boolean;
   auto_trade_capital:  number | null;
   positions:           Position[];
 };
@@ -74,6 +81,7 @@ export function MockTradingPage() {
   const [cashEditing, setCashEditing] = useState(false);
   const [cashInput, setCashInput] = useState("");
   const [cashSaving, setCashSaving] = useState(false);
+  const [logOffset, setLogOffset] = useState(0);
 
   const {
     data: account,
@@ -94,11 +102,13 @@ export function MockTradingPage() {
   });
 
   const {
-    data: autoLogs,
+    data: logPage,
+    error: logError,
     mutate: mutateAutoLogs,
-  } = useSWR<AutoTradeLog[]>("mock-auto-trade-logs", () => api.mock.autoTradeLogs() as Promise<AutoTradeLog[]>, {
+  } = useSWR<{ items: AutoTradeLog[]; nextOffset: number | null }>(["mock-auto-trade-logs", logOffset], () => api.mock.autoTradeLogs(logOffset, 5) as Promise<{ items: AutoTradeLog[]; nextOffset: number | null }>, {
     revalidateOnFocus: false,
   });
+  const autoLogs = logPage?.items ?? [];
 
   async function handleSaveCash() {
     const cash = Number(cashInput.replace(/,/g, ""));
@@ -112,8 +122,8 @@ export function MockTradingPage() {
       await mutateAccount();
       setCashEditing(false);
       toast.success(`보유 현금이 ${formatNumber(cash)}원으로 조정됐습니다.`);
-    } catch (err: any) {
-      toast.error(err.message ?? "저장 실패");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "저장 실패");
     } finally {
       setCashSaving(false);
     }
@@ -123,13 +133,13 @@ export function MockTradingPage() {
     setAutoRunning(true);
     const toastId = toast.loading("자동매매 실행 중… (Top20 Sell-First → Buy-Next)");
     try {
-      const result = await api.mock.autoTrade() as any;
+      const result = await api.mock.autoTrade() as { trades_buy: number; trades_sell: number; skipped: number; error?: string };
       await Promise.all([mutateAccount(), mutateTrades(), mutateAutoLogs()]);
       const msg = `매수 ${result.trades_buy}건 · 매도 ${result.trades_sell}건 · 스킵 ${result.skipped}건`;
       if (result.error) toast.error(`자동매매 오류: ${result.error}`, { id: toastId });
       else toast.success(`자동매매 완료 — ${msg}`, { id: toastId });
-    } catch (err: any) {
-      toast.error(err.message ?? "자동매매 실패", { id: toastId });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "자동매매 실패", { id: toastId });
     } finally {
       setAutoRunning(false);
     }
@@ -139,10 +149,11 @@ export function MockTradingPage() {
     if (!confirm("계좌를 초기화하면 모든 보유 종목과 거래 내역이 사라집니다.\n1,000만원으로 다시 시작하시겠습니까?")) return;
     try {
       await api.mock.reset();
-      await Promise.all([mutateAccount(), mutateTrades()]);
+      setLogOffset(0);
+      await Promise.all([mutateAccount(), mutateTrades(), mutateAutoLogs()]);
       toast.success("계좌가 초기화되었습니다. (1,000만원)");
-    } catch (err: any) {
-      toast.error(err.message ?? "초기화 실패");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "초기화 실패");
     }
   }
 
@@ -237,7 +248,7 @@ export function MockTradingPage() {
             {
               label: "총 손익",
               value: `${a.total_pnl >= 0 ? "+" : ""}${formatNumber(a.total_pnl)}원`,
-              sub:   formatPercent(a.total_pnl_pct),
+              sub:   a.total_pnl_pct === null ? "수익률 산정 불가" : formatPercent(a.total_pnl_pct),
               color: colorByChange(a.total_pnl),
             },
           ].map(({ label, value, sub, color }) => (
@@ -249,6 +260,13 @@ export function MockTradingPage() {
           ))}
         </div>
       )}
+
+      {a && <div className="text-xs text-muted-foreground space-y-1">
+        <p>실현손익 {formatNumber(a.realized_pnl)}원 · 미실현손익 {formatNumber(a.unrealized_pnl)}원 · 기록된 거래비용 {formatNumber(a.recorded_costs)}원</p>
+        <p>성과 기준: {new Date(a.baseline_at).toLocaleString("ko-KR")} 장부가치 + 순입출금. 과거 현금 조정·비용은 소급 추정하지 않습니다. 수익률은 시간가중 수익률이 아닙니다.</p>
+        {!a.cost_history_complete && <p>일부 과거 거래의 비용 내역이 없습니다.</p>}
+        {a.valuation_stale && <p className="text-amber-400">일부 시세 누락: 평단가로 표시한 잠정 평가입니다.</p>}
+      </div>}
 
       {/* 보유 종목 */}
       <Card>
@@ -336,12 +354,18 @@ export function MockTradingPage() {
         {/* 전략 설명 */}
         <div className="px-5 pb-4 space-y-3">
           <div className="text-xs text-muted-foreground space-y-1 bg-muted/40 rounded-lg px-3 py-2.5">
-            <div><span className="text-green-400 font-medium">매수 조건:</span> 오늘의 Top 20 추천 종목 — rank 순으로 빈 슬롯만큼 균등 비중 매수</div>
-            <div><span className="text-red-400 font-medium">매도 조건:</span> 손절 −5% 이하 · 익절 +10% 이상 · 랭크아웃(Top20 미포함) → 전량 청산</div>
+            <div><span className="text-green-400 font-medium">매수 조건:</span> 검증된 최신 주간 추천 상위 5위 이내 — 빈 슬롯만큼 균등 비중 매수</div>
+            <div><span className="text-red-400 font-medium">매도 조건:</span> 손절 −5% 이하 · 순위 15위 초과 또는 추천 이탈 → 전량 청산</div>
             <div><span className="text-blue-400 font-medium">포지션:</span> 최대 5종목, 가용 예수금을 슬롯 수로 균등 분배</div>
           </div>
 
           {/* 실행 이력 */}
+          {logError && <p className="text-xs text-red-400">실행 이력 조회 실패. 새로고침 후 다시 확인하세요.</p>}
+          {!logError && logPage && autoLogs.length === 0 && <p className="text-xs text-muted-foreground">실행 이력이 없습니다.</p>}
+          <div className="flex gap-2 text-xs">
+            <Button variant="ghost" disabled={logOffset === 0} onClick={() => setLogOffset(Math.max(0, logOffset - 5))}>이전 이력</Button>
+            <Button variant="ghost" disabled={logPage?.nextOffset == null} onClick={() => setLogOffset(logPage?.nextOffset ?? logOffset)}>다음 이력</Button>
+          </div>
           {(autoLogs ?? []).length > 0 && (
             <div className="space-y-1.5">
               <div className="text-xs font-medium text-muted-foreground">최근 실행 이력</div>
@@ -457,6 +481,7 @@ export function MockTradingPage() {
         <MockTradeModal
           mode="BUY"
           cash={a.cash}
+          accountEpoch={a.account_epoch}
           onClose={() => setBuyOpen(false)}
           onTraded={onTraded}
         />
@@ -467,6 +492,7 @@ export function MockTradingPage() {
         <MockTradeModal
           mode="SELL"
           cash={a.cash}
+          accountEpoch={a.account_epoch}
           sellTarget={sellTarget}
           onClose={() => setSellTarget(null)}
           onTraded={onTraded}

@@ -3,8 +3,6 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  // VAPID_PUBLIC_KEY 환경변수가 없으면 null 반환
-  // AlertsPage에서 null 체크 후 브라우저 알림만 활성화
-  const publicKey = process.env.VAPID_PUBLIC_KEY ?? null;
-  return NextResponse.json({ public_key: publicKey });
+  // A public key alone does not mean a user-scoped sender is deployed.
+  return NextResponse.json({ public_key: null, available: false, reason: "웹 푸시 발송 기능 준비 중" });
 }
