@@ -16,6 +16,7 @@ env/
 *.env
 
 # Database
+supabase/.temp/
 *.db
 *.sqlite
 *.sqlite3

@@ -11,7 +11,8 @@
     "dev": "cd frontend && npm run dev"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.10"
+    "@electric-sql/pglite": "0.5.10",
+    "supabase": "2.121.0"
   },
   "workspaces": [
     "frontend"
