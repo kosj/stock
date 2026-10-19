@@ -39,6 +39,6 @@ jobs:
           fi
           # Remote build uses the project's production environment variables.
           # Pin the upload CLI; never deploy an unchecked latest-branch hook.
-          npx --yes vercel@41.7.8 deploy --prod --archive=tgz --yes --token="$VERCEL_TOKEN" \
+          npx --yes vercel@64.5.0 deploy --prod --archive=tgz --yes --token="$VERCEL_TOKEN" \
             --meta "githubCommitSha=${{ github.sha }}" \
             --env "APP_COMMIT_SHA=${{ github.sha }}"

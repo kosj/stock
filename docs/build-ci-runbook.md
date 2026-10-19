@@ -62,8 +62,9 @@ plan. Direct PostgreSQL/pooler access from this environment was unavailable;
 
 Deployment runs the reusable verification workflow on the same commit before
 uploading that checkout. Required secrets are `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
-and `VERCEL_PROJECT_ID`. The upload CLI is pinned to 41.7.8; its compatibility
-with the connected Vercel project must be verified during deployment.
+and `VERCEL_PROJECT_ID`. The upload CLI is pinned to published 64.5.0 (Node >=20),
+verified against npm metadata. The live endpoint rejected 41.7.8 and required
+47.2.2 or later, but that exact minimum version was not published in the registry.
 
 The production job runs `node scripts/audit_migrations.mjs --require-rollout`.
 Every SQL file must match the exact applied hash in the verified rollout manifest.
