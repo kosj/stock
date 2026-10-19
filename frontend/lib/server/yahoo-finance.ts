@@ -302,6 +302,7 @@ async function getQuoteDirect(yahooSymbol: string): Promise<QuoteData | null> {
 
     return {
       ticker:     yahooSymbol,
+      traded_at: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : undefined,
       name:       (meta.shortName || meta.symbol || yahooSymbol) as string,
       price,
       change,
@@ -340,6 +341,8 @@ async function resolveKoreanName(
 // ── 시세 조회 ─────────────────────────────────────────────────────────────────
 
 export interface QuoteData {
+  /** Exchange trade time, NOT HTTP fetch/cache time. Missing means not executable. */
+  traded_at?: string;
   ticker: string;
   name: string | null;
   price: number;
@@ -375,6 +378,7 @@ export async function getQuote(ticker: string, nocache = false): Promise<QuoteDa
   // Yahoo raw 응답 → QuoteData 변환 (ticker는 외부 스코프에서 캡처)
   async function buildFromYahoo(q: any): Promise<QuoteData> {
     return {
+      traded_at: q.regularMarketTime ? new Date(q.regularMarketTime).toISOString() : undefined,
       ticker,
       name:       await resolveKoreanName(ticker, q.shortName || q.longName || null),
       price:      q.regularMarketPrice,

@@ -21,14 +21,14 @@ from datetime import date, datetime, timedelta, timezone
 
 SECTOR_CAP = 5
 TOP_N = 20
-STALE_WARN_DAYS = 2      # 주말 끼면 2일까지는 정상
-STALE_FAIL_DAYS = 5
+STALE_WARN_DAYS = 7      # 금요일 주간 추천은 다음 금요일 실행 전까지 정상
+STALE_FAIL_DAYS = 14
 REQUIRED = ["ticker", "name", "current_price", "predicted_return_30d", "recommendation"]
 
 ap = argparse.ArgumentParser(description="추천 API 응답 건전성 검사")
 ap.add_argument("path", nargs="?", default="rec.json")
-ap.add_argument("--daily-monitor", action="store_true",
-                help="정기 감시 모드: 직전 거래일(평일)의 run_date 가 반드시 있어야 한다")
+ap.add_argument("--weekly-monitor", action="store_true",
+                help="정기 감시 모드: 이번 주 금요일의 run_date 가 반드시 있어야 한다")
 args = ap.parse_args()
 path = args.path
 d = json.load(open(path))
@@ -50,19 +50,15 @@ else:
     elif age > STALE_WARN_DAYS:
         warns.append(f"추천이 {age}일 경과 — 정기 잡 지연/누락 가능")
 
-# 1-b) 정기 감시 모드 — "있어야 할 날의 추천이 있는가"
-#   정기 잡은 평일 UTC 07:12~13:27 슬롯 5개로 돈다(지연 시 몇 시간 뒤 실행).
-#   감시 잡 자체도 schedule 이라 지연될 수 있으므로 "지금 시각"을 기준으로
-#   기대일을 정한다:
-#     UTC 14시 이후  → 오늘(평일이면). 5개 슬롯이 모두 지나고도 여유가 있는 시각.
-#     UTC 14시 이전  → 어제 이전의 마지막 평일. 감시가 다음날 새벽으로 밀려도
-#                     아직 돌지 않은 오늘 것을 요구해 오탐하지 않게 한다.
-#   기대일이 주말이면 직전 금요일로 물린다. 한국 공휴일에도 정기 잡은 그대로
-#   돌아 run_date 를 남기므로 별도 달력은 필요 없다.
-if args.daily_monitor and run_date:
+# 1-b) 주간 감시 모드 — 금요일 07:12 UTC 실행이 끝났어야 하는 시점의
+#   가장 최근 금요일을 기대일로 삼는다. 감시는 금요일 15:12 UTC에 실행하므로
+#   당일 추천 누락을 판정하며, 지연돼 토요일에 시작해도 같은 금요일을 검사한다.
+if args.weekly_monitor and run_date:
     now = datetime.now(timezone.utc)
-    cand = now.date() if now.hour >= 14 else now.date() - timedelta(days=1)
-    while cand.weekday() >= 5:          # 5=토, 6=일
+    cand = now.date()
+    if cand.weekday() == 4 and now.hour < 14:
+        cand -= timedelta(days=1)
+    while cand.weekday() != 4:          # 4=금요일
         cand -= timedelta(days=1)
     expected = cand
     have = datetime.strptime(run_date, "%Y-%m-%d").date()
@@ -70,7 +66,7 @@ if args.daily_monitor and run_date:
     if have < expected:
         errors.append(
             f"{expected} 추천이 없다 (최신 {run_date}, {(expected - have).days}거래일 전) "
-            f"— 정기 슬롯 5개(16:12~22:27 KST)가 모두 누락되거나 지연됐다"
+            "— 금요일 16:12 KST 정기 실행이 누락되거나 지연됐다"
         )
 
 # 2) 완전성

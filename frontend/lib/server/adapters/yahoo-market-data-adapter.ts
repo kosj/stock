@@ -5,12 +5,15 @@
  */
 
 import { getQuote, getChart } from "../yahoo-finance";
+import { hasFreshTradeTime } from "../../core/execution-policy";
 import type { MarketDataPort, MarketQuote, MarketCandle } from "@/lib/core/ports/market-data-port";
 
 export class YahooMarketDataAdapter implements MarketDataPort {
   async getQuote(ticker: string): Promise<MarketQuote | null> {
     const q = await getQuote(ticker);
-    if (!q || !q.price || q.price <= 0) return null;
+    if (!q || !Number.isFinite(q.price) || q.price <= 0) return null;
+    // Fetch time is not a freshness guarantee (holiday/stale last price).
+    if (!hasFreshTradeTime(q.traded_at)) return null;
     return { ticker, price: q.price, name: q.name };
   }
 

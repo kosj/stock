@@ -3,9 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "test:trading": "node --test scripts/test_trading.mjs",
+    "test:trading-db": "node --test scripts/test_trading_db.mjs",
+    "backtest:trading": "node scripts/replay_trading.mjs",
     "build": "cd frontend && npm run build",
     "start": "cd frontend && npm run start",
     "dev": "cd frontend && npm run dev"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.10"
   },
   "workspaces": [
     "frontend"

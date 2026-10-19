@@ -1,9 +1,10 @@
 name: "Daily Auto Trade (Mock)"
 
-# 월~금 16:00 KST (= 07:00 UTC) — 한국장 마감 후 실행
+# 월~금 09:12 KST (= 00:12 UTC). 금요일 마감 추천은 다음 거래일에 사용.
+# 실제 시작이 장 종료 후로 밀리면 엔진은 주문을 거부한다.
 on:
   schedule:
-    - cron: "0 7 * * 1-5"
+    - cron: "12 0 * * 1-5"
   workflow_dispatch:          # GitHub Actions UI에서 수동 실행 가능
 
 jobs:

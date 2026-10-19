@@ -346,7 +346,7 @@ export function ProphetForecastCard({ result, loading }: Props) {
     return (
       <div className="rounded-xl border p-4 text-sm text-muted-foreground"
         style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-        Hybrid Stacking Ensemble 예측: 데이터 부족 (최소 30거래일 필요)
+        {result?.return_notice ?? "Hybrid Stacking Ensemble 예측: 데이터 부족 (최소 30거래일 필요)"}
       </div>
     );
   }

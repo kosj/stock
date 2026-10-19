@@ -1,7 +1,7 @@
 /**
  * POST /api/cron/auto-trade
  *
- * GitHub Actions에서 매일 16:00 KST (07:00 UTC) 호출.
+ * GitHub Actions에서 평일 09:12 KST 호출. 장외 지연 실행은 엔진이 거부.
  * mock_accounts가 있는 모든 사용자에 대해 자동매매 실행.
  * 인증: Authorization: Bearer <CRON_SECRET>
  *
@@ -82,12 +82,13 @@ export async function POST(request: NextRequest) {
     console.warn(`[cron/auto-trade] 시간 예산 초과로 ${deferred.length}명 이월 — 다음 실행에서 처리`);
   }
 
+  const successful = deferred.length === 0 && results.every(r => !(r.result as { error?: string }).error);
   return NextResponse.json({
-    success: true,
+    success: successful,
     deferred_users: deferred.length,
     deferred_reason: deferred.length ? "시간 예산 초과 — 다음 실행에서 처리" : undefined,
     run_at:  new Date().toISOString(),
     users:   results.length,
     results,
-  });
+  }, { status: successful ? 200 : 503 });
 }

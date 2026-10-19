@@ -57,13 +57,9 @@ const REC_COLOR: Record<string, string> = {
 
 // ── 유틸 컴포넌트 ─────────────────────────────────────────────────────────────
 
-function RetCell({ v, small, threshold = 1 }: { v: number; small?: boolean; threshold?: number }) {
-  const c = v >= threshold ? "text-green-400" : v <= -threshold ? "text-red-400" : "text-muted-foreground";
-  return (
-    <span className={`tabular-nums font-medium ${c} ${small ? "text-xs" : ""}`}>
-      {v >= 0 ? "+" : ""}{v.toFixed(1)}%
-    </span>
-  );
+function modelMetrics(json: string | null): { relative_score?: number; oof_ic?: number } {
+  try { const value = JSON.parse(json || "{}"); return value && !Array.isArray(value) ? value : {}; }
+  catch { return {}; }
 }
 
 
@@ -274,7 +270,7 @@ export function ProphetRecommendations() {
       {!isLoading && !hasData && (
         <div className="px-4 pb-10 text-center text-sm text-muted-foreground">
           아직 분석 결과가 없습니다.<br />
-          <span className="text-xs opacity-60">매일 오후 4:00 KST 자동 업데이트</span>
+          <span className="text-xs opacity-60">매주 금요일 16:12 KST 분석 시작 · 품질 검증 통과 시 갱신</span>
         </div>
       )}
 
@@ -283,7 +279,7 @@ export function ProphetRecommendations() {
           <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                {["#", "종목", "시장", "현재가", "10일 기대초과수익", "추천", "R²", "추세", ""].map(h => (
+                {["#", "종목", "시장", "기준가", "상대 매력도", "분류", "검증 IC", "추세", ""].map(h => (
                   <th key={h} className="text-left text-xs text-muted-foreground py-2 px-3 font-normal whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -297,7 +293,7 @@ export function ProphetRecommendations() {
                 const trendColor =
                   row.trend_direction === "up"   ? "text-green-400" :
                   row.trend_direction === "down" ? "text-red-400"   : "text-muted-foreground";
-                const r2 = Math.round((row.r_squared ?? 0) * 100);
+                const metrics = modelMetrics(row.accuracy_json);
                 const isKosdaq = row.market === "KOSDAQ";
 
                 return (
@@ -347,7 +343,7 @@ export function ProphetRecommendations() {
                           30일 예측은 순위에 전혀 쓰이지 않는 별개 모델 값이라,
                           "매수 추천 + 30일 -25%" 같은 모순이 화면에 그대로 노출됐다
                           (실측: 2026-08-27 SK하이닉스 19위 매수 / 30일 -25.03%). */}
-                      <td className="py-3 px-3"><RetCell v={row.predicted_return_7d} threshold={1} /></td>
+                      <td className="py-3 px-3 tabular-nums">{metrics.relative_score?.toFixed(2) ?? "보정 전"}</td>
 
                       {/* 추천 */}
                       <td className="py-3 px-3">
@@ -358,7 +354,7 @@ export function ProphetRecommendations() {
 
                       {/* R² */}
                       <td className="py-3 px-3">
-                        <span className={`text-xs tabular-nums ${r2 >= 60 ? "text-blue-400" : "text-yellow-400"}`}>{r2}%</span>
+                        <span className="text-xs tabular-nums text-muted-foreground">{metrics.oof_ic?.toFixed(3) ?? "—"}</span>
                       </td>
 
                       {/* 추세 */}
@@ -394,7 +390,7 @@ export function ProphetRecommendations() {
       )}
 
       <div className="px-4 py-2 text-xs text-muted-foreground/40 border-t" style={{ borderColor: "var(--border)" }}>
-        거래대금 50억 이상 · Hybrid Stacking Ensemble 예측 기반 — 투자 손익 보장 불가 · 매일 오후 4:00 KST 자동 갱신
+        거래대금 50억 이상 · 매력도는 수익률 예측치가 아닙니다 · 매주 금요일 분석 · 품질 검증 통과 시 갱신
       </div>
     </Card>
   );

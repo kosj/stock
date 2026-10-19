@@ -5,6 +5,7 @@
  * 전략 코어의 진입(매수) 후보 소스.
  */
 export interface Recommendation {
+  runDate: string;
   rank:           number;
   ticker:         string;
   name:           string;

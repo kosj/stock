@@ -1,0 +1,27 @@
+name: Trading safety regression tests
+on:
+  push:
+    paths: ["frontend/lib/core/**", "frontend/lib/server/**", "frontend/app/api/mock/**", "scripts/**", "supabase/**", "package.json", ".github/workflows/trading-safety-tests.yml"]
+  pull_request:
+    paths: ["frontend/lib/core/**", "frontend/lib/server/**", "frontend/app/api/mock/**", "scripts/**", "supabase/**", "package.json", ".github/workflows/trading-safety-tests.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm run test:trading
+      - run: npm run test:trading-db
+      - run: npx tsc --noEmit --project frontend/tsconfig.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy pandas scikit-learn
+      - run: python scripts/test_model_safety.py

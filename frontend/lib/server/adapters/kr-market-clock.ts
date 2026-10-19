@@ -30,7 +30,7 @@ export class KrMarketClock implements ClockPort {
     if (!this.isTradingDay(d)) return false;
     const k = this.toKst(d);
     const mins = k.getUTCHours() * 60 + k.getUTCMinutes();
-    return mins >= OPEN_MIN && mins <= CLOSE_MIN;
+    return mins >= OPEN_MIN && mins < CLOSE_MIN;
   }
 
   tradingDateKst(d: Date = this.now()): string {

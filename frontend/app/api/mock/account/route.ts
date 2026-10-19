@@ -107,9 +107,13 @@ export async function PUT(req: NextRequest) {
   }
 
   if ("auto_trade_capital" in body) {
+    if (body.auto_trade_capital !== null && (!Number.isFinite(Number(body.auto_trade_capital))
+        || Number(body.auto_trade_capital) < 0 || Number(body.auto_trade_capital) > 1_000_000_000)) {
+      return NextResponse.json({ error: "운용 한도는 0~10억원 또는 null이어야 합니다." }, { status: 400 });
+    }
     updates.auto_trade_capital = body.auto_trade_capital === null
       ? null
-      : Math.max(1, Number(body.auto_trade_capital));
+      : Math.round(Number(body.auto_trade_capital));
   }
 
   const { error } = await supabase.from("mock_accounts").update(updates).eq("user_id", userId);

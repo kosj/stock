@@ -94,6 +94,7 @@ export interface ProphetForecastResult {
   /** 4개 베이스 모델 OOF 상관관계 기반 다양성 팩터 [0.88, 1.0] */
   diversity_score: number;
   insufficient_data: boolean;
+  return_notice?: string;
 }
 
 // ── Hyperparameters ───────────────────────────────────────────────────────────
@@ -824,7 +825,10 @@ export async function prophetForecast(
 
       if (row) {
         const diffDays = (Date.now() - new Date((row as SupabaseRow).run_date).getTime()) / 86_400_000;
-        if (diffDays <= 3) {
+        if (diffDays <= 7) {
+          const metrics = JSON.parse((row as SupabaseRow).accuracy_json || "{}");
+          if (metrics.return_calibrated !== true) return { ...EMPTY,
+            return_notice: "수익률 보정 검증 전입니다. 추천 목록의 상대 매력도 점수를 참고하세요." };
           return buildResultFromSupabase(row as SupabaseRow, candles, ticker);
         }
       }

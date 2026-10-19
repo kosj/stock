@@ -1,7 +1,7 @@
 # 하이브리드 앙상블 추천 시스템 — 개선 로드맵
 
 > 작성 2026-06-13. 다음 세션이 이어받아 작업하기 위한 우선순위 계획서.
-> 대상: `scripts/hybrid_ensemble.py` (일일 추천 엔진, GitHub Actions `friday-prophet`).
+> 대상: `scripts/hybrid_ensemble.py` (주간 추천 엔진, GitHub Actions `friday-prophet`).
 
 ---
 

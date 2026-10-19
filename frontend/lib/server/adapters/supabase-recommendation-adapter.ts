@@ -14,6 +14,7 @@ import type { RecommendationPort } from "@/lib/core/ports/recommendation-port";
 import type { Recommendation } from "@/lib/core/domain/recommendation";
 
 interface RecRow {
+  run_date: string;
   rank:            number;
   ticker:          string;
   name:            string;
@@ -26,7 +27,7 @@ export class SupabaseRecommendationAdapter implements RecommendationPort {
   async getTopRecommendations(limit = 20): Promise<Recommendation[]> {
     // 1단계: 가장 최신 분석 날짜
     const { data: latest } = await supabase
-      .from("prophet_recommendations")
+      .from("recommendation_batches")
       .select("run_date")
       .order("run_date", { ascending: false })
       .limit(1)
@@ -37,14 +38,18 @@ export class SupabaseRecommendationAdapter implements RecommendationPort {
     // 2단계: 해당 날짜의 Top-N
     const { data, error } = await supabase
       .from("prophet_recommendations")
-      .select("rank, ticker, name, recommendation, current_price, base_return_30d")
+      .select("run_date, rank, ticker, name, recommendation, current_price, base_return_30d")
       .eq("run_date", latest.run_date)
+      .not("rank", "is", null)
+      .gte("rank", 1)
+      .lte("rank", limit)
       .order("rank", { ascending: true })
       .limit(limit);
 
     if (error || !data) return [];
 
     return (data as RecRow[]).map((r) => ({
+      runDate: r.run_date,
       rank:           r.rank,
       ticker:         r.ticker,
       name:           r.name,

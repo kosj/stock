@@ -5,7 +5,6 @@ Hybrid Stacking Ensemble — Korean Stock Alpha Predictor
 Layer 1 (Base Models):
   - LightGBM  (gradient boosting tree)
   - RandomForest (bagging ensemble)
-  - MLP Neural Net (temporal patterns via lag features; LSTM-equivalent in tabular form)
 Layer 2 (Meta Model):
   - Ridge Regression with L2 regularisation (prevents overfitting)
 
@@ -16,7 +15,7 @@ Score      : 0.65 × alpha_z + 0.25 × sharpe_z + 0.10 × sentiment_z  (cross-se
 
 Post-processing:
   - Liquidity filter   : 20d average trading value >= 5B KRW
-  - Positive alpha gate: alpha_5d > 0 (no negative-alpha stocks in Top 20)
+  - Publication gate: purged meta OOF IC / significance / sample-size checks
   - News sentiment tilt: cross-sectional sentiment z-score blended into score
 
 Output: Upserted into Supabase `prophet_recommendations` table.
@@ -29,7 +28,8 @@ import socket
 import sys
 import time
 import warnings
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -40,7 +40,7 @@ from scipy.stats import spearmanr
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
-from sklearn.model_selection import KFold, TimeSeriesSplit, cross_val_predict
+from sklearn.model_selection import TimeSeriesSplit
 
 # 수급·밸류는 Supabase krx_daily 캐시에서 읽는다(KR 접속 환경의 krx_cache.py가 적재).
 # KRX는 클라우드 IP를 차단하므로 ML 잡(CI)은 pykrx를 직접 호출하지 않는다.
@@ -318,9 +318,8 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
 
     # ── 타깃: 5거래일 선행 초과수익률 ─────────────────────────────────────────
     fwd_ret  = c.pct_change(TARGET_DAYS).shift(-TARGET_DAYS)
-    fwd_mret = mret.rolling(TARGET_DAYS).sum().shift(-TARGET_DAYS)
     # ±TARGET_CLIP 클리핑: 에코프로·바이오株 등 급등락 이벤트가 훈련 데이터를 오염하는 것을 방지
-    f["target_alpha_5d"] = (fwd_ret - fwd_mret).clip(-TARGET_CLIP, TARGET_CLIP)
+    f["target_alpha_5d"] = (fwd_ret - mkt_c.pct_change(TARGET_DAYS).shift(-TARGET_DAYS)).clip(-TARGET_CLIP, TARGET_CLIP)
     # 진단 전용(피처 아님, FEATURE_COLS에 넣지 말 것): 벤치마크를 빼지 않은
     # 원시 선행수익률. 타깃이 날짜별 순위로 변환되므로 "벤치마크 차감이 순위를
     # 실제로 바꾸는가"를 실측 비교하기 위한 대조군이다.
@@ -328,8 +327,7 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
 
     # ── 보조 타깃: 30거래일 선행 초과수익률 (독립 30일 모델용 — 결함2) ─────────
     fwd_ret_l  = c.pct_change(TARGET_DAYS_LONG).shift(-TARGET_DAYS_LONG)
-    fwd_mret_l = mret.rolling(TARGET_DAYS_LONG).sum().shift(-TARGET_DAYS_LONG)
-    f["target_alpha_30d"] = (fwd_ret_l - fwd_mret_l).clip(-TARGET_CLIP_LONG, TARGET_CLIP_LONG)
+    f["target_alpha_30d"] = (fwd_ret_l - mkt_c.pct_change(TARGET_DAYS_LONG).shift(-TARGET_DAYS_LONG)).clip(-TARGET_CLIP_LONG, TARGET_CLIP_LONG)
 
     return f.dropna(subset=["rsi_14", "vs_ma60", "vol_60d"])
 
@@ -377,6 +375,25 @@ def _make_base_models():
 # ─────────────────────────────────────────────────────────────────────────────
 # Walk-forward TimeSeriesSplit 스태킹
 # ─────────────────────────────────────────────────────────────────────────────
+
+def purged_meta_oof(meta_X, meta_y, row_dates, gap: int):
+    """Date-based forward-only meta validation; never ticker-block KFold."""
+    dates = row_dates.unique().sort_values()
+    predictions = np.full(len(meta_y), np.nan)
+    splitter = TimeSeriesSplit(n_splits=3, gap=gap)
+    for tr, te in splitter.split(np.arange(len(dates))):
+        train = row_dates.isin(dates[tr])
+        test = row_dates.isin(dates[te])
+        model = Ridge(alpha=1.0).fit(meta_X[train], meta_y[train])
+        predictions[test] = model.predict(meta_X[test])
+    return predictions
+
+
+def model_is_publishable(models: dict) -> bool:
+    return (np.isfinite(models["oof_ic"]) and models["oof_ic"] >= MIN_OOF_IC
+            and np.isfinite(models["oof_ic_tstat"]) and models["oof_ic_tstat"] >= 2
+            and models["oof_ic_days"] >= 60)
+
 
 def walk_forward_stack(panel: pd.DataFrame) -> dict:
     """
@@ -449,10 +466,13 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
 
     # ── 헤드라인 지표: OOF 일별 크로스섹셔널 IC (무누수) ─────────────────────
     # 일간 Top-N 랭킹 전략의 품질은 "날짜별 크로스섹셔널 IC의 평균"으로 재야 한다.
-    # 두 베이스 OOF의 평균은 운영 메타(Ridge, 2피처)와 순위가 거의 동일한
-    # 무누수 프록시다. 연속일 IC는 10일 중첩 라벨로 자기상관 → Newey-West t-stat.
-    ens_oof = (oof_lgbm + oof_rf) / 2.0
-    ic_d = daily_ic_stats(row_dates[valid], ens_oof[valid], y_all[valid],
+    # 연속일 IC는 10일 중첩 라벨로 자기상관 → Newey-West t-stat.
+    # Validate the ACTUAL Ridge stack, not an average-of-base-models proxy.
+    meta_oof = purged_meta_oof(meta_X, meta_y, row_dates[valid], TARGET_DAYS)
+    ens_oof = np.full(n, np.nan)
+    ens_oof[np.where(valid)[0]] = meta_oof
+    evaluated = valid & np.isfinite(ens_oof)
+    ic_d = daily_ic_stats(row_dates[evaluated], ens_oof[evaluated], y_all[evaluated],
                           min_names=5, nw_lag=TARGET_DAYS)
     oof_ic = float(ic_d["ic_mean"]) if np.isfinite(ic_d["ic_mean"]) else 0.0
     print(f"  OOF 일별 IC (walk-forward): {oof_ic:+.4f}  "
@@ -460,20 +480,15 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
           f"IC>0 {ic_d['ic_share_pos']:.0%})  ← |t|≥2 라야 유의")
 
     # ── 참고 지표(구버전 로그 비교용 — 과대평가 주의) ─────────────────────────
-    # 아래 KFold 메타 평가는 행 순서가 티커-메이저(pd.concat 순)라 폴드가 사실상
-    # "티커 블록"이 되어 훈련 폴드에 테스트와 동일·미래 날짜가 섞인다(시간 누수).
-    # 또한 풀링 Spearman은 중첩 라벨로 유효 표본을 과대평가한다. 참고로만 유지.
-    if len(meta_X) > 30:
-        _meta_oof = cross_val_predict(
-            Ridge(alpha=1.0), meta_X, meta_y,
-            cv=KFold(n_splits=5, shuffle=False),
-        )
-        oof_r2 = float(r2_score(meta_y, _meta_oof))
-        oof_ic_pooled = float(spearmanr(_meta_oof, meta_y).statistic)
+    # 날짜순 메타 OOF 결과로 계산한다. 풀링 Spearman의 중첩 표본 문제는 남으므로
+    # 유의성 판정에는 일별 IC 및 Newey-West t-stat만 사용한다.
+    if evaluated.sum() > 30:
+        oof_r2 = float(r2_score(y_all[evaluated], ens_oof[evaluated]))
+        oof_ic_pooled = float(spearmanr(ens_oof[evaluated], y_all[evaluated]).statistic)
     else:
         oof_r2, oof_ic_pooled = 0.0, 0.0
     print(f"  (참고) 풀링 R²={oof_r2:.4f}  풀링 IC={oof_ic_pooled:.4f}  "
-          f"— 티커블록 CV·중첩 라벨로 왜곡 가능, 판단은 일별 IC로")
+          f"— 시간순 메타 검증, 중첩 라벨의 유의성 판단은 일별 IC로")
 
     # ── 모델 품질 게이트 (일별 IC 기준) ──────────────────────────────────────
     if oof_ic < MIN_OOF_IC:
@@ -691,54 +706,17 @@ def _calc_trend_slope_annual_pct(df: pd.DataFrame, days: int = 60) -> float:
 # Supabase 저장
 # ─────────────────────────────────────────────────────────────────────────────
 
-def upsert_supabase(rows: list, run_date: str) -> None:
-    """
-    on_conflict/upsert 대신 delete → insert 패턴 사용.
-    이유:
-      - PostgREST on_conflict는 DB 레벨 UNIQUE 제약 필요 (없으면 400)
-      - 매일 1회 실행이므로 당일 데이터 삭제 후 재삽입이 더 단순하고 안전
-      - 재실행 시에도 멱등(idempotent) 보장
-    """
-    base_url = f"{SUPABASE_URL}/rest/v1/prophet_recommendations"
-    headers = {
-        "apikey":        SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type":  "application/json",
-        "Prefer":        "return=minimal",
-    }
-
-    # Step 1: 당일 기존 행 삭제
-    del_resp = requests.delete(
-        f"{base_url}?run_date=eq.{run_date}",
-        headers=headers,
-        timeout=15,
+def upsert_supabase(rows: list, run_date: str, data_as_of: str) -> None:
+    """Publish a complete batch atomically; never fall back to DELETE + POST."""
+    resp = requests.post(
+        f"{SUPABASE_URL}/rest/v1/rpc/publish_recommendations",
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+        json={"p_run_date": run_date, "p_data_as_of": data_as_of,
+              "p_model_version": "weekly-safety-v1", "p_rows": rows},
+        timeout=45,
     )
-    if not del_resp.ok:
-        print(f"  [warn] 기존 행 삭제 실패 (무시하고 계속): "
-              f"{del_resp.status_code} {del_resp.text[:120]}")
-
-    # Step 2: 새 행 삽입
-    ins_resp = requests.post(base_url, headers=headers, json=rows, timeout=30)
-
-    # 신규 컬럼(excess_return·sentiment_*)이 아직 DB에 없으면 PostgREST가
-    # 스키마 캐시 오류(PGRST204)를 낸다. 이 경우 해당 컬럼만 제거하고 1회
-    # 재시도하여 "컬럼 미생성으로 당일 추천이 통째로 누락"되는 사고를 방지한다.
-    optional_cols = ("excess_return", "sentiment_score", "sentiment_3d_ma")
-    if not ins_resp.ok and any(c in ins_resp.text for c in optional_cols):
-        print(f"  [warn] 신규 컬럼 미존재 추정 → 제거 후 재시도 (원본: {ins_resp.text[:160]})")
-        print(f"  [warn] Supabase 마이그레이션 권장: {', '.join(optional_cols)} 컬럼 추가")
-        stripped = [{k: v for k, v in r.items() if k not in optional_cols} for r in rows]
-        ins_resp = requests.post(base_url, headers=headers, json=stripped, timeout=30)
-
-    if not ins_resp.ok:
-        print(f"  [error] 삽입 실패 응답 본문: {ins_resp.text[:400]}")
-    ins_resp.raise_for_status()
-    print(f"[supabase] {len(rows)}행 저장 완료")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 메인
-# ─────────────────────────────────────────────────────────────────────────────
+    resp.raise_for_status()
+    print(f"[supabase] complete batch: {len(rows)} rows, source={data_as_of}")
 
 def main() -> None:
     import argparse
@@ -746,7 +724,7 @@ def main() -> None:
     _ap.add_argument("--dry-run", action="store_true", help="Supabase 저장 생략(로컬 진단용)")
     dry_run = _ap.parse_args().dry_run
 
-    run_date = date.today().isoformat()
+    run_date = datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
     print(f"\n{'='*64}")
     print(f"  Hybrid Stacking Ensemble  {run_date}{'  [DRY-RUN]' if dry_run else ''}")
     print(f"{'='*64}\n")
@@ -756,6 +734,9 @@ def main() -> None:
     mkt_df, _mkt_src = price_store.load(BENCHMARK_YF, fetch_ohlcv)
     if mkt_df.empty:
         sys.exit("KOSPI 데이터 조회 실패")
+    data_as_of = mkt_df.index[-1].date()
+    if not 0 <= (date.fromisoformat(run_date) - data_as_of).days <= 4:
+        sys.exit("벤치마크 기준일이 오래되었거나 미래 데이터입니다")
     if _mkt_src == "live":
         print("  ⚠ 시세 스냅샷 미사용(live) — price_daily 마이그레이션 미적용 또는 "
               "Supabase 접근 실패. 실행 간 재현성이 보장되지 않는다.")
@@ -781,6 +762,12 @@ def main() -> None:
         src_counts[_src] = src_counts.get(_src, 0) + 1
         if df.empty or len(df) < 100:
             print(f"  skip {s['ticker']} {s['name']}: 데이터 부족")
+            continue
+
+        # Never compare different source dates in one cross-sectional ranking.
+        df = df[df.index.date <= data_as_of]
+        if df.empty or df.index[-1].date() != data_as_of:
+            print(f"  skip {s['ticker']}: 기준일 {data_as_of} 시세 없음")
             continue
 
         krx   = fetch_krx_cache(s["ticker"])   # Supabase 캐시 (없으면 빈 DF → 중립)
@@ -946,10 +933,8 @@ def main() -> None:
     # ── 품질 게이트: OOF 일별 IC 기준, 순위 방향이 심하게 반전된 경우만 차단 ──
     # (v2: 풀링 IC → 무누수 일별 IC로 게이트 입력 교체. R²는 noise floor에서
     #  쉽게 음수가 되므로 게이트로 쓰지 않는다.)
-    if models["oof_ic"] < -0.02:
-        print(f"\n❌ OOF 일별 IC = {models['oof_ic']:.4f} < -0.02 — 순위 반전 신호, 당일 저장 생략")
-        print("  피처 추가 또는 데이터 확장 후 재실행 권장")
-        return
+    if not model_is_publishable(models):
+        sys.exit("추천 품질 게이트 미달(IC/유의성/표본수): 기존 배치 유지, 신규 추천 발행 중단")
 
     # ── 5. 최신 피처로 알파 예측 ──────────────────────────────────────────────
     print("\n[5/6] 최신 피처 → 기대 상대강도 순위(Alpha Rank) 예측...")
@@ -1294,6 +1279,10 @@ def main() -> None:
                 "is_top":                 is_top,
                 "oof_r2":                 round(oof_r2, 4),
                 "oof_ic":                 round(models["oof_ic"], 4),
+                "oof_ic_tstat":           round(models["oof_ic_tstat"], 4),
+                "relative_score":         round(float(row["risk_adj_score"]), 4),
+                "return_calibrated":      False,
+                "data_as_of":             data_as_of.isoformat(),
             }),
         })
 
@@ -1304,7 +1293,7 @@ def main() -> None:
     if dry_run:
         print(f"\n[dry-run] Supabase 저장 생략. 산출 {len(rows)}행 (Top{TOP_N}: {len(top_tickers)})\n")
     else:
-        upsert_supabase(rows, run_date)
+        upsert_supabase(rows, run_date, data_as_of.isoformat())
         print(f"\n완료: {run_date}  전체 {len(rows)} 종목 저장 (Top{TOP_N}: {len(top_tickers)})\n")
 
 
