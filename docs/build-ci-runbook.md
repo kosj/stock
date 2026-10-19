@@ -76,5 +76,7 @@ Both Vercel config files disable independent Git auto-deployment using
 `git.deploymentEnabled=false`; only the checked Actions path should publish.
 Confirm the effective Root Directory and observed status after pushing, especially
 for a legacy project rooted at `frontend`. A prior Vercel success while Actions
-failed demonstrated the bypass. Public health proves liveness only, not deployment
-SHA, environment configuration or database access.
+failed demonstrated the bypass. Health now returns an injected public commit SHA;
+compare it with the verified code commit. A health response alone does not validate
+server secrets, database connectivity or approved-user workflows. The c01b13c rollout
+and matching production health SHA were verified; see the reconciliation handoff.

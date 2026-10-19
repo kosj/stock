@@ -83,3 +83,31 @@ CLI 41.7.8을 거부하며 47.2.2 이상을 요구했다. npm에는 정확한 47
 실제 배포된 버전과 Node 요구사항을 조회해 64.5.0(Node >=20)으로 고정했다.
 로그: https://github.com/kosj/stock/actions/runs/39275227866/job/118138431461 .
 이 실패에서 자격증명 자체는 동작했으며, 프로젝트 root/build 단계는 아직 확인되지 않았다.
+
+## 최종 배포 검증 완료
+
+코드 커밋 `c01b13c087b91e6705b3cb17bfd8ffe63d554b8b`의 전체 CI와 배포가 성공했다.
+CLI 64.5.0 업로드, Vercel 원격 Next 16.2.6 빌드 및 운영 별칭 연결을 확인했다.
+배포 완료: 2026-10-20 00:15:21 KST.
+
+- Actions: https://github.com/kosj/stock/actions/runs/39275832104
+- 배포 상세: https://vercel.com/devkosj-s-projects/stock/3A5rcDcWekyPBG9gCcKNG6Waup9i
+- 고유 배포: https://stock-f4e297hpm-devkosj-s-projects.vercel.app
+- 운영: https://stock-ashen-three.vercel.app
+
+운영 도메인에서 캐시 없이 다시 조회한 결과:
+
+| 검증 | 결과 |
+|---|---|
+| GET /api/health | 200, status ok, commit_sha = 위 전체 SHA |
+| GET /api/mock/account, 인증 없음 | 401 |
+| GET /api/admin/users, 인증 없음 | 401 |
+
+따라서 운영 주소에서 검사한 코드가 제공되는 것까지 확인했다. 관리 콘솔 Root Directory 값은
+직접 읽지 못했다. 원격 로그가 `next build`를 실행했으므로 기존 frontend 루트 구성이 유지됐을
+가능성이 있으나 단정하지 않는다. 동작하는 설정을 근거 없이 변경할 필요는 없다.
+검증된 코드 이후의 문서 기록 커밋은 애플리케이션 동작 변경을 포함하지 않는다.
+
+남은 작업은 승인된 사용자 세션/별도 staging 환경의 화면·주문·초기화·재시도 E2E,
+당시 종목 구성/기업행위/비용 데이터를 이용한 전략 실측·보정, 푸시 발송 기능과 레거시 원본
+복원 여부 결정, 기존 lint 108개 및 성능 측정이다. 이번 운영 점검에서는 읽기 요청만 사용했다.

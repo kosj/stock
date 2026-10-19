@@ -1,5 +1,8 @@
 # 추천·모의투자 안전성 수정 인수인계
 
+최신 DB 이력·배포 결과는 `migration-reconciliation-20261020.md`를 우선한다.
+아래 미실행/중복 버전 표시는 최초 작업 당시 기록이며, 과거 SQL을 다시 실행하지 않는다.
+
 작성: 2026-10-19 KST. 요청: 코드 리뷰에서 제안한 순서대로 수정하고 새 세션용 기록 남기기.
 
 ## Supabase CLI 설치 (2026-10-19 추가)
@@ -113,8 +116,8 @@
 
 1. 변경 사항을 검토하고 GitHub에 보존한다(기존 사용자 변경을 섞지 않는다).
 2. Supabase 관리자 연결로 다음 파일을 순서대로 적용:
-   - `supabase/migrations/20261019_trading_safety.sql`
-   - `supabase/migrations/20261019_mock_order_guards.sql`
+   - `supabase/migrations/202610190002_trading_safety.sql`
+   - `supabase/migrations/202610190001_mock_order_guards.sql`
 3. `SUPABASE_SERVICE_ROLE_KEY`와 비용 환경변수를 서버에 설정한다.
    service role 없는 서버에서는 강화된 RPC 실행 권한이 없어 의도적으로 실패한다.
 4. 새 코드 배포. 기존 배치를 완료 배치로 임의 승격하지 않는다.
