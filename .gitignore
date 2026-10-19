@@ -43,6 +43,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+# Next API source directories named logs are application code.
+!frontend/app/**/logs/
+!frontend/app/**/logs/route.ts
 
 # Claude Code 로컬 설정
 .claude/
