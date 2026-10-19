@@ -40,7 +40,7 @@ test("mock ledger: shared lease, epoch fencing, cash flows, realized pnl, reset 
    assert.ok(sql,table); await db.exec(sql[0]);
   }
   await db.exec("ALTER TABLE mock_trades ADD COLUMN realized_pnl NUMERIC; CREATE UNIQUE INDEX ON mock_trades(user_id,client_order_id) WHERE client_order_id IS NOT NULL;");
-  for(const file of ["20261019_trading_safety.sql","20261019_mock_order_guards.sql","202610200002_mock_ledger.sql"])
+  for(const file of ["202610190002_trading_safety.sql","202610190001_mock_order_guards.sql","202610200002_mock_ledger.sql"])
    await db.exec(await readFile(new URL(`../supabase/migrations/${file}`,import.meta.url),"utf8"));
   const user="00000000-0000-0000-0000-000000000001", owner="00000000-0000-0000-0000-000000000002", other="00000000-0000-0000-0000-000000000003";
   await db.query("SELECT acquire_auto_trade_lease($1,$2)",[user,owner]);

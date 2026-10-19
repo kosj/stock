@@ -28,56 +28,52 @@ same bucket is not detected. Reduce `scripts/lint-baseline.json` as debt is fixe
 do not increase it merely to make CI green. Full frontend lint remains a cleanup
 item until the baseline is empty.
 
-## Historical migration conflict: do not run a blind db push
+## Reconciled migration history
 
-2026-10-19 KST: the five new `202610200001`–`202610200005` migrations were applied
-to the user-selected project using CLI linked SQL execution and recorded atomically.
-Historical migrations had no CLI history and were not retroactively marked applied.
-See `parallel-implementation-handoff-20261019.md` for verified invariants and the
-remaining baseline reconciliation. The guidance below still applies to future db push.
+The user-selected project has eleven unique history versions. Six manual-era
+changes were adopted as an observed schema baseline after read-only comparison
+against isolated historical replay; their original execution dates are unknown.
+Five new migrations were actually applied transactionally. All eleven stored SQL
+bodies match the local files. Details and old/new filename mapping are in
+`migration-reconciliation-20261020.md`.
 
-`npm run audit:migrations` intentionally fails while the two duplicate historical
-versions remain unresolved. CI uses `--allow-known-duplicates` to accept only the
-six exact historical file hashes in `supabase/historical-migrations.json`.
-It rejects changed/deleted historical files, new duplicate versions, and new
-date-only versions. New files use unique monotonically increasing
-`YYYYMMDDHHMM[SS]` prefixes. No filename changes or remote history repairs were
-performed by this implementation.
+`npm run audit:migrations` is now strict: no duplicate-version exception remains.
+Historical SQL bytes and every attested applied file are immutable. New files use
+unique increasing `YYYYMMDDHHMM[SS]` versions; use forward migrations for changes.
 
-Before a production rollout:
+For subsequent rollouts, test new SQL, back up the intended DB, inspect its actual
+history/schema, apply only missing migrations, then verify stored statements and
+runtime privileges. Update `supabase/verified-rollout.json` only from that evidence.
+It is a checked-in operator attestation, not an automatic live DB check. Never add
+unapplied SQL hashes merely to satisfy deployment. The baseline verifier command is:
 
-1. Back up the database and retrieve the applied migration history and schema
-   from the intended Supabase project. Confirm the project ID independently.
-2. Compare `supabase migration list --linked` and a schema dump to **both SQL
-   bodies** for each duplicate prefix (`20260810`, `20261019`). A matching version
-   alone cannot establish which body ran. Do not infer this from filenames.
-3. In a disposable staging project with the same schema/history, agree a canonical
-   migration sequence. Assign distinct versions to duplicate bodies only after
-   determining which changes are present. Review `supabase migration repair`
-   against that evidence; repair changes history, not schema.
-4. Test the reconciled sequence on an empty database and an upgraded staging copy.
-   Apply missing SQL once and verify the new RPCs, RLS and grants. Never reapply
-   `supabase/schema.sql` over an upgraded database: its historical baseline
-   includes grants/RLS state superseded by security migrations.
-5. Record the project, observed history, canonical mapping, backups and applied
-   versions in the handoff. Update the historical manifest in the same reviewed
-   reconciliation change, then require strict migration audit in CI.
+```sh
+# Export with CLI db query --linked --file supabase/verify-legacy-baseline.sql
+node scripts/verify_migration_baseline.mjs /path/to/CLI-export.json
+```
+
+Never reapply `supabase/schema.sql` over an upgraded database: its historical RLS
+settings are superseded by security migrations. These migrations still assume the
+original base application tables exist; a fresh project needs a separate bootstrap
+plan. Direct PostgreSQL/pooler access from this environment was unavailable;
+`db push --dry-run` was not verified. History was checked via CLI linked SQL.
 
 ## Production deployment gate
 
 Deployment runs the reusable verification workflow on the same commit before
-uploading that checkout. The unchecked deploy-hook fallback was removed because
-it can build a different branch head. Required secrets are `VERCEL_TOKEN`,
-`VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. The upload CLI is pinned to 41.7.8;
-its compatibility with the connected Vercel project must be verified at staging.
+uploading that checkout. Required secrets are `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
+and `VERCEL_PROJECT_ID`. The upload CLI is pinned to 41.7.8; its compatibility
+with the connected Vercel project must be verified during deployment.
 
-The production job also requires the repository/environment variable
-`MIGRATION_HISTORY_RECONCILED=true` after the reconciliation and required new
-migrations are actually applied. This is an operator acknowledgement, not a live
-schema check. Keep it unset until that work is complete; clear it for subsequent
-schema rollouts until their prerequisites are applied. Configure production
-environment reviewers and branch protection in GitHub if required.
+The production job runs `node scripts/audit_migrations.mjs --require-rollout`.
+Every SQL file must match the exact applied hash in the verified rollout manifest.
+New, missing or changed SQL blocks deployment. This replaces the unscoped
+`MIGRATION_HISTORY_RECONCILED` variable and remains closed for future unapplied
+migrations. Configure environment reviewers/branch protection as needed.
 
-Disable Vercel's independent Git auto-deploy (or require the same CI checks in
-Vercel project settings); otherwise it can bypass this GitHub Actions gate.
-Those external settings and live deployments were not changed here.
+Both Vercel config files disable independent Git auto-deployment using
+`git.deploymentEnabled=false`; only the checked Actions path should publish.
+Confirm the effective Root Directory and observed status after pushing, especially
+for a legacy project rooted at `frontend`. A prior Vercel success while Actions
+failed demonstrated the bypass. Public health proves liveness only, not deployment
+SHA, environment configuration or database access.

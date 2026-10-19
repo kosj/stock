@@ -23,8 +23,8 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Audit migration integrity and known history conflicts
-        run: npm run audit:migrations -- --allow-known-duplicates
+      - name: Audit unique migrations and immutable applied SQL
+        run: npm run audit:migrations
       - run: node --test scripts/test_*.mjs
       - run: node --experimental-strip-types scripts/test_news_curation.mts
       - run: npm run typecheck

@@ -7,7 +7,7 @@ test("price snapshots retain history, reject stale writers and roll back invalid
   const db = new PGlite();
   try {
     await db.exec("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;");
-    for (const name of ["20260816_price_daily.sql", "202610200003_price_versions.sql"])
+    for (const name of ["202608160001_price_daily.sql", "202610200003_price_versions.sql"])
       await db.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8"));
     await db.exec("INSERT INTO price_daily(ticker,date,close) VALUES('TEST','2026-01-01',100)");
     const read = async () => (await db.query("SELECT read_price_snapshot('TEST') AS snapshot")).rows[0].snapshot;

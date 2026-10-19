@@ -5,6 +5,8 @@ Before changing recommendation generation or mock trading, read
 required DB migrations, tests, execution assumptions and incomplete deployment work.
 Also read `docs/parallel-implementation-handoff-20261019.md` for subsequent
 parallel implementation, five new migrations, rollout gates and remaining work.
+Read `docs/migration-reconciliation-20261020.md` for the adopted unique historical
+versions and exact-file rollout gate. Never modify already attested SQL bodies.
 
 - Preserve unrelated existing changes. The existing modification of
   `ml/hybrid_stacking_ensemble.py` was NOT part of the 2026-10-19 task.

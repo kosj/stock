@@ -21,20 +21,14 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
-      - name: Require migration rollout acknowledgement
-        env:
-          RECONCILED: ${{ vars.MIGRATION_HISTORY_RECONCILED }}
-        run: |
-          if [ "$RECONCILED" != "true" ]; then
-            echo "::error::Reconcile migration history, apply required migrations, then set MIGRATION_HISTORY_RECONCILED=true. See docs/build-ci-runbook.md."
-            exit 1
-          fi
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: Require exact migration rollout evidence
+        run: node scripts/audit_migrations.mjs --require-rollout
       - name: Deploy the verified checkout
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -45,4 +39,6 @@ jobs:
           fi
           # Remote build uses the project's production environment variables.
           # Pin the upload CLI; never deploy an unchecked latest-branch hook.
-          npx --yes vercel@41.7.8 deploy --prod --archive=tgz --yes --token="$VERCEL_TOKEN"
+          npx --yes vercel@41.7.8 deploy --prod --archive=tgz --yes --token="$VERCEL_TOKEN" \
+            --meta "githubCommitSha=${{ github.sha }}" \
+            --env "APP_COMMIT_SHA=${{ github.sha }}"

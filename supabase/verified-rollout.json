@@ -1,0 +1,18 @@
+{
+  "projectRef": "enunwzitobtgrelzdudd",
+  "verifiedAt": "2026-10-19T15:03:41.709017+00:00",
+  "verification": "CLI linked management query; six historical semantic baselines adopted without replay; five new migrations applied; all11 DB stored statement hashes match local original bytes",
+  "files": {
+    "202608080001_mock_realized_pnl.sql": "8a41b509223c5a9d0c02d4468998808790d591cb7f73ff96555c8982c3ed6fda",
+    "202608100001_etf_pick_history.sql": "5c0349e6ee658b241938c2f6a7d6ab632b61d6890aa60fd2b74df6c442784855",
+    "202608100002_price_alerts_user_scope.sql": "68e4d430ded4d1e702a68b145d4c4aed8368517c4bde33a8a92309552fd039be",
+    "202608160001_price_daily.sql": "641cd6b8a36fafcb7182916f53d3cbf373ef33151694a8145ea864a5b3a41b61",
+    "202610190001_mock_order_guards.sql": "6f0153813675a0ef6c379931ea36d06d3de651b5ca1e4367d4beef1562957430",
+    "202610190002_trading_safety.sql": "4a4c7ef62355d1e4504b33c6358b1a20d6cf94dede8b88ff44608a0588a3281c",
+    "202610200001_api_security.sql": "07a9cad8eb8011ed222f2dd949ba54e7c7fe93ec6e5b2f8c70577bc6210155af",
+    "202610200002_mock_ledger.sql": "b45235e34b9a975ad0e538df9e90a07907652cddf5dcf7a378a5dbbc203d8c7c",
+    "202610200003_price_versions.sql": "8314512bd64915d3d9da174e0f456d60b9a9218e093198405dab622a3496a958",
+    "202610200004_access_controls.sql": "c21781aeec5d0f3a753369565305bd0a8b0cf69c27d0f6637cecae812ef6bee9",
+    "202610200005_auto_trade_jobs.sql": "bf0a818978010b650ede2f027af36bb7d11c6ca0164d4835bfea81720b263fbe"
+  }
+}

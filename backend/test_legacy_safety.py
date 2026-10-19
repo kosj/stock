@@ -119,7 +119,9 @@ class LegacySafetyTests(unittest.IsolatedAsyncioTestCase):
         for ws, ticker in [(first, "005930"), (second, "005930"), (third, "AAPL")]:
             self.assertEqual([message["ticker"] for message in ws.messages if message["type"] == "price"], [ticker])
             manager.disconnect(ws)
-        await asyncio.sleep(0)
+        # Cancellation can traverse gather/wait_for children over several loop
+        # turns. Await termination explicitly; one sleep(0) races on CI runners.
+        await asyncio.wait_for(asyncio.gather(producer, return_exceptions=True), timeout=1)
         self.assertEqual(manager.active_tickers, [])
         self.assertTrue(producer.done())
 
@@ -128,11 +130,13 @@ class LegacySafetyTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(prices, "MAX_CONNECTIONS", 1):
             first, rejected = Socket(), Socket()
             await manager.connect(first, ["005930"])
+            producer = manager._producer
             self.assertFalse(await manager.connect(rejected, ["AAPL"]))
             self.assertFalse(rejected.accepted)
             self.assertTrue(rejected.closed)
             manager.disconnect(first)
-            await asyncio.sleep(0)
+            await asyncio.wait_for(asyncio.gather(producer, return_exceptions=True), timeout=1)
+            self.assertTrue(producer.done())
 
     async def test_unverified_data_and_unowned_alerts_are_disabled(self):
         for operation in [sectors.SectorService.get_performance, krx.get_dashboard, krx.get_short_selling]:

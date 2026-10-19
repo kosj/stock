@@ -14,7 +14,7 @@ test("SQL migrations: leases, atomic publication, guarded/idempotent fills and p
       assert.ok(statement, table); await db.exec(statement[0]);
     }
     await db.exec("ALTER TABLE mock_trades ADD COLUMN realized_pnl NUMERIC; CREATE UNIQUE INDEX ON mock_trades(user_id, client_order_id) WHERE client_order_id IS NOT NULL;");
-    for (const file of ["20261019_trading_safety.sql", "20261019_mock_order_guards.sql"])
+    for (const file of ["202610190002_trading_safety.sql", "202610190001_mock_order_guards.sql"])
       await db.exec(await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), "utf8"));
     const user = "00000000-0000-0000-0000-000000000001";
     const owner = "00000000-0000-0000-0000-000000000002";
