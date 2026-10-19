@@ -3,6 +3,7 @@
 작성: 2026-10-19. 기준 커밋: `4748c3434f58bee8daf81728561ed41de7085ebf`.
 이 문서는 `repository-review-20261019.md`의 **후속 구현 상태**다. 리뷰 당시 상태와 구분한다.
 코드·SQL·오프라인 테스트를 작성했으며 운영 DB 적용·배포·실거래·모델 전체 학습은 하지 않았다.
+위 문장은 최초 구현 시점 기록이다. 이후 운영 DB 적용 결과는 아래 추가 기록을 우선한다.
 커밋·푸시 여부는 `git status`와 원격 이력으로 확인한다.
 기존 사용자 수정 `ml/hybrid_stacking_ensemble.py`는 이번 변경에 포함하지 않는다.
 
@@ -83,3 +84,37 @@ ETF 요청 사전 계산/적재, 전체 요청 deadline/취소, 화면 polling·
 세부 문서: [거래 안전성](trading-safety-handoff.md), [모의 원장](mock-ledger-20261020.md),
 [모델/가격](model-data-handoff-20261019.md), [빌드/CI](build-ci-runbook.md),
 [자격증명](credential-security.md), [레거시 서버](../backend/SECURITY_HANDOFF.md).
+
+## 운영 DB 적용 완료 — 2026-10-19 KST 추가 기록
+
+사용자의 직접 적용 요청으로 Supabase CLI 2.121.0을 통해 `kosj's Project`
+(`enunwzitobtgrelzdudd`, ap-southeast-1)에 신규 마이그레이션 5개를 적용했다.
+적용 버전은 `202610200001`부터 `202610200005`까지이며,
+`supabase_migrations.schema_migrations`에서 다섯 이력을 재조회했다.
+
+- 적용 전 운영 스키마/함수/권한과 변경 관련 계좌·원장 데이터의 제한적 스냅샷을
+  작업 환경에 확보했다. 전체 DB 백업이나 장기 보존 백업을 생성한 것은 아니다.
+- 기존 lease/발행/guarded buy/sell 함수와 필요한 테이블이 이미 존재함을 확인했다.
+  CLI 이력 테이블은 없었으므로 과거 파일 전체를 재실행하거나 적용됐다고 임의 등록하지 않았다.
+- CLI `db query --linked --project-ref ... --file ...`로 신규 5개 SQL을 순서대로 실행했다.
+  외부 단일 트랜잭션과 advisory/table lock, lock/statement timeout을 사용했다.
+  각 SQL의 DDL/DML과 해당 원문·버전 이력 기록을 같은 트랜잭션에 포함했다.
+  과거 중복 파일 이름 변경·migration repair·`db push`는 실행하지 않았다.
+- 기존 계좌 2개, 보유 10개, 거래 107개, 실행 로그 40개, 가격 114,422개,
+  추천 10,234개 및 계좌 현금 합계가 적용 전후 동일했다.
+- 장부 기준선/계좌 세대 초기화, 신규 가입 pending 트리거를 확인했다.
+- 대상 25개 테이블의 RLS, anon/authenticated 직접 접근 차단과 서비스 조회 권한,
+  신규 RPC 9개의 서비스 전용 실행 권한, 구형 매수/매도 RPC 서비스 실행 차단을 확인했다.
+- 실제 `service_role`에서 계좌 snapshot/가격 snapshot **읽기만** 검증했다.
+  실제 주문, 계좌 초기화, 추천 발행/학습, 가격 교체, 큐 적재/처리는 실행하지 않았다.
+
+CLI 로그인은 `SUPABASE_NO_KEYRING=1`로 완료했다. 기본 OS 키 저장소는 이 환경에서
+다음 명령이 인증을 읽지 못했다. 인증 파일은 저장소 밖이며 토큰은 문서/커밋에 포함하지 않는다.
+직접 pooler 연결은 DNS timeout이 발생했다. 2.121.0의 linked query는 Management API를
+사용하지만 사전 DB resolver가 임시 DB 접속을 시도한다. 해당 SQL 실행에 사용되지 않는
+`SUPABASE_DB_PASSWORD` placeholder를 CLI 프로세스에만 지정해 이 사전 연결을 피했다.
+이 placeholder는 실제 DB 비밀번호가 아니며 `db push/dump`의 직접 연결에 사용하면 안 된다.
+
+**남은 운영 작업:** 과거 수동 적용분/중복 파일의 정식 baseline 이력 대조, staging/E2E,
+서버 환경변수·Vercel 실제 배포 확인. `MIGRATION_HISTORY_RECONCILED`는 변경하지 않았다.
+이번 5개 적용만으로 엄격한 migration audit나 향후 무조건적인 `db push`가 준비된 것은 아니다.

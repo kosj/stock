@@ -30,6 +30,12 @@ item until the baseline is empty.
 
 ## Historical migration conflict: do not run a blind db push
 
+2026-10-19 KST: the five new `202610200001`–`202610200005` migrations were applied
+to the user-selected project using CLI linked SQL execution and recorded atomically.
+Historical migrations had no CLI history and were not retroactively marked applied.
+See `parallel-implementation-handoff-20261019.md` for verified invariants and the
+remaining baseline reconciliation. The guidance below still applies to future db push.
+
 `npm run audit:migrations` intentionally fails while the two duplicate historical
 versions remain unresolved. CI uses `--allow-known-duplicates` to accept only the
 six exact historical file hashes in `supabase/historical-migrations.json`.
