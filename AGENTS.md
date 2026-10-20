@@ -21,3 +21,6 @@ the replay stale-valuation contract. Read it before continuing these areas.
   `python3 scripts/test_model_safety.py`, and
   `npx tsc --noEmit --project frontend/tsconfig.json` before handoff.
 - `frontend/AGENTS.md` contains additional mandatory framework guidance.
+
+Recommendation display follow-up: `docs/recommendation-display-fix-20261020.md`.
+Historical display fallback must stay clearly unverified and must never feed trading.

@@ -38,6 +38,8 @@ run_date = d.get("run_date")
 errors, warns = [], []
 
 print(f"run_date = {run_date} | rows = {len(rows)}")
+if d.get("verified_batch") is False or d.get("status") == "legacy_unverified":
+    errors.append("품질 검증 완료 배치 없음 — 화면용 과거 이력을 신규 추천 발행 성공으로 간주하지 않음")
 
 # 1) 신선도
 if not run_date:

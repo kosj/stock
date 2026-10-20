@@ -226,12 +226,18 @@ function ExpandedRow({ ticker, accuracyJson }: { ticker: string; accuracyJson: s
 export function ProphetRecommendations() {
   const [expanded, setExpanded] = useState<number | null>(null);
 
-  const { data, isLoading, mutate, isValidating } = useSWR<{
+  const { data, error, isLoading, mutate, isValidating } = useSWR<{
     run_date: string | null;
     rows: RecommendationRow[];
+    status: "complete" | "legacy_unverified" | "no_complete_batch" | "incomplete_batch";
+    verified_batch: boolean;
   }>(
     "prophet-recommendations",
-    () => fetch("/api/recommendations/prophet").then(r => r.json()),
+    async () => {
+      const response = await fetch("/api/recommendations/prophet");
+      if (!response.ok) throw new Error("추천 목록을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
+      return response.json();
+    },
     { revalidateOnFocus: false, dedupingInterval: 300_000 },
   );
 
@@ -267,9 +273,22 @@ export function ProphetRecommendations() {
         </div>
       )}
 
-      {!isLoading && !hasData && (
+      {error && (
+        <p role="alert" className="px-4 pb-4 text-sm text-red-400">
+          추천 목록을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.
+        </p>
+      )}
+
+      {hasData && data?.status === "legacy_unverified" && (
+        <p role="status" className="px-4 pb-4 text-sm text-amber-400">
+          기존 추천 이력입니다. 새 품질 검증을 완료한 추천 배치가 없어 과거 결과를 표시합니다.
+          기준일 당시 자료이며 현재 매수 신호가 아닙니다. 자동매매에는 사용되지 않습니다.
+        </p>
+      )}
+
+      {!isLoading && !error && !hasData && (
         <div className="px-4 pb-10 text-center text-sm text-muted-foreground">
-          아직 분석 결과가 없습니다.<br />
+          {data?.status === "incomplete_batch" ? "저장된 추천 목록이 불완전해 표시를 보류했습니다." : "아직 표시할 추천 결과가 없습니다."}<br />
           <span className="text-xs opacity-60">매주 금요일 16:12 KST 분석 시작 · 품질 검증 통과 시 갱신</span>
         </div>
       )}
