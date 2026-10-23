@@ -1,0 +1,72 @@
+{
+  "models": {
+    "baseline": {
+      "oof_ic": 0.008667168981322847,
+      "oof_ic_tstat": 0.7800050221022983,
+      "oof_ic_days": 609,
+      "publishable": false,
+      "training_rows": 84156,
+      "training_dates": 981,
+      "symbols": 86,
+      "excluded": [
+        "042700.KQ",
+        "336370.KQ",
+        "036570.KQ",
+        "128940.KQ",
+        "096530.KS"
+      ]
+    },
+    "candidate": {
+      "oof_ic": -0.00014714539004144126,
+      "oof_ic_tstat": -0.008697282591572434,
+      "oof_ic_days": 609,
+      "publishable": false,
+      "training_rows": 88953,
+      "training_dates": 981,
+      "symbols": 91,
+      "excluded": []
+    }
+  },
+  "paired": {
+    "all_common": {
+      "dates": 609,
+      "from": "2024-04-03",
+      "to": "2026-10-08",
+      "baseline_ic": 0.00692537332335518,
+      "candidate_ic": 0.0011335111006901776,
+      "delta_ic": -0.005791862222665004,
+      "delta_nw_t": -0.3374327156050292
+    },
+    "recent_126": {
+      "dates": 126,
+      "from": "2026-04-03",
+      "to": "2026-10-08",
+      "baseline_ic": 0.02439569813168982,
+      "candidate_ic": 0.02734216637392641,
+      "delta_ic": 0.0029464682422365943,
+      "delta_nw_t": 0.08558973059936177
+    }
+  },
+  "common_rows": 51109,
+  "limitations": [
+    "current universe; not point-in-time membership",
+    "no cost or trade simulation",
+    "shared full KRX cache; does not reproduce the old server page cap",
+    "public live fallback only for symbols with no stored snapshot",
+    "recent window reuses observed history; not an untouched holdout",
+    "raw stack ranking diagnostic; excludes final volatility/news/sector-cap selection",
+    "no automatic parameter selection, promotion or publication"
+  ],
+  "input_sha256": "ea163012ff37a5c04a1fca4480e5a950d065412de2aa9cf89dbac86a72491829",
+  "source_sha256": {
+    "baseline": "4edf95c2ccc9c7b9f6bb76d65dff033c50828315cb1b6486a916763b549655fb",
+    "candidate": "4032515400ec739f5a461625038f24a13e94ee67ac26cfa6f41d24ea9be6d703"
+  },
+  "cache_coverage": {
+    "symbols": 94,
+    "over_1000_rows": 91,
+    "empty": 3
+  },
+  "action_run": "https://github.com/kosj/stock/actions/runs/39947760737",
+  "code_commit": "88ab38753cd4ad3693d3fd6be5225e0f641637cc"
+}
