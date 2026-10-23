@@ -85,6 +85,7 @@ jobs:
           HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
           # 수동 실행에서만 피처 리포트 활성화 가능 (schedule에선 inputs가 비어 '0')
           FEATURE_REPORT: ${{ inputs.feature_report || '0' }}
+          MODEL_QUALITY_REPORT: model-quality.json
           PYTHONUNBUFFERED: "1"      # stdout 실시간 스트리밍 (취소 시 로그 유실 방지)
           # ── 재현성: 수치 연산 스레드 전면 1개 고정 ──────────────────────────
           # 부동소수점 덧셈은 결합법칙이 성립하지 않아, 병렬 축약(reduction)의
@@ -104,3 +105,12 @@ jobs:
           ARGS=""
           if [ "${{ inputs.dry_run || '0' }}" = "1" ]; then ARGS="--dry-run"; fi
           python -u scripts/hybrid_ensemble.py $ARGS
+
+      - name: Save model quality evidence even when publication is rejected
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-model-quality-${{ github.run_id }}
+          path: model-quality.json
+          if-no-files-found: warn
+          retention-days: 30

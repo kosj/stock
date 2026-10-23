@@ -24,3 +24,7 @@ the replay stale-valuation contract. Read it before continuing these areas.
 
 Recommendation display follow-up: `docs/recommendation-display-fix-20261020.md`.
 Historical display fallback must stay clearly unverified and must never feed trading.
+
+Model quality follow-up: `docs/model-integrity-followup-20261023.md` records
+corrected identities/features and the frozen-input, read-only comparison workflow.
+Do not promote a candidate based on reused historical diagnostics alone.

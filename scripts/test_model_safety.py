@@ -24,6 +24,26 @@ class ModelSafety(unittest.TestCase):
         self.assertAlmostEqual(float(f["target_alpha_5d"].iloc[0]), df.Close.iloc[i+2] / df.Close.iloc[i] - 1.01**2)
         self.assertAlmostEqual(float(f["target_alpha_30d"].iloc[0]), df.Close.iloc[i+3] / df.Close.iloc[i] - 1.01**3)
 
+    def test_momentum_excludes_latest_month_and_uses_correct_window(self):
+        dates = pd.bdate_range("2024-01-01", periods=330)
+        close = pd.Series(100 * 1.002 ** np.arange(330), index=dates)
+        df = pd.DataFrame({"Close": close, "Volume": 1000})
+        market = pd.DataFrame({"Close": 100.}, index=dates)
+        first = scope["make_features"](df, market)
+        i = 310
+        self.assertAlmostEqual(first.loc[dates[i], "momentum_12_1"], close.iloc[i-21] / close.iloc[i-252] - 1)
+        changed = df.copy()
+        changed.loc[dates[i-20]:dates[i], "Close"] *= 2
+        second = scope["make_features"](changed, market)
+        self.assertEqual(first.loc[dates[i], "momentum_12_1"], second.loc[dates[i], "momentum_12_1"])
+
+    def test_trailing_alpha_uses_compound_benchmark(self):
+        dates = pd.bdate_range("2025-01-01", periods=100)
+        df = pd.DataFrame({"Close": 100., "Volume": 1000}, index=dates)
+        market = pd.DataFrame({"Close": 100 * 1.01 ** np.arange(100)}, index=dates)
+        features = scope["make_features"](df, market)
+        self.assertAlmostEqual(features.alpha_20d.iloc[-1], 1 - 1.01 ** 20)
+
     def test_future_labels_cannot_change_earlier_meta_predictions(self):
         dates = pd.DatetimeIndex(np.repeat(pd.bdate_range("2025-01-01", periods=100), 4))
         rng = np.random.default_rng(7)

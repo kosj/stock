@@ -46,6 +46,7 @@ from sklearn.model_selection import TimeSeriesSplit
 # KRX는 클라우드 IP를 차단하므로 ML 잡(CI)은 pykrx를 직접 호출하지 않는다.
 from news_sentiment import NewsSentimentService
 from metrics_util import daily_ic_stats
+from model_validation import cross_sectional_zscore, write_quality_report
 # 시세는 Supabase 스냅샷을 우선 사용한다. yfinance 를 매번 새로 받으면 배당·분할
 # 소급 조정가가 호출마다 미세하게 달라져 같은 날 결과가 재현되지 않는다(실측).
 import price_store
@@ -73,7 +74,7 @@ RANK_RETURN_BAND = (5.0, 95.0)
 MIN_TRAIN_ROWS = 200             # 폴드당 최소 훈련 행 수 (5y 데이터로 기준 상향)
 BENCHMARK_YF   = "^KS11"        # KOSPI 벤치마크
 CV_SPLITS      = 5               # Walk-forward 분할 수
-MIN_OOF_IC     = 0.01            # OOF 일별 IC 최소 기준 — 미달 시 경고 (저장 게이트는 -0.02)
+MIN_OOF_IC     = 0.01            # 발행 기준: IC >= 0.01, NW t >= 2, 평가일 >= 60
 ALPHA30_DECAY  = 0.7             # 30일 외삽 감쇠 계수 — 10d×3스텝: Σ(0.7^k, k=0..2) ≈ 2.19×
 A30_CAP        = 0.60            # 30일 예측 최대 ±60%
 
@@ -209,17 +210,27 @@ def fetch_krx_cache(ticker: str) -> pd.DataFrame:
     테이블 부재/빈 데이터/오류 시 빈 DataFrame → 호출측에서 0(중립) degrade.
     """
     try:
-        url = (f"{SUPABASE_URL}/rest/v1/krx_daily"
-               f"?ticker=eq.{ticker}"
-               f"&select=date,foreign_net,inst_net,per,pbr"
-               f"&order=date.asc&limit=3000")
-        r = requests.get(url, headers={
-            "apikey":        SUPABASE_KEY,
-            "Authorization": f"Bearer {SUPABASE_KEY}",
-        }, timeout=15)
-        if not r.ok:
-            return pd.DataFrame()
-        rows = r.json()
+        rows, offset = [], 0
+        # PostgREST can cap responses below the requested limit. Continue until
+        # an empty page, using the actual count; never train on only oldest rows.
+        for _ in range(20):
+            url = (f"{SUPABASE_URL}/rest/v1/krx_daily"
+                   f"?ticker=eq.{ticker}"
+                   f"&select=date,foreign_net,inst_net,per,pbr"
+                   f"&order=date.asc&limit=1000&offset={offset}")
+            r = requests.get(url, headers={
+                "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+            }, timeout=15)
+            r.raise_for_status()
+            page = r.json()
+            if not isinstance(page, list):
+                raise ValueError("Invalid KRX cache response")
+            if not page:
+                break
+            rows.extend(page)
+            offset += len(page)
+        else:
+            raise ValueError("KRX cache pagination exceeded safe page count")
         if not rows:
             return pd.DataFrame()
         out = pd.DataFrame(rows)
@@ -230,7 +241,8 @@ def fetch_krx_cache(ticker: str) -> pd.DataFrame:
             if col not in out.columns:
                 out[col] = 0.0
         return out[["foreign_net", "inst_net", "per", "pbr"]].astype(float)
-    except Exception:
+    except Exception as exc:
+        print(f"  [warn] KRX cache {ticker}: {type(exc).__name__}; neutral features")
         return pd.DataFrame()
 
 
@@ -238,8 +250,8 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
                   flows: "pd.DataFrame | None" = None,
                   funda: "pd.DataFrame | None" = None) -> pd.DataFrame:
     """
-    날짜 d의 피처는 d 이전 데이터만 참조.
-    target_alpha_5d 는 훈련 레이블용 (d+1 ~ d+5 참조) — 예측 시 사용 안 함.
+    날짜 d 종가까지 관측한 피처로 다음 거래일 이후의 순위를 평가한다.
+    target_alpha_5d 는 호환 이름이며 실제 TARGET_DAYS(현재 10) 선행 라벨이다.
     flows: pykrx 순매수금액 시계열(없으면 수급 피처는 0 중립으로 degrade).
     funda: pykrx PER/PBR 시계열(없으면 밸류 피처는 0 중립으로 degrade).
     """
@@ -247,7 +259,6 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
     vol = df["Volume"]
     mkt_c = mkt["Close"].reindex(c.index, method="ffill")
     ret   = c.pct_change()
-    mret  = mkt_c.pct_change()
 
     f = pd.DataFrame(index=c.index)
 
@@ -255,7 +266,7 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
         f[f"ret_{lag}d"] = c.pct_change(lag)
 
     for lag in [1, 5, 20]:
-        f[f"alpha_{lag}d"] = c.pct_change(lag) - mret.rolling(lag).sum()
+        f[f"alpha_{lag}d"] = c.pct_change(lag) - mkt_c.pct_change(lag)
 
     f["rsi_14"]    = _rsi(c, 14)
     f["macd_hist"] = _macd_hist(c)
@@ -270,14 +281,14 @@ def make_features(df: pd.DataFrame, mkt: pd.DataFrame,
     f["vol_20d"] = ret.rolling(20).std() * np.sqrt(252)
     f["vol_60d"] = ret.rolling(60).std() * np.sqrt(252)
 
-    f["market_ret_5d"]  = mret.rolling(5).sum()
-    f["market_ret_20d"] = mret.rolling(20).sum()
+    f["market_ret_5d"]  = mkt_c.pct_change(5)
+    f["market_ret_20d"] = mkt_c.pct_change(20)
 
     # 52주(252거래일) 고점 대비 현재가 위치 (돌파·조정 국면 식별)
     f["high_52w_pct"] = c / c.rolling(252).max() - 1
 
     # 12개월-1개월 모멘텀 팩터: 장기 모멘텀에서 단기 반전(reversal) 제거
-    f["momentum_12_1"] = c.pct_change(252).shift(21) - c.pct_change(21)
+    f["momentum_12_1"] = c.shift(21) / c.shift(252) - 1
 
     # 유동성 계산용 (훈련 피처 아님)
     f["trading_value"] = c * vol
@@ -398,7 +409,7 @@ def model_is_publishable(models: dict) -> bool:
             and models["oof_ic_days"] >= 60)
 
 
-def walk_forward_stack(panel: pd.DataFrame) -> dict:
+def walk_forward_stack(panel: pd.DataFrame, refit: bool = True) -> dict:
     """
     날짜 기준 walk-forward 분할로 미래 데이터 참조를 원천 차단.
     panel MultiIndex: (ticker, date)
@@ -502,22 +513,22 @@ def walk_forward_stack(panel: pd.DataFrame) -> dict:
     if os.environ.get("FEATURE_REPORT") == "1" and report_folds:
         _feature_report(report_folds, row_dates, y_all)
 
-    # ── 전체 데이터로 Base 모델 재훈련 (최종 예측용) ─────────────────────────
-    ok_all   = ~np.isnan(y_all) & ~np.any(np.isnan(X_all), axis=1)
-    X_full   = X_all[ok_all]
-    y_full   = y_all[ok_all]
-    lgbm_f, rf_f = _make_base_models()
-    lgbm_f.fit(X_full, y_full)
-    rf_f.fit(X_full, y_full)
-
-    return dict(
-        lgbm=lgbm_f, rf=rf_f, meta=meta,
-        oof_r2=oof_r2,                      # (참고) 풀링 R² — 로그 연속성용
-        oof_ic=oof_ic,                      # 헤드라인: OOF 일별 IC 평균 (무누수)
-        oof_ic_pooled=oof_ic_pooled,        # (참고) 풀링 IC — 과대평가 가능
+    result = dict(
+        meta=meta, oof_r2=oof_r2, oof_ic=oof_ic,
+        oof_ic_pooled=oof_ic_pooled,
         oof_ic_tstat=float(ic_d["ic_tstat_nw"]),
         oof_ic_days=int(ic_d["n_days"]),
     )
+    # A rejected model cannot be published. Avoid an expensive full-data refit
+    # before returning the quality evidence to the caller.
+    if not refit or not model_is_publishable(result):
+        return result
+    ok_all = np.isfinite(y_all) & np.isfinite(X_all).all(axis=1)
+    lgbm_f, rf_f = _make_base_models()
+    lgbm_f.fit(X_all[ok_all], y_all[ok_all])
+    rf_f.fit(X_all[ok_all], y_all[ok_all])
+    return {**result, "lgbm": lgbm_f, "rf": rf_f}
+
 
 
 def _feature_report(folds: list, row_dates, y_all, n_repeats: int = 3) -> None:
@@ -624,10 +635,7 @@ def train_predict_alpha_30d(panel: pd.DataFrame, latest: pd.DataFrame) -> dict:
 
     # 크로스섹셔널 피처 정규화 (날짜별 z-score) — latest와 동일 표현 보장
     X30 = p30[FEATURE_COLS].copy()
-    for _col in FEATURE_COLS:
-        _mu = X30.groupby(level="date")[_col].transform("mean")
-        _sd = X30.groupby(level="date")[_col].transform("std").replace(0, np.nan).fillna(1.0)
-        X30[_col] = (X30[_col] - _mu) / _sd
+    X30 = cross_sectional_zscore(X30, dates=X30.index.get_level_values("date"))
     _ok = ~X30.isna().any(axis=1) & ~y30.isna()
     X30, y30 = X30[_ok], y30[_ok]
 
@@ -715,7 +723,7 @@ def upsert_supabase(rows: list, run_date: str, data_as_of: str) -> None:
         f"{SUPABASE_URL}/rest/v1/rpc/publish_recommendations",
         headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
         json={"p_run_date": run_date, "p_data_as_of": data_as_of,
-              "p_model_version": "weekly-safety-v1", "p_rows": rows},
+              "p_model_version": "weekly-data-integrity-v2", "p_rows": rows},
         timeout=45,
     )
     resp.raise_for_status()
@@ -889,15 +897,8 @@ def main() -> None:
     # 핵심: 모델이 "RSI>60이면 상승" 같은 시계열 절대값 신호 대신
     #       "같은 날 다른 종목 대비 RSI가 높은 종목이 초과수익" 하는
     #       상대 순위 패턴을 학습하도록 강제.
-    for _col in FEATURE_COLS:
-        _cs_mean = train_panel.groupby(level="date")[_col].transform("mean")
-        _cs_std  = (
-            train_panel.groupby(level="date")[_col]
-            .transform("std")
-            .replace(0, np.nan)
-            .fillna(1.0)
-        )
-        train_panel[_col] = (train_panel[_col] - _cs_mean) / _cs_std
+    train_panel[FEATURE_COLS] = cross_sectional_zscore(
+        train_panel[FEATURE_COLS], dates=train_panel.index.get_level_values("date"))
     train_panel = train_panel.dropna(subset=FEATURE_COLS)
     print(f"  → 크로스섹셔널 피처 정규화 완료: {len(train_panel):,}행")
 
@@ -932,9 +933,9 @@ def main() -> None:
     print("\n[4/6] Walk-forward TimeSeriesSplit 앙상블 훈련...")
     models = walk_forward_stack(train_panel)
 
-    # ── 품질 게이트: OOF 일별 IC 기준, 순위 방향이 심하게 반전된 경우만 차단 ──
-    # (v2: 풀링 IC → 무누수 일별 IC로 게이트 입력 교체. R²는 noise floor에서
-    #  쉽게 음수가 되므로 게이트로 쓰지 않는다.)
+    # ── 품질 게이트: IC·NW 유의성·표본수 모두 통과해야 발행 ───────────────
+    write_quality_report(os.environ.get("MODEL_QUALITY_REPORT"), models,
+                         min_ic=MIN_OOF_IC, run_date=run_date, data_as_of=str(data_as_of))
     if not model_is_publishable(models):
         sys.exit("추천 품질 게이트 미달(IC/유의성/표본수): 기존 배치 유지, 신규 추천 발행 중단")
 
@@ -963,20 +964,9 @@ def main() -> None:
     # 크로스섹셔널 상대강도 순위 (최신 날짜 기준)
     latest_df["rs_rank_20d"] = latest_df["ret_20d"].rank(pct=True)
 
-    # 크로스섹셔널 피처 정규화 — 훈련 데이터와 동일한 방식 적용
-    for _col in FEATURE_COLS:
-        if _col not in latest_df.columns:
-            continue
-        _mean = latest_df[_col].mean()
-        _std  = latest_df[_col].std()
-        if _std > 1e-8:
-            latest_df[_col] = (latest_df[_col] - _mean) / _std
-
-    # 견고성: dropna(how="any")는 종목마다 다른 피처 하나만 NaN이어도(예: 상장 이력이
-    # 짧아 momentum_12_1·high_52w_pct 결손) latest 전체를 비워 예측을 깨뜨린다
-    # (빈 입력 → 모델 predict 실패). → 전 피처가 NaN인 종목(데이터 결손)만
-    # 제외하고, 잔여 NaN은 0(정규화 후 횡단면 중립)으로 대체해 예측을 견고하게 진행.
-    latest = latest_df[FEATURE_COLS].dropna(how="all").fillna(0.0)
+    # Same transform for training and prediction, including constant columns.
+    # Rows missing required history are excluded just as they are in training.
+    latest = cross_sectional_zscore(latest_df[FEATURE_COLS]).dropna()
     latest.index.name = "ticker"
     if latest.empty:
         sys.exit("최신 피처가 비어 예측 불가 (전 종목 데이터 결손)")

@@ -30,7 +30,7 @@ UNIVERSE = [
     # 삼성전기: MLCC·FC-BGA 기판이 주력으로 반도체 수요 사이클과 동조 → 반도체 유지
     dict(ticker="009150", name="삼성전기",             sector="반도체",  market="KOSPI"),
     # ── 반도체 소재·부품·장비 ─────────────────────────────────────────────────
-    dict(ticker="042700", name="한미반도체",           sector="소부장",  market="KOSDAQ"),
+    dict(ticker="042700", name="한미반도체",           sector="소부장",  market="KOSPI"),
     dict(ticker="240810", name="원익IPS",              sector="소부장",  market="KOSDAQ"),
     dict(ticker="357780", name="솔브레인",             sector="소부장",  market="KOSDAQ"),
     dict(ticker="166090", name="하나머티리얼즈",       sector="소부장",  market="KOSDAQ"),
@@ -47,7 +47,7 @@ UNIVERSE = [
     dict(ticker="247540", name="에코프로비엠",         sector="2차전지", market="KOSDAQ"),
     dict(ticker="086520", name="에코프로",             sector="2차전지", market="KOSDAQ"),
     dict(ticker="006400", name="삼성SDI",              sector="2차전지", market="KOSPI"),
-    dict(ticker="336370", name="솔루스첨단소재",       sector="2차전지", market="KOSDAQ"),
+    dict(ticker="336370", name="솔루스첨단소재",       sector="2차전지", market="KOSPI"),
     # ── 자동차 ────────────────────────────────────────────────────────────────
     dict(ticker="005380", name="현대차",               sector="자동차",  market="KOSPI"),
     dict(ticker="000270", name="기아",                 sector="자동차",  market="KOSPI"),
@@ -60,7 +60,7 @@ UNIVERSE = [
     dict(ticker="066570", name="LG전자",               sector="IT",      market="KOSPI"),
     dict(ticker="018260", name="삼성에스디에스",       sector="IT",      market="KOSPI"),
     # ── 게임 ──────────────────────────────────────────────────────────────────
-    dict(ticker="036570", name="NC소프트",             sector="게임",    market="KOSDAQ"),
+    dict(ticker="036570", name="NC소프트",             sector="게임",    market="KOSPI"),
     dict(ticker="259960", name="크래프톤",             sector="게임",    market="KOSPI"),
     dict(ticker="263750", name="펄어비스",             sector="게임",    market="KOSDAQ"),
     dict(ticker="293490", name="카카오게임즈",         sector="게임",    market="KOSDAQ"),
@@ -73,7 +73,7 @@ UNIVERSE = [
     # ── 바이오/제약 ───────────────────────────────────────────────────────────
     dict(ticker="207940", name="삼성바이오로직스",     sector="바이오",  market="KOSPI"),
     dict(ticker="068270", name="셀트리온",             sector="바이오",  market="KOSPI"),
-    dict(ticker="128940", name="한미약품",             sector="바이오",  market="KOSDAQ"),
+    dict(ticker="128940", name="한미약품",             sector="바이오",  market="KOSPI"),
     dict(ticker="145020", name="휴젤",                 sector="바이오",  market="KOSDAQ"),
     dict(ticker="326030", name="SK바이오팜",           sector="바이오",  market="KOSPI"),
     dict(ticker="000100", name="유한양행",             sector="바이오",  market="KOSPI"),
@@ -105,7 +105,7 @@ UNIVERSE = [
     dict(ticker="015760", name="한국전력",             sector="유틸리티", market="KOSPI"),
     dict(ticker="034020", name="두산에너빌리티",       sector="유틸리티", market="KOSPI"),
     # 씨에스윈드: 풍력 타워 제조 — 2차전지가 아니라 발전설비 투자 사이클에 연동
-    dict(ticker="096530", name="씨에스윈드",           sector="유틸리티", market="KOSPI"),
+    dict(ticker="112610", name="씨에스윈드",           sector="유틸리티", market="KOSPI"),
     # ── 방산 ──────────────────────────────────────────────────────────────────
     dict(ticker="012450", name="한화에어로스페이스",   sector="방산",    market="KOSPI"),
     dict(ticker="047810", name="한국항공우주",         sector="방산",    market="KOSPI"),
@@ -121,7 +121,7 @@ UNIVERSE = [
     dict(ticker="028260", name="삼성물산",             sector="건설",    market="KOSPI"),
     dict(ticker="000720", name="현대건설",             sector="건설",    market="KOSPI"),
     dict(ticker="047040", name="대우건설",             sector="건설",    market="KOSPI"),
-    dict(ticker="000210", name="DL이앤씨",             sector="건설",    market="KOSPI"),
+    dict(ticker="375500", name="DL이앤씨",             sector="건설",    market="KOSPI"),
     # ── 유통 ──────────────────────────────────────────────────────────────────
     dict(ticker="139480", name="이마트",               sector="유통",    market="KOSPI"),
     dict(ticker="282330", name="BGF리테일",            sector="유통",    market="KOSPI"),
@@ -132,7 +132,7 @@ UNIVERSE = [
     dict(ticker="271560", name="오리온",               sector="소비재",  market="KOSPI"),
     dict(ticker="097950", name="CJ제일제당",           sector="소비재",  market="KOSPI"),
     # 한샘: 가구·인테리어 — 물류가 아니라 내구소비재(주택 거래량 연동)
-    dict(ticker="004960", name="한샘",                 sector="소비재",  market="KOSPI"),
+    dict(ticker="009240", name="한샘",                 sector="소비재",  market="KOSPI"),
     # ── 통신 ──────────────────────────────────────────────────────────────────
     dict(ticker="017670", name="SK텔레콤",             sector="통신",    market="KOSPI"),
     dict(ticker="030200", name="KT",                   sector="통신",    market="KOSPI"),

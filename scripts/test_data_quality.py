@@ -25,6 +25,21 @@ class DataQuality(unittest.TestCase):
             self.assertTrue(result.iloc[:14].isna().all())
             self.assertTrue((result.iloc[14:] == expected).all())
 
+    def test_krx_cache_reads_past_server_capped_pages(self):
+        client = Mock()
+        pages = [[dict(date="2026-10-01", foreign_net=1, inst_net=2, per=10, pbr=1)],
+                 [dict(date="2026-10-23", foreign_net=3, inst_net=4, per=12, pbr=2)], []]
+        responses = []
+        for page in pages:
+            response = Mock(); response.json.return_value = page; responses.append(response)
+        client.get.side_effect = responses
+        fetch = functions("hybrid_ensemble.py", {"fetch_krx_cache"}, requests=client, pd=pd,
+                          SUPABASE_URL="offline", SUPABASE_KEY="offline")["fetch_krx_cache"]
+        actual = fetch("005930")
+        self.assertEqual(actual.index[-1], pd.Timestamp("2026-10-23"))
+        self.assertEqual(actual.foreign_net.tolist(), [1., 3.])
+        self.assertIn("offset=2", client.get.call_args.args[0])
+
     def test_recommendations_paginate_even_with_lower_server_cap(self):
         responses = []
         for rows in [[{"run_date": "2026-01-01", "ticker": "A"}],

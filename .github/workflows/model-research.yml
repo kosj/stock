@@ -1,0 +1,66 @@
+name: Frozen-input model comparison
+on:
+  push:
+    branches: [master]
+    paths:
+      - scripts/hybrid_ensemble.py
+      - scripts/universe.py
+      - scripts/model_research.py
+      - scripts/model_validation.py
+      - .github/workflows/model-research.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: frozen-model-research
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONHASHSEED: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+      - run: pip install -r scripts/requirements.txt
+      - name: Offline regression checks
+        run: |
+          python scripts/test_model_safety.py
+          python scripts/test_data_quality.py
+          python scripts/test_model_validation.py
+      - name: Load fixed pre-change baseline
+        run: |
+          mkdir -p /tmp/stock-model-baseline
+          git show 3bac8616e2d724f523d03223e9a6b196d5feb6a9:scripts/hybrid_ensemble.py > /tmp/stock-model-baseline/model.py
+          git show 3bac8616e2d724f523d03223e9a6b196d5feb6a9:scripts/universe.py > /tmp/stock-model-baseline/universe.py
+      # Read only: snapshot RPC + KRX GET + public quotes. Does not call main(),
+      # publish prices/recommendations, touch user data, or invoke trading APIs.
+      - name: Capture shared inputs and compare forward-only OOF predictions
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          mkdir -p model-research-output
+          pip freeze > model-research-output/dependencies.txt
+          python -u scripts/model_research.py \
+            --baseline /tmp/stock-model-baseline/model.py \
+            --baseline-universe /tmp/stock-model-baseline/universe.py
+      - name: Preserve replay inputs and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-model-comparison-${{ github.run_id }}
+          path: model-research-output/
+          if-no-files-found: warn
+          retention-days: 30
