@@ -1,10 +1,8 @@
 name: "추천 파이프라인 감시"
 
-# 매주 금요일 추천 실행 후 운영 API를 조회해 이번 주 추천이 있는지 판정한다.
-#
-# 판정 규칙은 scripts/check_recommendations.py --weekly-monitor 에 있다.
-# 이 감시 잡 자체도 schedule 이라 지연될 수 있어, "지금 시각" 기준으로 기대일을
-# 정하도록 만들어 새벽으로 밀려도 오탐하지 않는다.
+# Authenticated batch GET + Actions receipts distinguish publication, normal
+# quality withholding, execution failure, missing runs and uncertain evidence.
+# This read-only monitor never starts training; the weekly recovery slots do.
 #
 # 알림 경로 두 가지:
 #   1) 잡 실패 → GitHub 가 저장소 소유자에게 메일 발송(기본 알림 설정)
@@ -13,36 +11,38 @@ name: "추천 파이프라인 감시"
 on:
   schedule:
     - cron: "12 15 * * 5"    # 토요일 00:12 KST — 금요일 추천 실행 지연을 고려한 여유
+    - cron: "12 8 * * 6"     # 토요일 17:12 KST — 마지막 보완 슬롯 이후 재확인
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
   issues: write
+
+concurrency:
+  group: weekly-recommendation-monitor
+  cancel-in-progress: false
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      BASE: https://stock-ashen-three.vercel.app
       LABEL: pipeline-alert
     steps:
       - uses: actions/checkout@v4
 
-      - name: 추천 API 조회 + 판정
+      - name: Check weekly execution evidence
         id: check
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -o pipefail
-          URL="${BASE%/}/api/recommendations/prophet"
-          CODE=$(curl -sS -m 30 -o rec.json -w "%{http_code}" "$URL" || echo 000)
-          echo "GET $URL → HTTP $CODE" | tee check.log
-          if [ "$CODE" != "200" ]; then
-            echo "::error::추천 API 응답 이상 (HTTP $CODE)" | tee -a check.log
-            head -c 400 rec.json >> check.log 2>/dev/null || true
-            exit 1
-          fi
-          python3 scripts/check_recommendations.py rec.json --weekly-monitor 2>&1 | tee -a check.log
+          python3 scripts/weekly_execution.py monitor 2>&1 | tee check.log
 
       - name: 알림 이슈 처리
         env:

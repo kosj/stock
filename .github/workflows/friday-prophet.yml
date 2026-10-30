@@ -1,27 +1,30 @@
 name: "Hybrid Stacking Ensemble Weekly"
 
-# 매주 금요일 16:12 KST (07:12 UTC) — 한국장 마감(15:30) 후, krx-cache(06:40 UTC) 이후.
-# 분을 정시(:00)에서 떼는 이유: GitHub Actions schedule 이벤트는 매 정시에 부하가
-# 몰려 수 시간씩 지연/드롭된다(공식 문서 권고). 정시를 피하면 지연이 크게 줄어든다.
+# Primary: Friday 16:12 KST. Recovery slots share the same execution guard.
+# GitHub schedules have no delivery SLA; even these slots can be delayed/dropped.
 on:
   schedule:
-    # 금요일 단일 실행. GitHub Actions 큐 사정에 따라 실제 시작은 늦어질 수 있다.
-    - cron: "12 7 * * 5"      # 금요일 16:12 KST
-  workflow_dispatch:          # GitHub Actions UI에서 수동 실행 가능
+    - cron: "12 7 * * 5"       # Fri 16:12 KST
+    - cron: "42 8,11 * * 5"    # Fri 17:42 / 20:42 KST
+    - cron: "42 0,6 * * 6"     # Sat 09:42 / 15:42 KST, still Friday's batch
+  workflow_dispatch:
     inputs:
       feature_report:
-        description: "1=피처 순열 중요도 리포트 출력 (마지막 폴드 ΔIC)"
+        description: "1=피처 순열 중요도 리포트 출력"
         default: "0"
       dry_run:
-        description: "1=Supabase 저장 생략(결과만 로그 출력) — 팩터/유니버스 변경 검증용"
+        description: "1=추천 저장 생략; 실행 영수증은 운영 완료로 취급하지 않음"
         default: "0"
       skip_if_done:
-        description: "1=오늘 결과가 이미 저장돼 있으면 건너뜀 (정기 실행과 동일 동작)"
-        default: "0"
+        description: "호환 입력. 모든 운영 실행은 항상 완료/보류/실패 이력을 검사함"
+        default: "1"
 
-# 정기 실행과 수동 실행이 겹쳐도 한 번에 하나만 돈다. 뒤에 온 실행은 앞 실행이
-# 저장을 마친 뒤 시작하며, skip_if_done 옵션 사용 시 저장 여부를 확인해 건너뛴다.
-# 진행 중인 학습을 중단하지 않도록 cancel-in-progress 는 끈다.
+permissions:
+  contents: read
+  actions: read
+
+# Receipt upload completes BEFORE the next run may inspect history. Do not split
+# recovery into another concurrency group or cancel training to admit a new slot.
 concurrency:
   group: hybrid-ensemble-weekly
   cancel-in-progress: false
@@ -36,36 +39,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 오늘 결과가 이미 저장됐는지 확인 (정기 슬롯 분산의 중복 방지) ──────────
-      # 기준일은 hybrid_ensemble.py 의 run_date 와 같은 KST 날짜다.
-      # 실패는 "진행"으로 처리한다(fail-open) — 확인 스텝의 오류 때문에 그날
-      # 추천이 통째로 빠지는 것이 중복 실행보다 훨씬 나쁘다.
-      - name: 오늘 결과 저장 여부 확인
-        id: already
-        if: ${{ github.event_name == 'schedule' || inputs.skip_if_done == '1' }}
+      - name: Plan weekly execution from batch and outcome evidence
+        id: plan
         env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DRY_RUN: ${{ inputs.dry_run || '0' }}
         run: |
-          TODAY=$(TZ=Asia/Seoul date +%F)
-          CNT=0
-          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            CNT=$(curl -sS -m 20 \
-              "$SUPABASE_URL/rest/v1/recommendation_batches?run_date=eq.$TODAY&select=run_date&limit=1" \
-              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-              | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)' 2>/dev/null || echo 0)
-          fi
-          echo "run_date=$TODAY 완료 배치: $CNT"
-          if [ "${CNT:-0}" -gt 0 ]; then
-            echo "done=1" >> "$GITHUB_OUTPUT"
-            echo "오늘 결과가 이미 저장돼 있어 이 슬롯은 건너뜁니다."
-          else
-            echo "done=0" >> "$GITHUB_OUTPUT"
-          fi
+          ARGS=()
+          if [ "$DRY_RUN" = "1" ]; then ARGS+=(--dry-run); fi
+          python3 scripts/weekly_execution.py plan "${ARGS[@]}"
 
       - name: Setup Python 3.11
-        if: ${{ steps.already.outputs.done != '1' }}
+        if: ${{ steps.plan.outputs.train == '1' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -73,11 +61,11 @@ jobs:
           cache-dependency-path: scripts/requirements.txt
 
       - name: Install dependencies
-        if: ${{ steps.already.outputs.done != '1' }}
+        if: ${{ steps.plan.outputs.train == '1' }}
         run: pip install -r scripts/requirements.txt
 
       - name: Run Hybrid Stacking Ensemble
-        if: ${{ steps.already.outputs.done != '1' }}
+        if: ${{ steps.plan.outputs.train == '1' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -101,16 +89,26 @@ jobs:
           MKL_NUM_THREADS: "1"
           NUMEXPR_NUM_THREADS: "1"
           PYTHONHASHSEED: "0"
-        run: |
-          ARGS=""
-          if [ "${{ inputs.dry_run || '0' }}" = "1" ]; then ARGS="--dry-run"; fi
-          python -u scripts/hybrid_ensemble.py $ARGS
+        run: python -u scripts/weekly_execution.py execute
+
+      - name: Finalize execution receipt
+        if: ${{ always() && steps.plan.outputs.run_date != '' }}
+        run: python3 scripts/weekly_execution.py finalize
+
+      - name: Save execution receipt
+        if: ${{ always() && steps.plan.outputs.run_date != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-execution-${{ steps.plan.outputs.run_date }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: weekly-execution.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Save model quality evidence even when publication is rejected
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: weekly-model-quality-${{ github.run_id }}
+          name: weekly-model-quality-${{ github.run_id }}-${{ github.run_attempt }}
           path: model-quality.json
           if-no-files-found: warn
           retention-days: 30

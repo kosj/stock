@@ -47,6 +47,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from news_sentiment import NewsSentimentService
 from metrics_util import daily_ic_stats
 from model_validation import cross_sectional_zscore, write_quality_report
+from weekly_execution import WITHHELD_EXIT, write_model_outcome
 # 시세는 Supabase 스냅샷을 우선 사용한다. yfinance 를 매번 새로 받으면 배당·분할
 # 소급 조정가가 호출마다 미세하게 달라져 같은 날 결과가 재현되지 않는다(실측).
 import price_store
@@ -729,13 +730,16 @@ def upsert_supabase(rows: list, run_date: str, data_as_of: str) -> None:
     resp.raise_for_status()
     print(f"[supabase] complete batch: {len(rows)} rows, source={data_as_of}")
 
-def main() -> None:
+def main() -> int:
     import argparse
     _ap = argparse.ArgumentParser()
     _ap.add_argument("--dry-run", action="store_true", help="Supabase 저장 생략(로컬 진단용)")
     dry_run = _ap.parse_args().dry_run
 
-    run_date = datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+    # The workflow pins delayed/catch-up runs to Friday, including after midnight.
+    # Direct diagnostic invocations retain their existing KST-date default.
+    run_date = os.environ.get("WEEKLY_RUN_DATE") or datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+    date.fromisoformat(run_date)
     print(f"\n{'='*64}")
     print(f"  Hybrid Stacking Ensemble  {run_date}{'  [DRY-RUN]' if dry_run else ''}")
     print(f"{'='*64}\n")
@@ -937,7 +941,9 @@ def main() -> None:
     write_quality_report(os.environ.get("MODEL_QUALITY_REPORT"), models,
                          min_ic=MIN_OOF_IC, run_date=run_date, data_as_of=str(data_as_of))
     if not model_is_publishable(models):
-        sys.exit("추천 품질 게이트 미달(IC/유의성/표본수): 기존 배치 유지, 신규 추천 발행 중단")
+        print("추천 품질 게이트 미달(IC/유의성/표본수): 기존 배치 유지, 신규 추천 발행 보류")
+        write_model_outcome("withheld", run_date, data_as_of.isoformat())
+        return WITHHELD_EXIT
 
     # ── 5. 최신 피처로 알파 예측 ──────────────────────────────────────────────
     print("\n[5/6] 최신 피처 → 기대 상대강도 순위(Alpha Rank) 예측...")
@@ -1287,10 +1293,13 @@ def main() -> None:
 
     if dry_run:
         print(f"\n[dry-run] Supabase 저장 생략. 산출 {len(rows)}행 (Top{TOP_N}: {len(top_tickers)})\n")
+        write_model_outcome("dry_run", run_date, data_as_of.isoformat())
     else:
         upsert_supabase(rows, run_date, data_as_of.isoformat())
+        write_model_outcome("published", run_date, data_as_of.isoformat())
         print(f"\n완료: {run_date}  전체 {len(rows)} 종목 저장 (Top{TOP_N}: {len(top_tickers)})\n")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

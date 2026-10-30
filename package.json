@@ -5,7 +5,8 @@
   "engines": { "node": ">=24 <25", "npm": ">=11 <12" },
   "packageManager": "npm@11.9.0",
   "scripts": {
-    "test:safety": "node --test scripts/test_*.mjs frontend/components/portfolio/*.test.mjs && node --experimental-strip-types scripts/test_news_curation.mts && python3 scripts/test_model_safety.py && python3 scripts/test_data_quality.py && python3 scripts/test_model_validation.py && python3 scripts/test_recommendation_diagnostics.py && python3 -m unittest discover -s backend -p 'test_*.py'",
+    "test:safety": "node --test scripts/test_*.mjs frontend/components/portfolio/*.test.mjs && node --experimental-strip-types scripts/test_news_curation.mts && python3 scripts/test_model_safety.py && python3 scripts/test_data_quality.py && python3 scripts/test_model_validation.py && python3 scripts/test_recommendation_diagnostics.py && python3 scripts/test_weekly_execution.py && python3 -m unittest discover -s backend -p 'test_*.py'",
+    "test:weekly": "python3 scripts/test_weekly_execution.py",
     "typecheck": "tsc --noEmit --project frontend/tsconfig.json",
     "lint:baseline": "node scripts/check_lint_baseline.mjs",
     "audit:migrations": "node scripts/audit_migrations.mjs",

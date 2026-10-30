@@ -28,3 +28,7 @@ Historical display fallback must stay clearly unverified and must never feed tra
 Model quality follow-up: `docs/model-integrity-followup-20261023.md` records
 corrected identities/features and the frozen-input, read-only comparison workflow.
 Do not promote a candidate based on reused historical diagnostics alone.
+
+Weekly scheduling/recovery contract: `docs/weekly-execution-recovery-20261031.md`.
+Keep all production weekly invocations in the same concurrency group and preserve
+publication/quality-withholding receipts before allowing catch-up training.
