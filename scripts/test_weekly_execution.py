@@ -2,6 +2,7 @@
 import ast
 from datetime import datetime
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -159,6 +160,41 @@ class Decisions(unittest.TestCase):
 class History(unittest.TestCase):
     def inspect(self, api, attempt=1):
         return weekly.history(api, TARGET, 99, attempt, "master")
+
+    def test_reviewed_legacy_quality_is_terminal_only_for_pinned_run(self):
+        legacy = weekly.LEGACY_WITHHELD
+        old_run = run(legacy["run_id"], head_sha=legacy["sha"], conclusion="failure")
+        artifact = dict(id=legacy["artifact_id"], name=f"weekly-model-quality-{legacy['run_id']}", expired=False)
+        jobs = [dict(steps=[dict(name="Run Hybrid Stacking Ensemble", conclusion="failure")])]
+        class LegacyAPI(FakeAPI):
+            def pages(self, path, key):
+                if key == "artifacts": return iter([artifact])
+                return super().pages(path, key)
+            def legacy_quality(self, value): return quality()
+        rows, unknown, _ = self.inspect(LegacyAPI([old_run], jobs=jobs))
+        self.assertFalse(unknown)
+        self.assertEqual(weekly.decide(TARGET, rows), ("skip", "quality_withheld"))
+        old_run["head_sha"] = "different"
+        rows, unknown, _ = self.inspect(LegacyAPI([old_run], jobs=jobs))
+        self.assertTrue(unknown)
+        self.assertEqual(weekly.decide(TARGET, rows, unknown=unknown)[0], "block")
+
+    def test_legacy_quality_archive_is_hash_pinned_and_validated(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("model-quality.json", json.dumps(quality()))
+        raw = buffer.getvalue()
+        api = weekly.API("kosj/stock", "fake")
+        with patch.dict(weekly.LEGACY_WITHHELD, {"digest": hashlib.sha256(raw).hexdigest()}), \
+                patch.object(api, "read", return_value=raw):
+            self.assertTrue(weekly.valid_withholding(api.legacy_quality({"id": 1}), TARGET))
+        with patch.object(api, "read", return_value=raw):
+            with self.assertRaises(weekly.EvidenceError): api.legacy_quality({"id": 1})
+        with self.assertRaises(weekly.EvidenceError): api.legacy_quality({"expired": True})
+
+    def test_legacy_status_cannot_be_forged_in_receipt(self):
+        api = FakeAPI([run()], [receipt(status="legacy_withheld")])
+        with self.assertRaises(weekly.EvidenceError): self.inspect(api)
 
     def test_prior_withholding_and_own_previous_attempt_are_observed(self):
         for run_id, attempt in ((10, 1), (99, 2)):
