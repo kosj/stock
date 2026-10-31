@@ -20,6 +20,8 @@
 
 import { effectivePrice, DEFAULT_COSTS, type ExecutionCosts } from "./execution-policy.ts";
 import { validateRecommendations } from "./recommendation-policy.ts";
+import { DEFAULT_EXPOSURE_LIMITS, entryBudget, type ExposureLimits } from "./exposure-policy.ts";
+import type { EquityObservation } from "./performance";
 
 import type { BrokerPort } from "@/lib/core/ports/broker-port";
 import type { MarketDataPort } from "@/lib/core/ports/market-data-port";
@@ -61,6 +63,7 @@ export interface TradeDetail {
   amount?: number;
   /** 주문 실패 시 에러 메시지 */
   error?:  string;
+  code?: string;
 }
 
 /** executeTrading() 반환 타입 */
@@ -71,6 +74,9 @@ export interface TradingResult {
   skipped:          number;
   details:          TradeDetail[];
   error?:           string;
+  mode?: "rebalance" | "risk";
+  risk_checks_complete?: boolean;
+  status?: "completed" | "degraded" | "blocked";
 }
 
 /** 엔진 의존성 (브로커 외 — 미지정 시 기본 어댑터 사용) */
@@ -79,10 +85,12 @@ export interface TradingEngineDeps {
   recommendations: RecommendationPort;
   clock: ClockPort;
   costs?: (ticker: string) => ExecutionCosts;
+  exposureLimits?: ExposureLimits;
   execution: {
     acquire(userId: string): Promise<boolean>;
     release(userId: string): Promise<void>;
     record(userId: string, result: TradingResult): Promise<void>;
+    snapshot?(userId: string, observation: EquityObservation): Promise<void>;
   };
 }
 
@@ -115,17 +123,19 @@ export class TradingEngineService {
 
   // ── 퍼블릭 진입점 ─────────────────────────────────────────────────────────
 
-  async executeTrading(userId: string): Promise<TradingResult> {
+  async executeTrading(userId: string, options: { riskOnly?: boolean } = {}): Promise<TradingResult> {
     const details: TradeDetail[] = [];
     let trades_buy  = 0;
     let trades_sell = 0;
     let skipped     = 0;
     let locked = false;
+    const mode = options.riskOnly ? "risk" : "rebalance";
 
     try {
       console.log(`[TradingEngine] 시작 — userId=${userId}`);
       if (!this.clock.isMarketOpen()) {
         return { tickers_analyzed: 0, trades_buy: 0, trades_sell: 0, skipped: 0, details,
+          mode, status: "blocked", risk_checks_complete: false,
           error: "정규장 외에는 즉시 체결하지 않습니다. 다음 거래일 장중에 실행하세요." };
       }
       locked = await this.deps.execution.acquire(userId);
@@ -136,12 +146,12 @@ export class TradingEngineService {
 
       // ── Step 1: 사전 데이터 병렬 수집 ────────────────────────────────────
       const [recommendations, account, holdings] = await Promise.all([
-        this.recommendations.getTopRecommendations(20).catch(() => []),
+        options.riskOnly ? Promise.resolve([]) : this.recommendations.getTopRecommendations(20).catch(() => []),
         this.broker.getBalance(),
         this.broker.getPositions(),
       ]);
 
-      const recommendationError = validateRecommendations(recommendations, this.clock.now());
+      const recommendationError = options.riskOnly ? null : validateRecommendations(recommendations, this.clock.now());
       const top20 = recommendationError ? [] : recommendations;
       if (recommendationError) console.warn(`[TradingEngine] ${recommendationError} — 손절 검사만 수행`);
 
@@ -176,10 +186,11 @@ export class TradingEngineService {
       const kstDate = runDate.slice(0, 4) + "-" + runDate.slice(4, 6) + "-" + runDate.slice(6, 8);
       const since = new Date(`${kstDate}T00:00:00+09:00`);
       // 영속 체결 이력으로 이전 실행의 손절 후 재매수도 차단. 조회 실패 시 매수 금지.
-      const fills = await this.broker.getFills({ since });
+      const fills = options.riskOnly ? [] : await this.broker.getFills({ since });
       for (const fill of fills) if (fill.side === "SELL") sellResult.soldTickers.add(fill.ticker);
-      const buyResult = await this.executeBuys(
+      const buyResult = options.riskOnly ? { buyCount: 0, skipCount: 0 } : await this.executeBuys(
         userId, runDate, top20, holdingsAfterSell, sellResult.soldTickers, availableCash, details,
+        Math.min(balanceAfterSell.cash + heldValue, balanceAfterSell.autoTradeCapital ?? Infinity),
       );
       trades_buy = buyResult.buyCount;
       skipped   += buyResult.skipCount;
@@ -192,8 +203,33 @@ export class TradingEngineService {
         ...top20.map((r) => r.ticker),
       ]).size;
 
-      const result = { tickers_analyzed, trades_buy, trades_sell, skipped, details,
-        ...(recommendationError ? { error: `${recommendationError} — 손절만 수행` } : {}) };
+      const riskComplete = !holdings.some(h => h.priceStale) && !details.some(d => d.action === "SKIP" && d.error);
+      const dataIssue = details.some(d => d.code === "QUOTE_UNAVAILABLE");
+      const error = dataIssue ? "시세 장애로 일부 매매·손절 검사를 완료하지 못했습니다."
+        : details.some(d => d.code === "SECTOR_UNKNOWN") ? "섹터 데이터 미확인으로 집중도 검사를 완료하지 못했습니다."
+        : recommendationError ? `${recommendationError} — 손절만 수행`
+        : details.some(d => d.error) ? "일부 주문을 완료하지 못했습니다. 체결 내역을 확인하세요." : undefined;
+      const result: TradingResult = { tickers_analyzed, trades_buy, trades_sell, skipped, details, mode,
+        risk_checks_complete: riskComplete, status: error || details.some(d => d.error) ? "degraded" : "completed",
+        ...(error ? { error } : {}) };
+      if (this.deps.execution.snapshot) {
+        try {
+          const [balance, positions, benchmark] = await Promise.all([
+            this.broker.getBalance(), this.broker.getPositions(),
+            this.marketData.getBenchmark?.().catch(() => null) ?? Promise.resolve(null),
+          ]);
+          if (balance.accountEpoch === undefined) throw new Error("account epoch required");
+          await this.deps.execution.snapshot(userId, { accountEpoch: balance.accountEpoch,
+            observedAt: this.clock.now().toISOString(), positions, benchmark,
+            context: { strategyVersion: "mock-risk-v3", mode, recommendationDate: top20[0]?.runDate ?? null,
+              modelVersion: top20[0]?.modelVersion ?? null, stopLossPct: STOP_LOSS_PCT,
+              entryRankMax: ENTRY_RANK_MAX, exitRankMax: EXIT_RANK_MAX,
+              exposureLimits: this.deps.exposureLimits ?? DEFAULT_EXPOSURE_LIMITS } });
+        } catch {
+          result.error = result.error ?? "성과 관측 저장 실패 — 계좌 상태 확인 필요";
+          result.status = "degraded";
+        }
+      }
       await this.deps.execution.record(userId, result);
       return result;
 
@@ -204,7 +240,8 @@ export class TradingEngineService {
         await this.deps.execution.record(userId, { tickers_analyzed: 0, trades_buy,
           trades_sell, skipped, details, error: msg });
       } catch { /* 로그 실패는 무시 */ }
-      return { tickers_analyzed: 0, trades_buy, trades_sell, skipped, details, error: msg };
+      return { tickers_analyzed: 0, trades_buy, trades_sell, skipped, details, error: msg, mode,
+        status: "blocked", risk_checks_complete: false };
     } finally {
       if (locked) await this.deps.execution.release(userId).catch(err => console.error("실행 잠금 해제 실패", err));
     }
@@ -236,7 +273,8 @@ export class TradingEngineService {
       if (h.priceStale) {
         skipCount++;
         details.push({ ticker: h.ticker, name: h.name, action: "SKIP",
-                       reason: "시세 조회 실패(가격 스테일) — 매매 판단 보류" });
+                       reason: "시세 조회 실패(가격 스테일) — 매매 판단 보류",
+                       code: "QUOTE_UNAVAILABLE", error: h.quoteIssue ?? "QUOTE_UNAVAILABLE" });
         continue;
       }
       const rank       = rankByTicker.get(h.ticker);    // undefined = Top20 미포함
@@ -287,7 +325,8 @@ export class TradingEngineService {
           console.log(`[TradingEngine] 매도 ${result.duplicate ? "(중복무시)" : "체결"}: ${h.ticker} ${h.quantity}주 — ${reason}`);
         } else {
           skipCount++;
-          details.push({ ticker: h.ticker, name: h.name, action: "SKIP", reason: `매도 실패: ${result.error}`, error: result.error });
+          details.push({ ticker: h.ticker, name: h.name, action: "SKIP", reason: `매도 실패: ${result.error ?? "미체결"}`,
+            error: result.error ?? "ORDER_NOT_FILLED", code: "ORDER_REJECTED" });
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -310,6 +349,7 @@ export class TradingEngineService {
     soldThisRun:       Set<string>,
     availableCash:     number,
     details:           TradeDetail[],
+    capital:           number,
   ): Promise<{ buyCount: number; skipCount: number }> {
     let buyCount  = 0;
     let skipCount = 0;
@@ -327,6 +367,17 @@ export class TradingEngineService {
     }
 
     const budgetPerSlot = Math.floor(availableCash / openSlots);
+    const sectors = this.recommendations.getSectors
+      ? await this.recommendations.getSectors([...holdingsAfterSell.map(h => h.ticker), ...top20.map(r => r.ticker)])
+      : Object.fromEntries(top20.filter(r => r.sector?.trim()).map(r => [r.ticker, r.sector!.trim()]));
+    const sectorValues = new Map<string, number>();
+    if (holdingsAfterSell.some(h => !sectors[h.ticker])) {
+      details.push({ ticker: "", name: "", action: "SKIP", code: "SECTOR_UNKNOWN",
+        reason: "보유 종목 섹터 미확인 — 집중도 계산이 불가능해 신규 매수 보류" });
+      return { buyCount: 0, skipCount: 1 };
+    }
+    for (const h of holdingsAfterSell) sectorValues.set(sectors[h.ticker],
+      (sectorValues.get(sectors[h.ticker]) ?? 0) + h.currentPrice * h.quantity);
     console.log(`[TradingEngine] 매수 슬롯=${openSlots}, 슬롯예산=${budgetPerSlot.toLocaleString()}원/종목`);
 
     let boughtCount = 0;
@@ -336,6 +387,13 @@ export class TradingEngineService {
       // 신규 진입 밴드: 상위 ENTRY_RANK_MAX위 이내 종목만 새로 매수 (히스테리시스)
       if (rec.rank > ENTRY_RANK_MAX) continue;
       if (currentHeld.has(rec.ticker)) continue;
+      const sector = sectors[rec.ticker];
+      if (!sector) {
+        skipCount++;
+        details.push({ ticker: rec.ticker, name: rec.name, action: "SKIP", code: "SECTOR_UNKNOWN",
+          reason: "종목 섹터 미확인 — 신규 매수 보류" });
+        continue;
+      }
       // 당일 청산(손절·랭크아웃)한 종목은 같은 날 되사지 않는다 — churn 방지
       if (soldThisRun.has(rec.ticker)) {
         skipCount++;
@@ -352,24 +410,28 @@ export class TradingEngineService {
         const quote = await this.marketData.getQuote(rec.ticker);
         if (!quote?.price || !Number.isFinite(quote.price) || quote.price <= 0) {
           skipCount++;
-          details.push({ ticker: rec.ticker, name: rec.name, action: "SKIP", reason: "현재가 조회 실패 — 매수 스킵" });
+          details.push({ ticker: rec.ticker, name: rec.name, action: "SKIP", reason: "현재가 조회 실패 — 매수 스킵",
+            code: "QUOTE_UNAVAILABLE", error: "QUOTE_UNAVAILABLE" });
           continue;
         }
         currentPrice = quote.price;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         skipCount++;
-        details.push({ ticker: rec.ticker, name: rec.name, action: "SKIP", reason: `시세 조회 예외: ${msg}`, error: msg });
+        details.push({ ticker: rec.ticker, name: rec.name, action: "SKIP", reason: `시세 조회 예외: ${msg}`, error: msg, code: "QUOTE_UNAVAILABLE" });
         continue;
       }
 
-      const quantity = Math.floor(Math.min(budgetPerSlot, availableCash) / effectivePrice(
+      const budget = entryBudget(budgetPerSlot, availableCash, capital, sectorValues.get(sector) ?? 0,
+        this.deps.exposureLimits ?? DEFAULT_EXPOSURE_LIMITS);
+      const quantity = Math.floor(budget / effectivePrice(
         currentPrice, "BUY", this.deps.costs?.(rec.ticker) ?? DEFAULT_COSTS));
       if (quantity < 1) {
         skipCount++;
         details.push({
           ticker: rec.ticker, name: rec.name, action: "SKIP",
-          reason: `예산 부족 — 주가 ${currentPrice.toLocaleString()}원 > 슬롯예산 ${budgetPerSlot.toLocaleString()}원`,
+          reason: `예산·집중도 한도 — 주가 ${currentPrice.toLocaleString()}원, 허용예산 ${Math.floor(budget).toLocaleString()}원`,
+          code: "EXPOSURE_OR_BUDGET_LIMIT",
         });
         continue;
       }
@@ -390,6 +452,7 @@ export class TradingEngineService {
           boughtCount++;
           currentHeld.add(rec.ticker);
           if (!result.duplicate) availableCash -= result.filledAmount;
+          if (!result.duplicate) sectorValues.set(sector, (sectorValues.get(sector) ?? 0) + result.filledAmount);
           const reason = `Top${rec.rank} 편입 — 상대 매력도 기준 (수익률 보장 아님)`;
           details.push({
             ticker: rec.ticker, name: rec.name, action: "BUY",
@@ -399,7 +462,8 @@ export class TradingEngineService {
           console.log(`[TradingEngine] 매수 ${result.duplicate ? "(중복무시)" : "체결"}: ${rec.ticker}(Top${rec.rank}) ${quantity}주 @${currentPrice.toLocaleString()}원`);
         } else {
           skipCount++;
-          details.push({ ticker: rec.ticker, name: rec.name, action: "SKIP", reason: `매수 실패: ${result.error}`, error: result.error });
+          details.push({ ticker: rec.ticker, name: rec.name, action: "SKIP", reason: `매수 실패: ${result.error ?? "미체결"}`,
+            error: result.error ?? "ORDER_NOT_FILLED", code: "ORDER_REJECTED" });
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

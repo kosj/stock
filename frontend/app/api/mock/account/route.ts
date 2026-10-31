@@ -3,6 +3,7 @@ import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 import { getQuote } from "@/lib/server/yahoo-finance";
 import { accountEpoch, updateAccount } from "@/lib/server/mock-account-control";
+import { periodPerformance, type PerformanceHistory } from "@/lib/core/performance";
 export const dynamic = "force-dynamic";
 export const maxDuration = 20;
 interface Position { ticker: string; name: string; quantity: number; avg_price: number }
@@ -33,10 +34,14 @@ export async function GET() {
     const totalValue = a.cash + stockValue;
     const capital = a.performance_baseline + a.net_cash_adjustments;
     const totalPnl = totalValue - capital;
+    const history = await supabase.rpc("mock_performance_history", { p_user: auth.userId });
+    const performance = history.error ? { available: false, reason: "성과 관측 저장소를 확인할 수 없습니다." }
+      : periodPerformance(history.data as PerformanceHistory | null);
     return NextResponse.json({ ...a, positions, stock_value: stockValue, total_value: totalValue,
       total_pnl: totalPnl, total_pnl_pct: capital > 0 ? totalPnl / capital * 100 : null,
       unrealized_pnl: positions.reduce((s, p) => s + p.pnl_amount, 0),
       valuation_stale: positions.some(p => p.price_stale),
+      performance,
       return_method: "baseline_plus_net_deposits" });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "계좌 조회 실패" }, { status: 503 }); }
 }

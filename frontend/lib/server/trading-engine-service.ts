@@ -16,11 +16,15 @@ export class TradingEngineService extends CoreEngine {
     if (broker instanceof MockBrokerAdapter && execution instanceof SupabaseExecutionControl)
       broker.bindExecutionOwner(execution.owner);
     super(broker, {
-      marketData: deps.marketData ?? new YahooMarketDataAdapter(),
+      marketData: deps.marketData ?? (broker instanceof MockBrokerAdapter ? broker.market : new YahooMarketDataAdapter()),
       recommendations: deps.recommendations ?? new SupabaseRecommendationAdapter(),
       clock: deps.clock ?? new KrMarketClock(),
       execution,
       costs: deps.costs ?? mockCosts,
+      exposureLimits: deps.exposureLimits ?? {
+        maxPositionWeight: Number(process.env.MOCK_MAX_POSITION_WEIGHT ?? .25),
+        maxSectorWeight: Number(process.env.MOCK_MAX_SECTOR_WEIGHT ?? .5),
+      },
     });
   }
   static mockForUser(userId: string, deps: TradingEngineDeps = {}) {

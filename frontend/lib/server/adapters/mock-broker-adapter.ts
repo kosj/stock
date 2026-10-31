@@ -10,7 +10,8 @@
  */
 
 import { supabase } from "../supabase";
-import { YahooMarketDataAdapter } from "./yahoo-market-data-adapter";
+import { ExecutionMarketDataAdapter } from "./execution-market-data-adapter";
+import { QuoteUnavailable } from "../../core/quote-evidence";
 import { KrMarketClock } from "./kr-market-clock";
 import { effectivePrice } from "../../core/execution-policy";
 import { mockCosts } from "../mock-execution";
@@ -36,7 +37,7 @@ export class MockBrokerAdapter implements BrokerPort {
   private epoch: number | null = null;
   constructor(
     private readonly userId: string,
-    private readonly market: MarketDataPort = new YahooMarketDataAdapter(),
+    readonly market: MarketDataPort = new ExecutionMarketDataAdapter(userId),
     private executionOwner?: string,
   ) {}
 
@@ -60,6 +61,7 @@ export class MockBrokerAdapter implements BrokerPort {
     return {
       cash:             data?.cash ?? INITIAL_CASH,
       autoTradeCapital: data?.auto_trade_capital ?? null,
+      accountEpoch: this.epoch,
     };
   }
 
@@ -89,6 +91,9 @@ export class MockBrokerAdapter implements BrokerPort {
       }
       return {
         priceStale:   quotedPrice === null,
+        quoteIssue: q.status === "rejected" && q.reason instanceof QuoteUnavailable ? q.reason.code : quotedPrice === null ? "QUOTE_UNAVAILABLE" : undefined,
+        tradedAt: q.status === "fulfilled" ? q.value?.tradedAt : undefined,
+        quoteSource: q.status === "fulfilled" ? q.value?.source : undefined,
         ticker:       pos.ticker,
         name:         pos.name,
         quantity:     pos.quantity,

@@ -1,0 +1,53 @@
+name: "Intraday Mock Risk Checks"
+on:
+  schedule:
+    # KST 09:02–15:57 weekdays; server rejects requests outside 09:00–15:30.
+    - cron: "2-59/5 0-6 * * 1-5"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: intraday-mock-risk
+  cancel-in-progress: false
+jobs:
+  risk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check stops only; never rebalance or buy
+        env:
+          APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        shell: python
+        run: |
+          import json, os, urllib.request, urllib.error, urllib.parse
+          base = os.environ['APP_URL'].rstrip('/') + '/api/cron/auto-trade?mode=risk'
+          cursor, failures = None, 0
+          for page in range(20):
+              url = base + ('&after=' + urllib.parse.quote(cursor) if cursor else '')
+              req = urllib.request.Request(url, method='POST', headers={
+                  'Authorization': 'Bearer ' + os.environ['CRON_SECRET']})
+              try:
+                  response = urllib.request.urlopen(req, timeout=55)
+              except urllib.error.HTTPError as error:
+                  response = error
+              with response:
+                  status = response.code
+                  if status == 409:
+                      print('Market closed; risk scan skipped')
+                      break
+                  body = json.loads(response.read())
+              print(json.dumps({'status': status, 'processed': body.get('processed'), 'failed': body.get('failed')}))
+              if status not in (200, 202, 503) or 'processed' not in body:
+                  raise SystemExit('Risk check authentication/service failure')
+              failures += body.get('failed', 0)
+              next_cursor = body.get('next_cursor')
+              if not next_cursor:
+                  break
+              if next_cursor == cursor:
+                  raise SystemExit('Risk scan made no progress')
+              cursor = next_cursor
+          else:
+              raise SystemExit('Risk scan page budget exceeded')
+          if failures:
+              raise SystemExit('Risk checks incomplete; inspect quote/lease errors in account logs')

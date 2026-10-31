@@ -10,6 +10,9 @@ export interface MarketQuote {
   /** 현재가 (원). 조회 실패 시 null 반환(아래 getQuote)로 표현 */
   price:  number;
   name?:  string | null;
+  /** Source observation timestamp; never the HTTP/cache timestamp. */
+  tradedAt?: string;
+  source?: string;
 }
 
 export interface MarketCandle {
@@ -28,4 +31,5 @@ export interface MarketDataPort {
 
   /** 일봉 캔들 조회 (오래된 것 → 최신 순). period 예: "1y", "3m" */
   getCandles(ticker: string, period?: string): Promise<MarketCandle[]>;
+  getBenchmark?(): Promise<MarketQuote | null>;
 }

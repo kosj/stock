@@ -32,3 +32,7 @@ Do not promote a candidate based on reused historical diagnostics alone.
 Weekly scheduling/recovery contract: `docs/weekly-execution-recovery-20261031.md`.
 Keep all production weekly invocations in the same concurrency group and preserve
 publication/quality-withholding receipts before allowing catch-up training.
+
+Mock execution/performance follow-up: `docs/mock-execution-performance-20261031.md`.
+Keep risk-only scans free of buys/rank-out sales, preserve source trade timestamps,
+and never treat incomplete quote/risk checks as a successful daily job.

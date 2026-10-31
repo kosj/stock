@@ -14,7 +14,7 @@ export class YahooMarketDataAdapter implements MarketDataPort {
     if (!q || !Number.isFinite(q.price) || q.price <= 0) return null;
     // Fetch time is not a freshness guarantee (holiday/stale last price).
     if (!hasFreshTradeTime(q.traded_at)) return null;
-    return { ticker, price: q.price, name: q.name };
+    return { ticker, price: q.price, name: q.name, tradedAt: q.traded_at, source: "Yahoo" };
   }
 
   async getCandles(ticker: string, period = "1y"): Promise<MarketCandle[]> {

@@ -13,6 +13,7 @@ import {
   CheckCircle, XCircle, Pencil,
 } from "lucide-react";
 import Link from "next/link";
+import type { periodPerformance } from "@/lib/core/performance";
 
 type Position = {
   id:            number;
@@ -51,6 +52,7 @@ type Account = {
   valuation_stale: boolean;
   auto_trade_capital:  number | null;
   positions:           Position[];
+  performance?: ReturnType<typeof periodPerformance>;
 };
 
 type AutoTradeDetail = {
@@ -60,6 +62,8 @@ type AutoTradeDetail = {
   reason:  string;
   qty?:    number;
   price?:  number;
+  error?: string;
+  execution_mode?: "risk" | "rebalance";
 };
 
 type AutoTradeLog = {
@@ -246,7 +250,7 @@ export function MockTradingPage() {
             { label: "주식 평가",   value: `${formatNumber(a.stock_value)}원` },
             { label: "총 평가금액", value: `${formatNumber(a.total_value)}원` },
             {
-              label: "총 손익",
+              label: "장부 기준 손익",
               value: `${a.total_pnl >= 0 ? "+" : ""}${formatNumber(a.total_pnl)}원`,
               sub:   a.total_pnl_pct === null ? "수익률 산정 불가" : formatPercent(a.total_pnl_pct),
               color: colorByChange(a.total_pnl),
@@ -262,8 +266,15 @@ export function MockTradingPage() {
       )}
 
       {a && <div className="text-xs text-muted-foreground space-y-1">
+        {a.performance?.available ? <div className="rounded-lg border p-3 space-y-1">
+          <p className="font-medium text-foreground">관측기간 수익률 {formatPercent(a.performance.returnPct)}</p>
+          <p>{new Date(a.performance.from).toLocaleString("ko-KR")} ~ {new Date(a.performance.to).toLocaleString("ko-KR")} · 관측 {a.performance.samples}회</p>
+          <p>입출금 시점을 반영한 Modified Dietz 수익률입니다. 과거 장부 기준 손익과 계산 기간이 다릅니다.</p>
+          <p>{a.performance.benchmarkPct === null ? "동일 시각 KOSPI 관측값이 없어 비교를 보류합니다."
+            : `같은 관측기간 KOSPI ${formatPercent(a.performance.benchmarkPct)}${a.performance.excessPct === null ? " · 입출금이 있어 단순 초과수익률을 표시하지 않습니다." : ` · 차이 ${formatPercent(a.performance.excessPct)}p`}`}</p>
+        </div> : <p>{a.performance?.reason ?? "성과 관측 데이터 준비 중"}</p>}
         <p>실현손익 {formatNumber(a.realized_pnl)}원 · 미실현손익 {formatNumber(a.unrealized_pnl)}원 · 기록된 거래비용 {formatNumber(a.recorded_costs)}원</p>
-        <p>성과 기준: {new Date(a.baseline_at).toLocaleString("ko-KR")} 장부가치 + 순입출금. 과거 현금 조정·비용은 소급 추정하지 않습니다. 수익률은 시간가중 수익률이 아닙니다.</p>
+        <p>장부 기준: {new Date(a.baseline_at).toLocaleString("ko-KR")} 취득원가 + 현금 + 순입출금. 최초 투자 이후 전체 수익률이나 해당 날짜 이후의 기간 수익률은 아닙니다.</p>
         {!a.cost_history_complete && <p>일부 과거 거래의 비용 내역이 없습니다.</p>}
         {a.valuation_stale && <p className="text-amber-400">일부 시세 누락: 평단가로 표시한 잠정 평가입니다.</p>}
       </div>}
@@ -356,7 +367,8 @@ export function MockTradingPage() {
           <div className="text-xs text-muted-foreground space-y-1 bg-muted/40 rounded-lg px-3 py-2.5">
             <div><span className="text-green-400 font-medium">매수 조건:</span> 검증된 최신 주간 추천 상위 5위 이내 — 빈 슬롯만큼 균등 비중 매수</div>
             <div><span className="text-red-400 font-medium">매도 조건:</span> 손절 −5% 이하 · 순위 15위 초과 또는 추천 이탈 → 전량 청산</div>
-            <div><span className="text-blue-400 font-medium">포지션:</span> 최대 5종목, 가용 예수금을 슬롯 수로 균등 분배</div>
+            <div><span className="text-blue-400 font-medium">포지션:</span> 최대 5종목, 슬롯별 예산에 종목·섹터별 금액 비중 한도 적용</div>
+            <div>장중 손절 점검은 시세가 유효할 때 수행합니다. 예약 지연·시세 장애로 −5% 체결가격이 보장되지는 않습니다.</div>
           </div>
 
           {/* 실행 이력 */}
@@ -384,6 +396,7 @@ export function MockTradingPage() {
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-muted-foreground whitespace-nowrap">
                           {new Date(log.run_at).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                          {details[0]?.execution_mode === "risk" ? " · 손절 점검" : details[0]?.execution_mode === "rebalance" ? " · 리밸런싱" : ""}
                         </span>
                         {log.error ? (
                           <span className="text-red-400 flex items-center gap-1"><XCircle size={11} /> 오류</span>
@@ -401,6 +414,9 @@ export function MockTradingPage() {
                     {isExpanded && (
                       <div className="border-t px-3 py-2 space-y-1" style={{ borderColor: "var(--border)" }}>
                         {log.error && <p className="text-red-400">{log.error}</p>}
+                        {details.filter(d => d.action === "SKIP" && d.error).map((d, i) => (
+                          <p key={`issue-${i}`} className="text-amber-400">{d.name}: {d.reason} ({d.error})</p>
+                        ))}
                         {details.filter(d => d.action !== "SKIP").map((d, i) => (
                           <div key={i} className="flex items-start gap-2">
                             {d.action === "BUY"
@@ -419,7 +435,7 @@ export function MockTradingPage() {
                         ))}
                         {details.filter(d => d.action === "SKIP").length > 0 && (
                           <div className="text-muted-foreground/50">
-                            스킵 {details.filter(d => d.action === "SKIP").length}종목 (조건 미충족)
+                            매매 보류 {details.filter(d => d.action === "SKIP").length}건
                           </div>
                         )}
                       </div>

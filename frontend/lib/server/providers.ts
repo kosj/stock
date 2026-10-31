@@ -68,6 +68,8 @@ export abstract class BrokerProvider {
 
 import axios from 'axios';
 import { kisBaseUrl, kisTokenCache, collectKisBalance } from './kis-session';
+import { kisMinuteQuote, QuoteUnavailable } from '../core/quote-evidence';
+import type { MarketQuote } from '../core/ports/market-data-port';
 
 interface KISTokenResponse {
   access_token: string;
@@ -89,6 +91,30 @@ interface KISBalanceItem {
 
 export class KISProvider extends BrokerProvider {
   private get baseUrl(): string { return kisBaseUrl(this.credentials.isDemo); }
+
+  /** Read-only minute-price endpoints. This method can NEVER place a KIS order. */
+  async getExecutableQuote(ticker: string): Promise<MarketQuote> {
+    if (!/^\d{6}$/.test(ticker) && ticker !== '^KS11') throw new QuoteUnavailable('KIS_INVALID_SYMBOL');
+    try {
+      const token = await this.getAccessToken();
+      const index = ticker === '^KS11';
+      const hour = new Date(Date.now() + 9 * 3600_000).toISOString().slice(11, 19).replaceAll(':', '');
+      const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/${index ? 'inquire-time-indexchartprice' : 'inquire-time-itemchartprice'}`, {
+        headers: { 'content-type': 'application/json; charset=utf-8', authorization: `Bearer ${token}`,
+          appkey: this.credentials.appKey, appsecret: this.credentials.appSecret,
+          tr_id: index ? 'FHKUP03500200' : 'FHKST03010200', custtype: 'P' },
+        params: { FID_COND_MRKT_DIV_CODE: index ? 'U' : 'J', FID_INPUT_ISCD: index ? '0001' : ticker,
+          FID_INPUT_HOUR_1: index ? '60' : hour, FID_PW_DATA_INCU_YN: 'N', FID_ETC_CLS_CODE: index ? '1' : '' },
+        timeout: 5000,
+      });
+      if (response.data.rt_cd !== '0') throw new QuoteUnavailable('KIS_PROVIDER_REJECTED');
+      return kisMinuteQuote(ticker, response.data.output2, Date.now());
+    } catch (error) {
+      if (error instanceof QuoteUnavailable) throw error;
+      // Axios/config/auth exceptions may contain credentials. Propagate codes only.
+      throw new QuoteUnavailable('KIS_REQUEST_FAILED');
+    }
+  }
 
   async validateCredentials(): Promise<boolean> {
     try {
