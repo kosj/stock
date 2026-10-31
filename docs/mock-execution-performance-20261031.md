@@ -99,7 +99,7 @@ Top20 밖의 보유 종목도 최신 완료 배치 전체의 sector를 조회한
 
 ## 검증 및 적용 후 조건
 
-- 신규 18개 검사: 실제 KIS parser/provider/router, 공급자 오류 비밀키 비노출, risk-only
+- 신규 19개 검사: 실제 KIS parser/provider/router, 공급자 오류 비밀키 비노출, risk-only
   엔진·실제 cron 핸들러, 집중도·입출금 성과, snapshot 소유권·epoch·불완전 평가·RLS,
   승인 계정 pagination과 현재 역할 재확인. 모두 가짜 HTTP/격리 DB를 사용한다.
 - 전체 `npm run test:safety`, 타입 검사, lint 회귀 검사, migration 감사 및 actionlint를 실행한다.

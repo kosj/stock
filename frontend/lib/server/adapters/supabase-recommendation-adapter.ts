@@ -25,7 +25,9 @@ interface RecRow {
 }
 
 export class SupabaseRecommendationAdapter implements RecommendationPort {
+  private batchDate?: string;
   async getTopRecommendations(limit = 20): Promise<Recommendation[]> {
+    this.batchDate = undefined;
     // 1단계: 가장 최신 분석 날짜
     const { data: latest } = await supabase
       .from("recommendation_batches")
@@ -35,6 +37,7 @@ export class SupabaseRecommendationAdapter implements RecommendationPort {
       .single();
 
     if (!latest?.run_date) return [];
+    this.batchDate = latest.run_date;
 
     // 2단계: 해당 날짜의 Top-N
     const { data, error } = await supabase
@@ -62,12 +65,11 @@ export class SupabaseRecommendationAdapter implements RecommendationPort {
     }));
   }
   async getSectors(tickers: string[]): Promise<Record<string, string>> {
-    const { data: latest, error: batchError } = await supabase.from("recommendation_batches")
-      .select("run_date").order("run_date", { ascending: false }).limit(1).maybeSingle();
-    if (batchError) throw new Error("섹터 기준 배치 조회 실패");
-    if (!latest || !tickers.length) return {};
+    // Pin sector metadata to the batch actually used for ranking. A concurrent
+    // new publication must not mix a different batch into this execution.
+    if (!this.batchDate || !tickers.length) return {};
     const { data, error } = await supabase.from("prophet_recommendations").select("ticker,sector")
-      .eq("run_date", latest.run_date).in("ticker", [...new Set(tickers)]);
+      .eq("run_date", this.batchDate).in("ticker", [...new Set(tickers)]);
     if (error || !data) throw new Error("보유·후보 섹터 조회 실패");
     return Object.fromEntries(data.filter(r => typeof r.sector === "string" && r.sector.trim())
       .map(r => [r.ticker, r.sector.trim()]));

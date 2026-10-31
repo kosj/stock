@@ -186,6 +186,25 @@ test('risk workflow is five-minute, authenticated, bounded and cannot request re
  assert.doesNotMatch(workflow,/actions: write|issues: write|workflow_run/);
 });
 
+test('production sector lookup is pinned to the recommendation batch used by this execution',async()=>{
+ let batchReads=0;const dates=[];
+ const {SupabaseRecommendationAdapter}=moduleFrom('../frontend/lib/server/adapters/supabase-recommendation-adapter.ts',name=>{
+  assert.ok(name.endsWith('/supabase'));
+  return {supabase:{from(table){
+   let columns='';const q={select(value){columns=value;return this;},order(){return this;},limit(){return this;},
+    eq(key,value){if(key==='run_date')dates.push(value);return this;},not(){return this;},gte(){return this;},lte(){return this;},in(){return this;},
+    single:async()=>{batchReads++;return {data:{run_date:'2026-10-23',model_version:'fixture-v1'}};},
+    then(ok,fail){return Promise.resolve({data:columns==='ticker,sector'?[{ticker:'005930',sector:'tech'}]:
+     [{run_date:'2026-10-23',ticker:'005930',rank:1,sector:'tech'}]}).then(ok,fail);}};
+   assert.ok(['recommendation_batches','prophet_recommendations'].includes(table));return q;
+  }}};
+ });
+ const adapter=new SupabaseRecommendationAdapter();
+ const rows=await adapter.getTopRecommendations();assert.equal(rows[0].modelVersion,'fixture-v1');
+ await adapter.getSectors(['005930']);assert.equal(batchReads,1);
+ assert.deepEqual(dates,['2026-10-23','2026-10-23']);
+});
+
 const mark=(at,equity,benchmark=100)=>({observed_at:at,equity,complete:true,benchmark_price:benchmark,benchmark_aligned:true});
 test('period returns use actual NAV endpoints and aligned benchmark rather than legacy book baseline',()=>{
  const result=periodPerformance({first:mark('2026-10-20T09:00:00+09:00',100),last:mark('2026-10-30T15:00:00+09:00',110,105),samples:2,flows:[]});
