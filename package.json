@@ -15,7 +15,8 @@
     "backtest:trading": "node scripts/replay_trading.mjs",
     "build": "cd frontend && npm run build",
     "start": "cd frontend && npm run start",
-    "dev": "cd frontend && npm run dev"
+    "dev": "cd frontend && npm run dev",
+    "backtest:compare": "node scripts/compare_replays.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.10",
