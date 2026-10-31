@@ -1,20 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
-import { YahooMarketDataAdapter } from "@/lib/server/adapters/yahoo-market-data-adapter";
+import { ExecutionMarketDataAdapter } from "@/lib/server/adapters/execution-market-data-adapter";
 import { KrMarketClock } from "@/lib/server/adapters/kr-market-clock";
 import { SupabaseExecutionControl } from "@/lib/server/adapters/supabase-execution-control";
 import { effectivePrice } from "@/lib/core/execution-policy";
 import { mockCosts } from "@/lib/server/mock-execution";
 export const dynamic = "force-dynamic";
-export const maxDuration = 15;
+export const maxDuration = 30;
 export async function GET(req: NextRequest) {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
   const ticker = req.nextUrl.searchParams.get("ticker") ?? "";
   const side = req.nextUrl.searchParams.get("side");
   if (!/^\d{6}$/.test(ticker) || (side !== "BUY" && side !== "SELL")) return NextResponse.json({ error: "국내 종목 필요" }, { status: 400 });
-  const quote = await new YahooMarketDataAdapter().getQuote(ticker);
+  const quote = await new ExecutionMarketDataAdapter(auth.userId).getQuote(ticker).catch(() => null);
   if (!quote?.price) return NextResponse.json({ error: "체결 가능한 최신 시세 없음" }, { status: 502 });
   return NextResponse.json({ price: quote.price, effective_price: effectivePrice(quote.price, side, mockCosts(ticker)) });
 }
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, duplicate: true, ...previous });
       }
       if (!new KrMarketClock().isMarketOpen()) return NextResponse.json({ error: "정규장 외에는 체결하지 않습니다." }, { status: 409 });
-      const quote = await new YahooMarketDataAdapter().getQuote(ticker);
+      const quote = await new ExecutionMarketDataAdapter(auth.userId).getQuote(ticker).catch(() => null);
       if (!quote?.price) return NextResponse.json({ error: "실제 거래시각이 확인된 최신 시세가 없습니다." }, { status: 502 });
       const { data, error } = await supabase.rpc("execute_mock_order", {
         p_user_id: auth.userId, p_ticker: ticker, p_name: name, p_quantity: quantity,

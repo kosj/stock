@@ -8,7 +8,7 @@ import { validateRecommendations } from "../frontend/lib/core/recommendation-pol
 const at = "2026-10-19T09:12:00+09:00";
 const recommendations = (date = "2026-10-16") => Array.from({ length: 20 }, (_, i) => ({
   runDate: date, rank: i + 1, ticker: String(i + 1), name: String(i + 1),
-  recommendation: "buy", currentPrice: 100, baseReturn30d: 0,
+  recommendation: "buy", currentPrice: 100, baseReturn30d: 0, sector: `sector-${i}`,
 }));
 const prices = Object.fromEntries(recommendations().map(r => [r.ticker, 100]));
 const setup = (rows = recommendations(), { capital = null, instant = at } = {}) => {

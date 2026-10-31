@@ -13,4 +13,6 @@ export interface RecommendationPort {
    * @param limit 최대 개수 (기본 30)
    */
   getTopRecommendations(limit?: number): Promise<Recommendation[]>;
+  /** Complete-batch metadata, including held symbols outside Top20. */
+  getSectors?(tickers: string[]): Promise<Record<string, string>>;
 }

@@ -29,7 +29,7 @@ test('replay rejects ambiguous/duplicate times, missing price maps and partial c
   assert.throws(()=>effectivePrice(100,'BUY',{}));
 });
 test('replay exposes incomplete valuation separately from provisional performance',async()=>{
-  const rows=Array.from({length:20},(_,i)=>({runDate:'2026-10-16',rank:i+1,ticker:String(i+1),name:'test',recommendation:'buy',currentPrice:100,baseReturn30d:0}));
+  const rows=Array.from({length:20},(_,i)=>({runDate:'2026-10-16',rank:i+1,ticker:String(i+1),name:'test',recommendation:'buy',currentPrice:100,baseReturn30d:0,sector:`sector-${i}`}));
   const prices=Object.fromEntries(rows.map(r=>[r.ticker,100]));
   const marked=Object.fromEntries(rows.map(r=>[r.ticker,110]));
   const result=await replayTrading({initialCash:10000,costs,batches:[{completedAt:'2026-10-16T16:12:00+09:00',rows}],sessions:[

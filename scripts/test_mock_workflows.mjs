@@ -75,6 +75,7 @@ async function fixture(){
   [resolve(root,"frontend/lib/supabase/server.ts"),{createSupabaseServerClient:async()=>({auth:{getUser:async()=>({data:{user:state.identity}})}})}],
   [resolve(root,"frontend/lib/server/adapters/kr-market-clock.ts"),{KrMarketClock:class{isMarketOpen(){return state.open;}}}],
   [resolve(root,"frontend/lib/server/adapters/yahoo-market-data-adapter.ts"),{YahooMarketDataAdapter:class{async getQuote(){return state.price===null?null:{price:state.price};}}}],
+  [resolve(root,"frontend/lib/server/adapters/execution-market-data-adapter.ts"),{ExecutionMarketDataAdapter:class{async getQuote(){return state.price===null?null:{price:state.price};}}}],
   [resolve(root,"frontend/lib/server/yahoo-finance.ts"),{getQuote:async()=>state.price===null?null:{price:state.price}}],
  ]);
  const cache=new Map();

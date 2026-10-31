@@ -22,7 +22,7 @@ test("production constructor binds the same execution lease to factory-created m
   "./mock-execution":{mockCosts:()=>({})},
  };
  const exports={};
- vm.runInNewContext(compiled,{exports,require:name=>{assert.ok(modules[name],name);return modules[name];}});
+ vm.runInNewContext(compiled,{exports,process:{env:{}},require:name=>{assert.ok(modules[name],name);return modules[name];}});
  const broker=new Mock(), engine=new exports.TradingEngineService(broker);
  assert.equal(broker.owner,engine.deps.execution.owner);
  const control=new Control(); control.owner="injected-owner";

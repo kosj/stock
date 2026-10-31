@@ -1,7 +1,7 @@
 {
   "projectRef": "enunwzitobtgrelzdudd",
-  "verifiedAt": "2026-10-19T21:37:37.974602+00:00",
-  "verification": "CLI linked query verified all12 stored SQL bodies; six historical semantic baselines adopted, six new migrations actually applied; migration006 defines atomic import only, no portfolio import invoked",
+  "verifiedAt": "2026-10-31 00:06:42.09431+00",
+  "verification": "All 14 stored SQL bodies verified byte-for-byte by MD5; new performance/security and read-only risk scan migrations applied; protected account/position/trade/ledger/recommendation/sentiment row hashes unchanged; no orders or resets invoked",
   "files": {
     "202608080001_mock_realized_pnl.sql": "8a41b509223c5a9d0c02d4468998808790d591cb7f73ff96555c8982c3ed6fda",
     "202608100001_etf_pick_history.sql": "5c0349e6ee658b241938c2f6a7d6ab632b61d6890aa60fd2b74df6c442784855",
@@ -14,6 +14,8 @@
     "202610200003_price_versions.sql": "8314512bd64915d3d9da174e0f456d60b9a9218e093198405dab622a3496a958",
     "202610200004_access_controls.sql": "c21781aeec5d0f3a753369565305bd0a8b0cf69c27d0f6637cecae812ef6bee9",
     "202610200005_auto_trade_jobs.sql": "bf0a818978010b650ede2f027af36bb7d11c6ca0164d4835bfea81720b263fbe",
-    "202610200006_portfolio_import.sql": "98477d9b5f043b9418c229f1de3ea30f9541108ac4d7b38110e5d2fca92e7c37"
+    "202610200006_portfolio_import.sql": "98477d9b5f043b9418c229f1de3ea30f9541108ac4d7b38110e5d2fca92e7c37",
+    "20261031000529_mock_performance_and_input_security.sql": "9d29b8eb6419cee7f4fefa891a84767fb160f6cf2e4c8912f54f90d7084ff3fd",
+    "20261031000539_mock_risk_scan.sql": "7c6c1e64583449ce11332df789ae7dde31b0509aecd7b1f83bd13fb0a74ec38a"
   }
 }

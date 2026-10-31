@@ -8,6 +8,7 @@ export interface AccountBalance {
   cash: number;
   /** 자동매매 투입 자본 상한 (null = 전체 현금 사용) */
   autoTradeCapital: number | null;
+  accountEpoch?: number;
 }
 
 /** 보유 포지션 (현재가·수익률 포함) */
@@ -24,4 +25,7 @@ export interface BrokerPosition {
    * 이 상태의 pnlPct(0%)는 실제 손익이 아니므로 매매 판단(손절 등)에 쓰면 안 된다.
    */
   priceStale?:  boolean;
+  quoteIssue?: string;
+  tradedAt?: string;
+  quoteSource?: string;
 }

@@ -15,4 +15,6 @@ export interface Recommendation {
   currentPrice:   number;
   /** 30일 기대수익률 (%) */
   baseReturn30d:  number;
+  sector?: string;
+  modelVersion?: string;
 }

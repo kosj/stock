@@ -4,6 +4,7 @@ import type { BrokerPort } from "./ports/broker-port";
 import type { BrokerPosition } from "./domain/account";
 import type { OrderRequest, OrderResult, Fill } from "./domain/order";
 import type { Recommendation } from "./domain/recommendation";
+import type { ExposureLimits } from "./exposure-policy.ts";
 
 export interface ReplaySession {
   /** Actual observed intraday snapshot time. Do NOT put a closing price at 09:12. */
@@ -11,13 +12,14 @@ export interface ReplaySession {
   prices: Record<string, number>;
   benchmark?: number;
 }
-export interface ReplayBatch { completedAt: string; rows: Recommendation[] }
+export interface ReplayBatch { completedAt: string; rows: Recommendation[]; sectors?: Record<string, string> }
 export interface ReplayInput {
   initialCash: number;
   capital?: number | null;
   costs?: ExecutionCosts;
   batches: ReplayBatch[];
   sessions: ReplaySession[];
+  exposureLimits?: ExposureLimits;
 }
 
 /** No network/DB dependencies. Same price/cost semantics as the production mock broker. */
@@ -132,12 +134,15 @@ export async function replayTrading(input: ReplayInput) {
     // completedAt prevents Friday-close signals leaking into Friday morning trades.
     const batch = batches.filter(b => Date.parse(b.completedAt) <= Date.parse(session.at)).at(-1);
     const engine = new TradingEngineService(broker, {
+      exposureLimits: input.exposureLimits,
       clock: replayClock(session.at),
       marketData: { getQuote: async ticker => {
         const price = session.prices[ticker];
         return Number.isFinite(price) && price > 0 ? { ticker, price } : null;
       }, getCandles: async () => [] },
-      recommendations: { getTopRecommendations: async () => batch?.rows ?? [] },
+      recommendations: { getTopRecommendations: async () => batch?.rows ?? [],
+        getSectors: async () => batch?.sectors ?? Object.fromEntries((batch?.rows ?? [])
+          .filter(r => r.sector?.trim()).map(r => [r.ticker, r.sector!.trim()])) },
       costs: () => input.costs ?? DEFAULT_COSTS,
       execution: { acquire: async () => true, release: async () => {}, record: async () => {} },
     });
