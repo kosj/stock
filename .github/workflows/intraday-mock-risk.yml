@@ -21,10 +21,10 @@ jobs:
         shell: python
         run: |
           import json, os, urllib.request, urllib.error, urllib.parse
-          base = os.environ['APP_URL'].rstrip('/') + '/api/cron/auto-trade?mode=risk'
+          base = os.environ['APP_URL'].rstrip('/') + '/api/cron/mock-risk'
           cursor, failures = None, 0
           for page in range(20):
-              url = base + ('&after=' + urllib.parse.quote(cursor) if cursor else '')
+              url = base + ('?after=' + urllib.parse.quote(cursor) if cursor else '')
               req = urllib.request.Request(url, method='POST', headers={
                   'Authorization': 'Bearer ' + os.environ['CRON_SECRET']})
               try:

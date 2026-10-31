@@ -41,7 +41,9 @@
 서버는 09:00~15:30 밖을 거부한다. GitHub 지연/누락 가능성은 남으므로 -5% 체결가격을
 보장하는 손절 시스템이나 정시 SLA로 표현하면 안 된다.
 
-인증된 `POST /api/cron/auto-trade?mode=risk`는 승인된 mock 계정만 읽기 전용 RPC로 조회한다.
+인증된 `POST /api/cron/mock-risk`는 승인된 mock 계정만 읽기 전용 RPC로 조회한다.
+전용 경로는 서버 내부에서 risk 모드를 강제한다. 구버전 서버에서는 404로 중단되므로
+배포 지연/롤백 때 기존 일반 자동매매 endpoint가 risk 인자를 무시하고 매수하는 것을 막는다.
 페이지 cursor와 사용자별 처리 결과를 반환하며, 시간/페이지 예산과 실패 알림을 둔다.
 **이 모드는 추천 순위 조회·랭크아웃 청산·신규 매수를 하지 않는다.** 기존 공통 엔진에서
 손절만 수행하고 일일 리밸런싱과 동일한 계좌 lease/epoch/당일 주문 키를 사용한다.
@@ -99,7 +101,7 @@ Top20 밖의 보유 종목도 최신 완료 배치 전체의 sector를 조회한
 
 ## 검증 및 적용 후 조건
 
-- 신규 19개 검사: 실제 KIS parser/provider/router, 공급자 오류 비밀키 비노출, risk-only
+- 신규 20개 검사: 실제 KIS parser/provider/router, 공급자 오류 비밀키 비노출, risk-only
   엔진·실제 cron 핸들러, 집중도·입출금 성과, snapshot 소유권·epoch·불완전 평가·RLS,
   승인 계정 pagination과 현재 역할 재확인. 모두 가짜 HTTP/격리 DB를 사용한다.
 - 전체 `npm run test:safety`, 타입 검사, lint 회귀 검사, migration 감사 및 actionlint를 실행한다.

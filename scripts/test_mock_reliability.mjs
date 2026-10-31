@@ -181,9 +181,25 @@ test('actual cron risk route authenticates, paginates approved users and reports
 test('risk workflow is five-minute, authenticated, bounded and cannot request rebalance mode',()=>{
  const workflow=fs.readFileSync(new URL('../.github/workflows/intraday-mock-risk.yml',import.meta.url),'utf8');
  assert.match(workflow,/2-59\/5 0-6 \* \* 1-5/);
- assert.match(workflow,/mode=risk/);assert.match(workflow,/CRON_SECRET/);
+ assert.match(workflow,/\/api\/cron\/mock-risk/);assert.match(workflow,/CRON_SECRET/);
+ assert.doesNotMatch(workflow,/\/api\/cron\/auto-trade/);
  assert.match(workflow,/range\(20\)/);assert.match(workflow,/timeout-minutes: 5/);
  assert.doesNotMatch(workflow,/actions: write|issues: write|workflow_run/);
+});
+
+test('dedicated risk endpoint forces risk-only mode and preserves authentication and cursor',async()=>{
+ const {NextRequest}=createRequire(import.meta.url)('next/server');
+ let forwarded;
+ const route=moduleFrom('../frontend/app/api/cron/mock-risk/route.ts',name=>{
+  if(name==='next/server')return {NextRequest};
+  if(name==='../auto-trade/route')return {POST:async request=>{forwarded=request;return new Response('{}');}};
+  throw Error(name);
+ });
+ await route.POST(new NextRequest('http://isolated.test/api/cron/mock-risk?mode=rebalance&after=fixture',
+   {method:'POST',headers:{Authorization:'Bearer fixture-cron'}}));
+ assert.equal(forwarded.nextUrl.searchParams.get('mode'),'risk');
+ assert.equal(forwarded.nextUrl.searchParams.get('after'),'fixture');
+ assert.equal(forwarded.headers.get('Authorization'),'Bearer fixture-cron');
 });
 
 test('production sector lookup is pinned to the recommendation batch used by this execution',async()=>{
