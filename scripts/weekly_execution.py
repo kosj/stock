@@ -7,6 +7,7 @@ train. The existing atomic publication RPC remains the only recommendation write
 import argparse
 from datetime import date, datetime, time, timedelta, timezone
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,14 @@ MODEL_OUTCOME = Path("model-outcome.json")
 QUALITY = Path("model-quality.json")
 WITHHELD_EXIT = 78
 MAX_ATTEMPTS = 2
+# Immutable legacy run reviewed against its original job log and quality artifact.
+# Recognition only suppresses retraining; it never authorizes a new publication.
+LEGACY_WITHHELD = {
+    "run_id": 41069145933, "attempt": 1, "target": "2026-10-30",
+    "sha": "dd4d9176bbd1d2bd89d288f3eb96e6e053e0551f",
+    "artifact_id": 12983559464,
+    "digest": "a669e5f3332ff2f74262e5888f92177b1b486bdea5e8c23826f12f923b44d287",
+}
 
 
 class EvidenceError(RuntimeError):
@@ -150,6 +159,25 @@ class API:
                 return
         raise EvidenceError("evidence pagination limit reached")
 
+    def legacy_quality(self, artifact):
+        if artifact.get("expired"):
+            raise EvidenceError("legacy quality evidence expired")
+        raw = self.read(self.base + f"/actions/artifacts/{artifact['id']}/zip",
+                        self.headers, artifact=True)
+        if hashlib.sha256(raw).hexdigest() != LEGACY_WITHHELD["digest"]:
+            raise EvidenceError("legacy quality evidence digest mismatch")
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                info = archive.getinfo(QUALITY.name)
+                if info.file_size > 100_000 or len(archive.infolist()) != 1:
+                    raise EvidenceError("invalid legacy quality archive")
+                report = json.loads(archive.read(info))
+                if not isinstance(report, dict):
+                    raise EvidenceError("invalid legacy quality evidence")
+                return report
+        except (KeyError, ValueError, zipfile.BadZipFile):
+            raise EvidenceError("invalid legacy quality archive") from None
+
     def receipt(self, artifact):
         if artifact.get("expired"):
             raise EvidenceError("execution receipt expired")
@@ -219,6 +247,8 @@ def history(api, target, current_id, current_attempt, branch):
             if own and attempt >= current_attempt:
                 continue
             found_attempts.add(attempt)
+            if receipt.get("status") == "legacy_withheld":
+                raise EvidenceError("legacy status cannot be supplied by receipt")
             if receipt.get("mode") == "dry_run":
                 continue
             if receipt.get("mode") != "production":
@@ -233,6 +263,18 @@ def history(api, target, current_id, current_attempt, branch):
             jobs = list(api.pages(f"/actions/runs/{run['id']}/attempts/{attempt}/jobs", "jobs"))
             model_steps = [step for job in jobs for step in job.get("steps", [])
                            if step["name"] == "Run Hybrid Stacking Ensemble"]
+            legacy = LEGACY_WITHHELD
+            matches = [a for a in artifacts if a.get("id") == legacy["artifact_id"]
+                       and a.get("name") == f"weekly-model-quality-{legacy['run_id']}"]
+            if (target == legacy["target"] and run["id"] == legacy["run_id"]
+                    and run.get("head_sha") == legacy["sha"] and attempt == legacy["attempt"]
+                    and run.get("event") == "schedule" and len(matches) == 1
+                    and len(model_steps) == 1 and model_steps[0].get("conclusion") == "failure"):
+                report = api.legacy_quality(matches[0])
+                if not valid_withholding(report, target):
+                    raise EvidenceError("invalid legacy withholding evidence")
+                receipts.append(dict(status="legacy_withheld", quality=report))
+                continue
             if not jobs and run.get("conclusion") == "cancelled":
                 # GitHub may evict a pending concurrency sibling without ever
                 # allocating a runner. It has no model execution to duplicate.
@@ -251,6 +293,10 @@ def decide(target, receipts, unknown=False, active=False, has_batch=False):
         return "block", "execution_in_progress"
     for receipt in receipts:
         status = receipt.get("status")
+        if status == "legacy_withheld":
+            if valid_withholding(receipt.get("quality"), target):
+                return "skip", "quality_withheld"
+            return "block", "invalid_withholding_evidence"
         if status == "withheld":
             if receipt.get("exit_code") == WITHHELD_EXIT and valid_withholding(receipt.get("quality"), target):
                 return "skip", "quality_withheld"
