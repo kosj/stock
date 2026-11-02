@@ -52,14 +52,15 @@ test("missing recommendation still executes stop loss; no rank-out liquidation",
   broker.positions.set("2", { ticker: "2", name: "2", quantity: 10, avgPrice: 100 });
   const result = await engine.executeTrading("u");
   assert.equal(result.trades_sell, 1); assert.equal(result.trades_buy, 0);
-  assert.ok(broker.positions.has("2")); assert.ok(result.error);
+  assert.ok(broker.positions.has("2")); assert.equal(result.error, undefined);
+  assert.equal(result.status, "waiting_recommendation"); assert.equal(result.risk_checks_complete, true);
 });
 test("recommendation exception still executes stop loss", async () => {
   const { broker, deps } = setup();
   broker.positions.set("1", { ticker: "1", name: "1", quantity: 10, avgPrice: 110 });
   deps.recommendations.getTopRecommendations = async () => { throw new Error("DB offline"); };
   const result = await new TradingEngineService(broker, deps).executeTrading("u");
-  assert.equal(result.trades_sell, 1);
+  assert.equal(result.trades_sell, 1); assert.match(result.error, /추천 조회 실패/);
 });
 test("capital includes retained holdings and recovered sale proceeds", async () => {
   const { broker, engine } = setup(recommendations(), { capital: 5000 });
@@ -111,4 +112,27 @@ test("replay cannot access a future publication and reports cost-adjusted NAV", 
   assert.equal(result.results[0].trades_buy, 0); assert.equal(result.results[1].trades_buy, 5);
   assert.ok(result.totalReturn < 0); assert.ok(result.maxDrawdown < 0);
   assert.ok(result.excessReturn < result.totalReturn);
+});
+
+test("valid expired recommendations wait after risk checks; malformed expired batches still fail", async () => {
+  for (const rows of [recommendations("2026-10-01"), recommendations("2026-10-19")]) {
+    const { engine, broker } = setup(rows);
+    const result = await engine.executeTrading("u");
+    assert.equal(result.status, "waiting_recommendation"); assert.equal(result.error, undefined);
+    assert.equal(result.risk_checks_complete, true); assert.equal(broker.fills.length, 0);
+  }
+  for (const rows of [recommendations("2026-10-01").slice(0,19), recommendations("2026-10-20"), recommendations("2026-02-30")]) {
+    const { engine } = setup(rows);
+    const result = await engine.executeTrading("u");
+    assert.equal(result.status, "degraded"); assert.ok(result.error);
+  }
+});
+test("recommendation wait cannot hide quote, order or snapshot errors", async () => {
+  const { broker, deps } = setup([]);
+  broker.positions.set("missing", {ticker:"missing", name:"held", quantity:1, avgPrice:100});
+  const result = await new TradingEngineService(broker, deps).executeTrading("u");
+  assert.equal(result.status, "degraded"); assert.equal(result.risk_checks_complete,false); assert.ok(result.error);
+  broker.positions.clear(); deps.execution.snapshot=async()=>{throw Error("failed");};
+  const snapshot = await new TradingEngineService(broker, deps).executeTrading("u");
+  assert.equal(snapshot.status,"degraded"); assert.ok(snapshot.error);
 });

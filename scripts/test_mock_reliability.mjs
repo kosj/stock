@@ -242,3 +242,51 @@ test('missing, incomplete, invalid or unaligned observations never fabricate per
  assert.equal(periodPerformance(history).benchmarkPct,null);
  history.last.equity=NaN;assert.equal(periodPerformance(history).available,false);
 });
+
+test('daily queue finishes recommendation wait once, reports it, and preserves genuine failures',async()=>{
+ const {NextRequest,NextResponse}=createRequire(import.meta.url)('next/server');
+ const pending=[{user_id:'waiting'},{user_id:'quote'},{user_id:'incomplete'}],finished=[];
+ const receipts={waiting:{status:'waiting_recommendation',notice:'추천 대기',risk_checks_complete:true,details:[]},
+  quote:{status:'degraded',error:'QUOTE_UNAVAILABLE',risk_checks_complete:false,details:[]},
+  incomplete:{status:'degraded',risk_checks_complete:false,details:[]}};
+ let executions=0;
+ const route=moduleFrom('../frontend/app/api/cron/auto-trade/route.ts',name=>{
+  if(name==='node:crypto')return {randomUUID:()=> 'fixture-owner'};
+  if(name==='next/server')return {NextResponse};
+  if(name.includes('server/supabase'))return {supabase:{
+   rpc:async(name,args)=>{
+    if(name==='enqueue_auto_trade_jobs')return {data:0};
+    if(name==='claim_auto_trade_job')return {data:pending.length?[pending.shift()]:[]};
+    assert.equal(name,'finish_auto_trade_job');finished.push(args);return {data:true};
+   },
+   from:()=>{const filters={};return {select(){return this;},eq(k,v){filters[k]=v;return this;},in(k,v){filters[k]=v;return this;},
+    then(ok,fail){const status=filters.status;return Promise.resolve({count:finished.filter(f=>{
+     const state=f.p_success?'done':'failed';return status.includes(state)&&(!filters['result->>status']||f.p_result.status===filters['result->>status']);
+    }).length}).then(ok,fail);}};},
+  }};
+  if(name.includes('trading-engine-service'))return {TradingEngineService:class{async executeTrading(user){executions++;return receipts[user];}}};
+  if(name.includes('broker-factory'))return {getBrokerForUser:async()=>({})};
+  if(name.includes('kr-market-clock'))return {KrMarketClock:class{now(){return new Clock();}isMarketOpen(){return true;}}};
+  throw Error(name);
+ },{process:{env:{CRON_SECRET:'fixture'}}});
+ const call=()=>route.POST(new NextRequest('http://isolated.test/api/cron/auto-trade',{method:'POST',headers:{Authorization:'Bearer fixture'}}));
+ const response=await call();assert.equal(response.status,503);
+ const body=await response.json();assert.equal(body.waiting,1);assert.equal(body.failed,2);
+ assert.equal(finished.find(x=>x.p_user==='waiting').p_success,true);
+ assert.equal(finished.find(x=>x.p_user==='quote').p_success,false);
+ assert.equal(finished.find(x=>x.p_user==='incomplete').p_success,false);
+ await call();assert.equal(executions,3,'finished waiting job must not be executed again');
+});
+
+test('recommendation adapter distinguishes no completed batch from database failures and missing rows',async()=>{
+ for(const scenario of ['absent','batch-error','rows-error','empty-rows']) {
+  const {SupabaseRecommendationAdapter}=moduleFrom('../frontend/lib/server/adapters/supabase-recommendation-adapter.ts',()=>({supabase:{from(){
+   const q={select(){return this;},order(){return this;},limit(){return this;},eq(){return this;},not(){return this;},gte(){return this;},lte(){return this;},
+    single:async()=>scenario==='absent'?{data:null,error:{code:'PGRST116'}}:scenario==='batch-error'?{data:null,error:{code:'503'}}:{data:{run_date:'2026-10-23'}},
+    then(ok,fail){return Promise.resolve(scenario==='rows-error'?{error:{message:'failed'}}:{data:[]}).then(ok,fail);}};return q;
+  }}}));
+  const adapter=new SupabaseRecommendationAdapter();
+  if(scenario==='absent')assert.deepEqual(Array.from(await adapter.getTopRecommendations()),[]);
+  else await assert.rejects(adapter.getTopRecommendations());
+ }
+});

@@ -36,8 +36,14 @@ jobs:
                   status = response.code
                   body = json.loads(response.read())
               print(json.dumps({'attempt': attempt + 1, 'status': status,
-                  'pending': body.get('pending'), 'failed': body.get('failed') }))
+                  'pending': body.get('pending'), 'failed': body.get('failed'),
+                  'waiting_recommendation': body.get('waiting') }))
               if status == 200 and body.get('success'):
+                  if body.get('waiting'):
+                      summary = os.environ.get('GITHUB_STEP_SUMMARY')
+                      if summary:
+                          with open(summary, 'a') as output:
+                              output.write('추천 대기: %s 계정. 신규 매수·순위 청산 보류, 손절 점검 완료.\n' % body['waiting'])
                   break
               if status in (401, 403, 409) or (status == 503 and body.get('failed') and not body.get('pending')):
                   raise SystemExit('Queue blocked or terminal job failure; inspect database receipts')

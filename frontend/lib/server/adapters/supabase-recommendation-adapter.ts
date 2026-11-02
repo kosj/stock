@@ -29,13 +29,14 @@ export class SupabaseRecommendationAdapter implements RecommendationPort {
   async getTopRecommendations(limit = 20): Promise<Recommendation[]> {
     this.batchDate = undefined;
     // 1단계: 가장 최신 분석 날짜
-    const { data: latest } = await supabase
+    const { data: latest, error: batchError } = await supabase
       .from("recommendation_batches")
       .select("run_date,model_version")
       .order("run_date", { ascending: false })
       .limit(1)
       .single();
 
+    if (batchError && batchError.code !== "PGRST116") throw new Error("추천 배치 조회 실패");
     if (!latest?.run_date) return [];
     this.batchDate = latest.run_date;
 
@@ -50,7 +51,7 @@ export class SupabaseRecommendationAdapter implements RecommendationPort {
       .order("rank", { ascending: true })
       .limit(limit);
 
-    if (error || !data) return [];
+    if (error || !data || !data.length) throw new Error("완료 배치 추천 조회 실패");
 
     return (data as RecRow[]).map((r) => ({
       runDate: r.run_date,
