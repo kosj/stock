@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         try {
           const broker = await getBrokerForUser(job.user_id);
           const receipt = await new TradingEngineService(broker).executeTrading(job.user_id);
-          success = !receipt.error && !receipt.details.some(detail => detail.error);
+          success = receipt.risk_checks_complete === true && !receipt.error && !receipt.details.some(detail => detail.error);
           result = receipt;
         } catch (error) { result = { error: error instanceof Error ? error.message : "Execution failed" }; }
         const finished = await supabase.rpc("finish_auto_trade_job", {
@@ -75,14 +75,15 @@ export async function POST(request: NextRequest) {
     const workers = await Promise.allSettled(Array.from({ length: 3 }, worker));
     const failure = workers.find(r => r.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
-    const count = async (statuses: string[]) => {
-      const query = await supabase.from("auto_trade_jobs").select("user_id", { count: "exact", head: true })
+    const count = async (statuses: string[], waiting = false) => {
+      const query = supabase.from("auto_trade_jobs").select("user_id", { count: "exact", head: true })
         .eq("run_date", runDate).in("status", statuses);
-      if (query.error) throw new Error(query.error.message);
-      return query.count ?? 0;
+      const response = await (waiting ? query.eq("result->>status", "waiting_recommendation") : query);
+      if (response.error) throw new Error(response.error.message);
+      return response.count ?? 0;
     };
-    const [pending, failed] = await Promise.all([count(["pending", "running"]), count(["failed"])]);
-    return NextResponse.json({ success: !pending && !failed, pending, failed, users: results.length, results },
+    const [pending, failed, waiting] = await Promise.all([count(["pending", "running"]), count(["failed"]), count(["done"], true)]);
+    return NextResponse.json({ success: !pending && !failed, pending, failed, waiting, users: results.length, results },
       { status: pending ? 202 : failed ? 503 : 200 });
   } catch (error) {
     console.error("[auto-trade queue]", error);

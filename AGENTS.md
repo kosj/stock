@@ -36,3 +36,7 @@ publication/quality-withholding receipts before allowing catch-up training.
 Mock execution/performance follow-up: `docs/mock-execution-performance-20261031.md`.
 Keep risk-only scans free of buys/rank-out sales, preserve source trade timestamps,
 and never treat incomplete quote/risk checks as a successful daily job.
+
+Daily recommendation waiting: `docs/daily-recommendation-wait-20261103.md`.
+Keep normal absent/expired recommendations distinct from lookup/corruption errors,
+and never complete a daily job when risk checks are incomplete.

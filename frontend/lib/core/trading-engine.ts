@@ -19,7 +19,7 @@
  */
 
 import { effectivePrice, DEFAULT_COSTS, type ExecutionCosts } from "./execution-policy.ts";
-import { validateRecommendations } from "./recommendation-policy.ts";
+import { assessRecommendations } from "./recommendation-policy.ts";
 import { DEFAULT_EXPOSURE_LIMITS, entryBudget, type ExposureLimits } from "./exposure-policy.ts";
 import type { EquityObservation } from "./performance";
 
@@ -76,7 +76,8 @@ export interface TradingResult {
   error?:           string;
   mode?: "rebalance" | "risk";
   risk_checks_complete?: boolean;
-  status?: "completed" | "degraded" | "blocked";
+  status?: "completed" | "waiting_recommendation" | "degraded" | "blocked";
+  notice?: string;
 }
 
 /** 엔진 의존성 (브로커 외 — 미지정 시 기본 어댑터 사용) */
@@ -145,13 +146,16 @@ export class TradingEngineService {
       const runDate = this.clock.tradingDateKst();
 
       // ── Step 1: 사전 데이터 병렬 수집 ────────────────────────────────────
+      let recommendationLookupFailed = false;
       const [recommendations, account, holdings] = await Promise.all([
-        options.riskOnly ? Promise.resolve([]) : this.recommendations.getTopRecommendations(20).catch(() => []),
+        options.riskOnly ? Promise.resolve([]) : this.recommendations.getTopRecommendations(20).catch(() => { recommendationLookupFailed = true; return []; }),
         this.broker.getBalance(),
         this.broker.getPositions(),
       ]);
 
-      const recommendationError = options.riskOnly ? null : validateRecommendations(recommendations, this.clock.now());
+      const readiness = options.riskOnly ? { state: "ready", reason: null } : assessRecommendations(recommendations, this.clock.now());
+      const recommendationError = recommendationLookupFailed ? "추천 조회 실패" : readiness.reason;
+      const waiting = !recommendationLookupFailed && readiness.state === "waiting";
       const top20 = recommendationError ? [] : recommendations;
       if (recommendationError) console.warn(`[TradingEngine] ${recommendationError} — 손절 검사만 수행`);
 
@@ -186,9 +190,9 @@ export class TradingEngineService {
       const kstDate = runDate.slice(0, 4) + "-" + runDate.slice(4, 6) + "-" + runDate.slice(6, 8);
       const since = new Date(`${kstDate}T00:00:00+09:00`);
       // 영속 체결 이력으로 이전 실행의 손절 후 재매수도 차단. 조회 실패 시 매수 금지.
-      const fills = options.riskOnly ? [] : await this.broker.getFills({ since });
+      const fills = options.riskOnly || recommendationError ? [] : await this.broker.getFills({ since });
       for (const fill of fills) if (fill.side === "SELL") sellResult.soldTickers.add(fill.ticker);
-      const buyResult = options.riskOnly ? { buyCount: 0, skipCount: 0 } : await this.executeBuys(
+      const buyResult = options.riskOnly || recommendationError ? { buyCount: 0, skipCount: 0 } : await this.executeBuys(
         userId, runDate, top20, holdingsAfterSell, sellResult.soldTickers, availableCash, details,
         Math.min(balanceAfterSell.cash + heldValue, balanceAfterSell.autoTradeCapital ?? Infinity),
       );
@@ -207,10 +211,11 @@ export class TradingEngineService {
       const dataIssue = details.some(d => d.code === "QUOTE_UNAVAILABLE");
       const error = dataIssue ? "시세 장애로 일부 매매·손절 검사를 완료하지 못했습니다."
         : details.some(d => d.code === "SECTOR_UNKNOWN") ? "섹터 데이터 미확인으로 집중도 검사를 완료하지 못했습니다."
-        : recommendationError ? `${recommendationError} — 손절만 수행`
+        : recommendationError && !waiting ? `${recommendationError} — 손절만 수행`
         : details.some(d => d.error) ? "일부 주문을 완료하지 못했습니다. 체결 내역을 확인하세요." : undefined;
       const result: TradingResult = { tickers_analyzed, trades_buy, trades_sell, skipped, details, mode,
-        risk_checks_complete: riskComplete, status: error || details.some(d => d.error) ? "degraded" : "completed",
+        risk_checks_complete: riskComplete, status: error || !riskComplete ? "degraded" : waiting ? "waiting_recommendation" : "completed",
+        ...(waiting ? { notice: `${recommendationError} — 신규 매수·순위 청산 보류, 손절 점검 수행` } : {}),
         ...(error ? { error } : {}) };
       if (this.deps.execution.snapshot) {
         try {
