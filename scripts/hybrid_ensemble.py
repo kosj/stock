@@ -47,6 +47,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from news_sentiment import NewsSentimentService
 from metrics_util import daily_ic_stats
 from model_validation import cross_sectional_zscore, write_quality_report
+from krx_integrity import cache_readiness
 from weekly_execution import WITHHELD_EXIT, write_model_outcome
 # 시세는 Supabase 스냅샷을 우선 사용한다. yfinance 를 매번 새로 받으면 배당·분할
 # 소급 조정가가 호출마다 미세하게 달라져 같은 날 결과가 재현되지 않는다(실측).
@@ -208,7 +209,7 @@ def fetch_krx_cache(ticker: str) -> pd.DataFrame:
     KRX는 클라우드 IP를 차단하므로 ML 잡(CI)은 pykrx를 직접 호출하지 않고,
     KR 접속 환경의 krx_cache.py가 적재해 둔 이 테이블을 읽는다.
     반환: DataFrame(index=DatetimeIndex, columns=[foreign_net, inst_net, per, pbr]).
-    테이블 부재/빈 데이터/오류 시 빈 DataFrame → 호출측에서 0(중립) degrade.
+    테이블 부재/빈 데이터/오류 시 빈 DataFrame → 운영 추천에서 해당 종목 제외.
     """
     try:
         rows, offset = [], 0
@@ -240,7 +241,7 @@ def fetch_krx_cache(ticker: str) -> pd.DataFrame:
         out = out[~out.index.duplicated(keep="last")]
         for col in ("foreign_net", "inst_net", "per", "pbr"):
             if col not in out.columns:
-                out[col] = 0.0
+                out[col] = float("nan")
         return out[["foreign_net", "inst_net", "per", "pbr"]].astype(float)
     except Exception as exc:
         print(f"  [warn] KRX cache {ticker}: {type(exc).__name__}; neutral features")
@@ -784,7 +785,11 @@ def main() -> int:
             print(f"  skip {s['ticker']}: 기준일 {data_as_of} 시세 없음")
             continue
 
-        krx   = fetch_krx_cache(s["ticker"])   # Supabase 캐시 (없으면 빈 DF → 중립)
+        krx = fetch_krx_cache(s["ticker"])
+        readiness = cache_readiness(krx, df.index)
+        if not readiness["ready"]:
+            print(f"  skip {s['ticker']}: KRX {readiness['reason']} ({readiness['missing_sessions']}/20 sessions missing)")
+            continue
         flows = krx[["foreign_net", "inst_net"]] if not krx.empty else pd.DataFrame()
         funda = krx[["per", "pbr"]]             if not krx.empty else pd.DataFrame()
         if not flows.empty:
@@ -825,8 +830,8 @@ def main() -> int:
     _FP_LOG.append(f"종목종가={_fingerprint(_all_close)}")
     print(f"  [지문] 종목종가 전체 행={len(_all_close)} {_fingerprint(_all_close)}")
 
-    if not per_stock:
-        sys.exit("처리 가능한 종목 없음")
+    if len(per_stock) < TOP_N:
+        sys.exit("신선한 KRX 수급·밸류와 시세를 갖춘 종목이 Top20보다 적습니다. 입력 복구 후 재시도하세요.")
     print(f"\n  → {len(per_stock)}/{len(UNIVERSE)} 종목 준비 완료")
     print(f"  → 수급(캐시): {flow_ok}/{len(per_stock)}종목 | "
           f"밸류(캐시): {funda_ok}/{len(per_stock)}종목 "

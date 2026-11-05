@@ -29,11 +29,17 @@ import argparse
 import os
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+from contextlib import redirect_stdout, redirect_stderr
+import io
+from krx_integrity import recovery_start, complete_rows
 
 import pandas as pd
 import requests
-from pykrx import stock
+with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+    from pykrx import stock
+    from pykrx.website.comm.auth import get_auth_session
 
 from universe import UNIVERSE
 
@@ -49,6 +55,10 @@ SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 BACKFILL_YEARS   = 5
 INCREMENTAL_DAYS = 7      # 증분: 공시 지연·정정 대비 최근 N일 재적재(멱등 upsert)
 THROTTLE_SEC     = 0.2    # KRX rate-limit 회피용 종목당 소폭 스로틀
+
+
+class CacheError(RuntimeError):
+    pass
 
 
 def _detect(df: pd.DataFrame, *keys: str):
@@ -72,7 +82,7 @@ def fetch_one(ticker: str, fromdate: str, todate: str) -> pd.DataFrame:
                 out = f[[fcol, icol]].copy()
                 out.columns = ["foreign_net", "inst_net"]
     except Exception as e:
-        print(f"    [warn] {ticker} 수급 조회 실패: {e}")
+        print(f"    [warn] {ticker} supply request failed")
     # 밸류: 일별 PER/PBR
     try:
         v = stock.get_market_fundamental_by_date(fromdate, todate, ticker)
@@ -83,7 +93,7 @@ def fetch_one(ticker: str, fromdate: str, todate: str) -> pd.DataFrame:
                 vv.columns = ["per", "pbr"]
                 out = vv if out.empty else out.join(vv, how="outer")
     except Exception as e:
-        print(f"    [warn] {ticker} 밸류 조회 실패: {e}")
+        print(f"    [warn] {ticker} value request failed")
 
     if out.empty:
         return out
@@ -122,9 +132,36 @@ def upsert(ticker: str, df: pd.DataFrame) -> int:
         json=rows, timeout=30,
     )
     if not resp.ok:
-        print(f"    [error] {ticker} upsert 실패: {resp.status_code} {resp.text[:160]}")
-        return 0
+        raise CacheError(f"KRX cache publication failed (HTTP {resp.status_code})")
     return len(rows)
+
+
+def ensure_login():
+    if not (os.environ.get("KRX_ID") and os.environ.get("KRX_PW")):
+        raise CacheError("KRX_CREDENTIALS_MISSING: configure KRX_ID/KRX_PW")
+    try:
+        # pykrx prints account identifiers and provider responses; suppress them.
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            session = get_auth_session()
+        if session is None or not session.is_valid():
+            raise CacheError("KRX_AUTH_FAILED: verify KRX account login and runner access")
+    except CacheError:
+        raise
+    except Exception:
+        raise CacheError("KRX_AUTH_UNAVAILABLE: authentication request failed") from None
+
+
+def latest_cached(ticker):
+    response = requests.get(f"{SUPABASE_URL}/rest/v1/krx_daily",
+        params={"ticker": f"eq.{ticker}", "select": "date", "order": "date.desc", "limit": 1,
+                "foreign_net": "not.is.null", "inst_net": "not.is.null", "per": "not.is.null", "pbr": "not.is.null"},
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}, timeout=30)
+    if not response.ok:
+        raise CacheError(f"KRX cache history lookup failed (HTTP {response.status_code})")
+    rows = response.json()
+    if not isinstance(rows, list) or len(rows) > 1:
+        raise CacheError("Invalid cache history response")
+    return date.fromisoformat(rows[0]["date"]) if rows else None
 
 
 def main() -> None:
@@ -132,13 +169,11 @@ def main() -> None:
     ap.add_argument("--backfill", action="store_true", help=f"{BACKFILL_YEARS}년 전체 적재(최초 1회)")
     ap.add_argument("--days", type=int, default=None, help="최근 N일 적재")
     args = ap.parse_args()
+    if args.days is not None and args.days < 1:
+        raise CacheError("days must be positive")
 
-    # KRX 회원제 개편(2024-12)으로 로그인 필수. 미설정 시 pykrx가 빈 응답을 받는다.
-    if not (os.environ.get("KRX_ID") and os.environ.get("KRX_PW")):
-        print("[krx_cache] ⚠ KRX_ID/KRX_PW 미설정 — KRX 데이터 마켓플레이스(data.krx.co.kr) "
-              "가입 후 환경변수 설정이 필요합니다. 미설정 시 전 종목 0행(빈 응답).")
-
-    todate = date.today()
+    ensure_login()
+    todate = datetime.now(ZoneInfo("Asia/Seoul")).date()
     if args.backfill:
         fromdate = todate - timedelta(days=BACKFILL_YEARS * 365 + 10)
     else:
@@ -150,10 +185,17 @@ def main() -> None:
     total_rows = ok = 0
     for i, s in enumerate(UNIVERSE, 1):
         tk = s["ticker"]
-        df = fetch_one(tk, f_s, t_s)
+        start = fromdate if args.backfill else recovery_start(todate, latest_cached(tk), args.days or INCREMENTAL_DAYS)
+        # Also validate explicit --days rather than silently accepting negative values.
+        if start > todate:
+            raise CacheError("Invalid KRX recovery interval")
+        df = fetch_one(tk, start.strftime("%Y%m%d"), t_s)
         if df.empty:
             print(f"  [{i}/{len(UNIVERSE)}] {tk} {s['name']}: 데이터 없음")
             continue
+        if (not complete_rows(df) or df.index[-1].date() > todate
+                or (todate - df.index[-1].date()).days > 4):
+            raise CacheError(f"KRX incomplete/stale source for {tk}; existing cache preserved")
         n = upsert(tk, df)
         total_rows += n
         ok += 1 if n else 0
@@ -161,7 +203,14 @@ def main() -> None:
         time.sleep(THROTTLE_SEC)
 
     print(f"[krx_cache] 완료: {ok}/{len(UNIVERSE)}종목, 총 {total_rows}행 upsert")
+    if not total_rows or ok != len(UNIVERSE):
+        raise CacheError("KRX_CACHE_INCOMPLETE: zero/partial source coverage; inspect account and provider access")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        # No request objects, URLs, raw provider bodies or credential values.
+        print(f"[krx_cache] failed: {error if isinstance(error, CacheError) else type(error).__name__}; source not verified")
+        sys.exit(1)

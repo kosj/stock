@@ -6,6 +6,13 @@ name: "KRX Supply/Value Cache"
 # ※ KRX 데이터 마켓플레이스는 로그인 필수 → KRX_ID/KRX_PW Secret 필요.
 #   GitHub 러너(해외 IP)에서 KRX 로그인/조회가 막히면 로컬(krx_daily.bat)로 폴백.
 on:
+  push:
+    branches: [master]
+    paths:
+      - scripts/krx_cache.py
+      - scripts/krx_integrity.py
+      - scripts/requirements-krx.txt
+      - .github/workflows/krx-cache.yml
   schedule:
     - cron: "40 6 * * 1-5"      # 평일(월~금) 06:40 UTC
   workflow_dispatch:
@@ -15,6 +22,11 @@ on:
         required: false
         default: "incremental"
 
+permissions:
+  contents: read
+concurrency:
+  group: krx-cache-publication
+  cancel-in-progress: false
 jobs:
   krx-cache:
     runs-on: ubuntu-latest
@@ -41,8 +53,9 @@ jobs:
           KRX_ID:                    ${{ secrets.KRX_ID }}
           KRX_PW:                    ${{ secrets.KRX_PW }}
           PYTHONUNBUFFERED:          "1"
+          CACHE_MODE: ${{ inputs.mode || 'incremental' }}
         run: |
-          if [ "${{ github.event.inputs.mode }}" = "backfill" ]; then
+          if [ "$CACHE_MODE" = "backfill" ]; then
             python -u scripts/krx_cache.py --backfill
           else
             python -u scripts/krx_cache.py

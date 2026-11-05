@@ -40,3 +40,7 @@ and never treat incomplete quote/risk checks as a successful daily job.
 Daily recommendation waiting: `docs/daily-recommendation-wait-20261103.md`.
 Keep normal absent/expired recommendations distinct from lookup/corruption errors,
 and never complete a daily job when risk checks are incomplete.
+
+KRX source integrity: `docs/krx-input-integrity-20261105.md`.
+Require fresh, complete source windows for production recommendations; never treat
+zero cache rows or failed provider authentication as successful recovery.
