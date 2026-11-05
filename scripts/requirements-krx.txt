@@ -2,6 +2,6 @@
 # The ML job (hybrid_ensemble.py, CI) does NOT need pykrx, so this is split from requirements.txt.
 # ASCII-only on purpose: pip decodes requirement files with the system locale (e.g. cp932 on
 # some Windows setups), so non-ASCII comments break `pip install -r`.
-pykrx>=1.0.45
+pykrx==1.2.8
 pandas>=2.2.0
 requests>=2.31.0

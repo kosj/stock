@@ -37,6 +37,7 @@ jobs:
       - run: pip install -r scripts/requirements-ci.txt
       - run: python scripts/test_model_safety.py
       - run: python scripts/test_data_quality.py
+      - run: python scripts/test_krx_integrity.py
       - run: python scripts/test_model_validation.py
       - run: python scripts/test_weekly_execution.py
       - run: python scripts/test_recommendation_diagnostics.py
