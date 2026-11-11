@@ -44,3 +44,7 @@ and never complete a daily job when risk checks are incomplete.
 KRX source integrity: `docs/krx-input-integrity-20261105.md`.
 Require fresh, complete source windows for production recommendations; never treat
 zero cache rows or failed provider authentication as successful recovery.
+
+Weekly price snapshot input: `docs/weekly-price-snapshot-fix-20261111.md`.
+Normalise provider rows to the snapshot RPC contract before publishing; keep stored
+rows append-only and report only PostgREST code/message on RPC failures.
