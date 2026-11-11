@@ -85,6 +85,34 @@ class DataQuality(unittest.TestCase):
             self.assertEqual(result.Close.tolist(), [100., 101., 102.])
             self.assertEqual(len(publish.call_args.args[1]), 3)
 
+    def test_provider_rows_violating_snapshot_contract_never_reach_publish(self):
+        # 2026-11-06: one rejected provider row aborted the weekly run at the benchmark.
+        dates = pd.bdate_range("2026-01-01", periods=3)
+        old = pd.DataFrame({c: [100., 101.] for c in price_store.COLS}, index=dates[:2])
+        index = pd.DatetimeIndex(["2026-01-01", "2026-01-02", "2026-01-05", "2026-01-05 15:30",
+                                  "2026-01-06", "2026-01-07"]).tz_localize("Asia/Seoul")
+        fresh = pd.DataFrame({c: [999., 999., 102., 103., np.nan, 0.] for c in price_store.COLS}, index=index)
+        with patch.object(price_store, "enabled", return_value=True), \
+             patch.object(price_store, "_read_snapshot", return_value=(old, 3)), \
+             patch.object(price_store, "_publish") as publish:
+            result, status = price_store.load("TEST", lambda _: fresh)
+        published = publish.call_args.args[1]
+        self.assertEqual(status, "snapshot")
+        self.assertEqual(list(published.index), list(dates))
+        self.assertEqual(published.Close.tolist(), [100., 101., 103.])
+        self.assertTrue(result.index.is_unique and result.index.tz is None)
+
+    def test_snapshot_rpc_error_reports_database_reason_without_url(self):
+        response = Mock(ok=False, status_code=400, url="https://secret.example/rest/v1/rpc/x")
+        response.json.return_value = {"code": "P0001", "message": "invalid snapshot rows", "details": "row"}
+        frame = pd.DataFrame({c: [1.] for c in price_store.COLS}, index=pd.to_datetime(["2026-01-01"]))
+        with patch.object(price_store.requests, "post", return_value=response):
+            with self.assertRaises(requests.HTTPError) as caught:
+                price_store._publish("TEST", frame, 0, "append")
+        self.assertIn("P0001 invalid snapshot rows", str(caught.exception))
+        self.assertNotIn("secret.example", str(caught.exception))
+        self.assertNotIn("row\"", str(caught.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,6 +60,12 @@ class KRXIntegrity(unittest.TestCase):
                                get_auth_session=provider, io=io, redirect_stdout=redirect_stdout, redirect_stderr=redirect_stderr)
         with self.assertRaisesRegex(RuntimeError, 'KRX_AUTH_FAILED'): scope['ensure_login']()
         self.assertEqual(provider.call_count, 1)
+        def expired():
+            print('KRX 비밀번호 변경이 필요합니다. 로그인 ID: account-name')
+        provider.side_effect = expired
+        with self.assertRaisesRegex(RuntimeError, 'KRX_PASSWORD_CHANGE_REQUIRED') as error: scope['ensure_login']()
+        self.assertNotIn('account-name', str(error.exception))
+        provider.side_effect = None
         provider.return_value = Mock(is_valid=Mock(return_value=True))
         scope['ensure_login']()
 

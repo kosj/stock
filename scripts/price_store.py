@@ -67,13 +67,55 @@ def enabled() -> bool:
     return bool(SUPABASE_URL and SUPABASE_KEY)
 
 
+def _check(resp: requests.Response, action: str) -> None:
+    """Fail with the database's own error code/message, never the URL or row payload.
+
+    2026-11-06 주간 실행은 publish RPC의 400 만 남기고 종료해 어떤 검증에 걸렸는지
+    로그로 구분할 수 없었다. PostgREST 오류의 code/message(행 내용이 담기는 details 제외)만
+    남긴다.
+    """
+    if resp.ok:
+        return
+    detail = ""
+    try:
+        body = resp.json()
+        detail = f": {body.get('code', '')} {body.get('message', '')}"[:240]
+    except Exception:
+        pass
+    raise requests.HTTPError(f"{action} failed (HTTP {resp.status_code}){detail}", response=resp)
+
+
+def _clean(ticker: str, frame: pd.DataFrame) -> pd.DataFrame:
+    """Normalise provider rows to the snapshot contract: one finite positive close per date.
+
+    publish_price_snapshot 은 날짜 중복·종가 NULL/0 이하 행이 하나라도 있으면 티커 전체를
+    거부한다. 야후는 장 마감 직후 당일 행을 일봉과 실시간 행으로 중복 반환하거나, 시각·
+    시간대가 붙은 색인 또는 종가가 빈 행을 줄 수 있다. 그런 행 하나가 벤치마크에 섞이면
+    주간 학습이 첫 단계에서 중단된다. 저장 계약에 맞지 않는 행만 버리고 사유를 남긴다.
+    """
+    if frame.empty:
+        return frame
+    index = pd.DatetimeIndex(frame.index)
+    if index.tz is not None:
+        index = index.tz_localize(None)          # 거래소 현지 달력 날짜 유지
+    out = frame[COLS].copy()
+    out.index = index.normalize()
+    close = pd.to_numeric(out["Close"], errors="coerce").to_numpy(dtype=float)
+    out = out[np.isfinite(close) & (close > 0)]
+    out = out[~out.index.duplicated(keep="last")].sort_index()
+    if len(out) != len(frame):
+        print(f"    [clean] {ticker}: 저장 계약 위반 원본 {len(frame) - len(out)}행 제외 "
+              f"(종가 결측/0 이하 또는 날짜 중복)")
+    return out
+
+
 def _read_snapshot(ticker: str) -> tuple[pd.DataFrame, int]:
     """One DB statement reads the entire ticker and revision consistently."""
     resp = requests.post(
         f"{SUPABASE_URL}/rest/v1/rpc/read_price_snapshot",
         headers=_headers(), json={"p_ticker": ticker}, timeout=60,
     )
-    resp.raise_for_status()
+    _check(resp, "read_price_snapshot")
     snapshot = resp.json()
     rows, revision = snapshot["rows"], int(snapshot["revision"])
     _snapshot_revisions[ticker] = revision
@@ -106,7 +148,7 @@ def _publish(ticker: str, df: pd.DataFrame, revision: int, reason: str) -> None:
                                   "p_expected_revision": revision, "p_reason": reason},
         timeout=60,
     )
-    resp.raise_for_status()
+    _check(resp, f"publish_price_snapshot({reason})")
     if int(resp.json()) != revision + 1:
         raise RuntimeError("Invalid snapshot publication receipt")
     _snapshot_revisions[ticker] = revision + 1
@@ -123,7 +165,7 @@ def load(ticker: str, fetcher: Callable[[str], pd.DataFrame]) -> tuple[pd.DataFr
             "live"      저장소 미설정 → 야후 응답 그대로(재현 불가)
     설정된 저장소의 읽기/쓰기 오류는 전파한다. 미적재 가격으로 학습하지 않는다.
     """
-    fresh = fetcher(ticker)
+    fresh = _clean(ticker, fetcher(ticker))
 
     if not enabled():
         return fresh, "live"

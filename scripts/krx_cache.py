@@ -141,10 +141,17 @@ def ensure_login():
         raise CacheError("KRX_CREDENTIALS_MISSING: configure KRX_ID/KRX_PW")
     try:
         # pykrx prints account identifiers and provider responses; suppress them.
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        captured = io.StringIO()
+        with redirect_stdout(captured), redirect_stderr(captured):
             session = get_auth_session()
         if session is None or not session.is_valid():
-            raise CacheError("KRX_AUTH_FAILED: verify KRX account login and runner access")
+            # KRX answered but refused the login. Only a fixed marker is inspected; the
+            # captured provider text (account id, response message) is never printed.
+            if "비밀번호 변경" in captured.getvalue():
+                raise CacheError("KRX_PASSWORD_CHANGE_REQUIRED: change the password on krx.co.kr, "
+                                 "then update the KRX_PW secret")
+            raise CacheError("KRX_AUTH_FAILED: KRX rejected KRX_ID/KRX_PW; verify the account "
+                             "can log in on data.krx.co.kr and update the secrets")
     except CacheError:
         raise
     except Exception:
