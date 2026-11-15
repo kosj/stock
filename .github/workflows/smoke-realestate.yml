@@ -11,6 +11,11 @@ on:
         required: false
         default: "https://stock-ashen-three.vercel.app"
 
+
+# Read-only token; these jobs only check out code and call external services.
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest

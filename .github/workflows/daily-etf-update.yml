@@ -7,6 +7,11 @@ on:
     - cron: "0 7 * * 1-5"   # 평일(월~금)만 실행
   workflow_dispatch:          # GitHub Actions UI에서 수동 실행 (테스트용)
 
+
+# Read-only token; these jobs only check out code and call external services.
+permissions:
+  contents: read
+
 jobs:
   update-etf-prices:
     runs-on: ubuntu-latest

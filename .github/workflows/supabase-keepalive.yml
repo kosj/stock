@@ -8,6 +8,11 @@ on:
     - cron: "0 9 * * 6,0"   # 토·일 09:00 UTC (18:00 KST)
   workflow_dispatch:
 
+
+# Read-only token; these jobs only check out code and call external services.
+permissions:
+  contents: read
+
 jobs:
   keepalive:
     runs-on: ubuntu-latest
