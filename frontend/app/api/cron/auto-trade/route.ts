@@ -1,5 +1,6 @@
 /** Durable, bounded paper-trading worker. Repeated calls drain today's queue. */
 import { randomUUID } from "node:crypto";
+import { cronAuthFailure } from "@/lib/server/cron-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { TradingEngineService } from "@/lib/server/trading-engine-service";
@@ -36,11 +37,8 @@ async function scanRisk(request: NextRequest, started: number) {
 }
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
-  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = cronAuthFailure(request);
+  if (denied) return denied;
   const clock = new KrMarketClock();
   if (!clock.isMarketOpen()) return NextResponse.json({ error: "정규장 외 작업은 실행하지 않습니다." }, { status: 409 });
   if (request.nextUrl.searchParams.get("mode") === "risk") return scanRisk(request, Date.now());

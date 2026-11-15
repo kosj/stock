@@ -214,6 +214,10 @@ test("complete baseline plus every migration: profile trigger, new service RPCs 
     await db.exec(await readFile(new URL("../supabase/schema.sql", import.meta.url), "utf8"));
     // Model a previously exposed deployment so migrations must actively revoke access.
     await db.exec("GRANT ALL ON ALL TABLES IN SCHEMA public TO anon,authenticated; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon,authenticated; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon,authenticated,service_role;");
+    // Supabase's own defaults: every object created later is exposed unless revoked.
+    await db.exec("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon,authenticated,service_role; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon,authenticated,service_role; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon,authenticated,service_role;");
+    // A table created outside migrations (dashboard/scripts), like news_sentiment in production.
+    await db.exec("CREATE TABLE public.dashboard_created(id bigserial PRIMARY KEY, note text);");
     const files = (await readdir(new URL("../supabase/migrations/", import.meta.url))).filter(file => file.endsWith(".sql")).sort();
     for (const file of files) {
       try {
@@ -222,6 +226,36 @@ test("complete baseline plus every migration: profile trigger, new service RPCs 
         throw new Error(`Migration failed against complete baseline: ${file}`, { cause: error });
       }
     }
+    // 20261115000001: no public table, sequence or SECURITY DEFINER function reachable by the anon key.
+    const exposed = await db.query(`SELECT c.oid::regclass::text AS name FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S') AND (
+        (c.relkind='S' AND (has_sequence_privilege('anon',c.oid,'USAGE') OR has_sequence_privilege('authenticated',c.oid,'USAGE')))
+        OR (c.relkind<>'S' AND (has_table_privilege('anon',c.oid,'SELECT,INSERT,UPDATE,DELETE') OR has_table_privilege('authenticated',c.oid,'SELECT,INSERT,UPDATE,DELETE'))))`);
+    assert.deepEqual(exposed.rows, [], "public relations exposed to anon/authenticated");
+    const noRls = await db.query("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND NOT c.relrowsecurity");
+    assert.deepEqual(noRls.rows, [], "every public table has RLS");
+    const definers = await db.query(`SELECT p.oid::regprocedure::text AS fn, p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.prosecdef`);
+    assert.ok(definers.rows.length > 5);
+    for (const { fn, proconfig } of definers.rows) {
+      assert.equal(await scalar(db, "SELECT has_function_privilege('anon',$1,'EXECUTE') OR has_function_privilege('authenticated',$1,'EXECUTE')", [fn]), false, fn);
+      assert.ok((proconfig ?? []).some(setting => setting.startsWith("search_path=")), `${fn} has a fixed search_path`);
+    }
+    assert.equal(await scalar(db, "SELECT has_table_privilege('service_role','dashboard_created','INSERT')"), true, "server keeps access");
+    await db.exec("CREATE TABLE public.created_after_hardening(id bigserial PRIMARY KEY); CREATE FUNCTION public.created_after_hardening_fn() RETURNS int LANGUAGE sql AS 'SELECT 1';");
+    assert.equal(await scalar(db, "SELECT has_table_privilege('anon','created_after_hardening','SELECT') OR has_table_privilege('authenticated','created_after_hardening','SELECT')"), false, "default privileges keep new tables server-only");
+    assert.equal(await scalar(db, "SELECT has_sequence_privilege('anon','created_after_hardening_id_seq','USAGE')"), false);
+    assert.equal(await scalar(db, "SELECT has_table_privilege('service_role','created_after_hardening','INSERT')"), true);
+    assert.equal(await scalar(db, "SELECT count(*)::int FROM pg_policies WHERE tablename='user_profiles' AND policyname='users_update_own_last_seen'"), 0);
+    const client = c => c.repeat(64);
+    for (let i = 0; i < 5; i++) assert.equal(await scalar(db, "SELECT consume_signup_quota($1)", [client("a")]), true);
+    assert.equal(await scalar(db, "SELECT consume_signup_quota($1)", [client("a")]), false, "per-client hourly limit");
+    await assert.rejects(db.query("SELECT consume_signup_quota('203.0.113.7')"), /invalid signup quota request/);
+    for (let i = 0; i < 25; i++) assert.equal(await scalar(db, "SELECT consume_signup_quota($1)", [i.toString(16).padStart(64, "b")]), true);
+    assert.equal(await scalar(db, "SELECT consume_signup_quota($1)", [client("c")]), false, "global hourly limit");
+    await db.exec("UPDATE signup_attempts SET window_started_at = window_started_at - interval '2 hours'");
+    assert.equal(await scalar(db, "SELECT consume_signup_quota($1)", [client("a")]), true, "window resets after an hour");
+
     for (const suffix of ["0001_api_security", "0002_mock_ledger", "0003_price_versions", "0004_access_controls", "0005_auto_trade_jobs"]) {
       assert.ok(files.includes(`20261020${suffix}.sql`), suffix);
     }

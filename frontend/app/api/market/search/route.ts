@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchStocks, searchStocksNaver } from "@/lib/server/yahoo-finance";
-import { createBrokerProvider } from "@/lib/server/providers";
-import type { BrokerType } from "@/lib/server/providers";
 import { requireApprovedUser } from "@/lib/server/require-user";
 
 export const dynamic     = "force-dynamic";
@@ -14,33 +12,15 @@ export async function GET(req: NextRequest) {
   if (q.length > 80 || /[\x00-\x1F\x7F]/.test(q)) return NextResponse.json({ error: "invalid search query" }, { status: 400 });
   if (!q.trim()) return NextResponse.json([]);
 
-  const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
-  const appKey     = req.headers.get("x-app-key");
-  const appSecret  = req.headers.get("x-app-secret");
-  const hasBroker  = !!(brokerType && appKey && appSecret);
+  // Broker keys are never accepted from request headers; saved keys live server-side only.
   const hasKorean  = /[가-힣]/.test(q);
 
-  // 브로커 프로바이더 (재사용)
-  const provider = hasBroker
-    ? createBrokerProvider(brokerType!, { appKey: appKey!, appSecret: appSecret! })
-    : null;
-
   if (hasKorean) {
-    // 1. KIS (브로커 설정 시) — 가장 정확
-    if (provider) {
-      try {
-        const results = await provider.searchStocks(q);
-        if (results.length > 0) return NextResponse.json(results);
-      } catch (err) {
-        console.warn("[search] KIS Korean search failed:", err);
-      }
-    }
-
-    // 2. 네이버 증권 자동완성 — Vercel IP 차단 없음
+    // 1. 네이버 증권 자동완성 — Vercel IP 차단 없음
     const naverResults = await searchStocksNaver(q);
     if (naverResults.length > 0) return NextResponse.json(naverResults);
 
-    // 3. Yahoo Finance 직접 API — Vercel에서 차단될 수 있으나 시도
+    // 2. Yahoo Finance 직접 API — Vercel에서 차단될 수 있으나 시도
     const yahooResults = await searchStocks(q);
     if (yahooResults.length > 0) return NextResponse.json(yahooResults);
 
@@ -62,15 +42,6 @@ export async function GET(req: NextRequest) {
       return true;
     });
     return NextResponse.json(merged);
-  }
-
-  if (provider) {
-    try {
-      const results = await provider.searchStocks(q);
-      if (results.length > 0) return NextResponse.json(results);
-    } catch (err) {
-      console.warn("[search] broker fallback failed:", err);
-    }
   }
 
   return NextResponse.json([]);

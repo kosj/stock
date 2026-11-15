@@ -14,6 +14,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { cronAuthFailure } from "@/lib/server/cron-auth";
 import { supabase } from "@/lib/server/supabase";
 import { fetchRecentCloses } from "@/lib/server/etf-price-fetcher";
 
@@ -24,13 +25,8 @@ export const maxDuration = 60;
 export async function POST(request: NextRequest) {
   // ── 1. Cron 인증 ────────────────────────────────────────────────────────────
   // CRON_SECRET 환경변수로 무단 호출 차단 (GitHub Actions / Vercel Cron 모두 동일)
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
-  }
-  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = cronAuthFailure(request);
+  if (denied) return denied;
 
   const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 

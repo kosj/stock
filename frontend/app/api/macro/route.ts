@@ -16,7 +16,13 @@ const INDEX_TICKERS = [
 ] as const;
 
 export async function GET(req: NextRequest) {
-  const fredKey = req.headers.get("x-fred-key") ?? process.env.FRED_API_KEY ?? "";
+  // Optional per-tab key. FRED keys are 32 lowercase alphanumerics; anything else could
+  // inject extra query parameters into the upstream request.
+  const suppliedKey = req.headers.get("x-fred-key");
+  if (suppliedKey !== null && !/^[a-z0-9]{32}$/.test(suppliedKey)) {
+    return NextResponse.json({ error: "유효하지 않은 FRED API 키 형식입니다." }, { status: 400 });
+  }
+  const fredKey = suppliedKey ?? process.env.FRED_API_KEY ?? "";
 
   // FRED 데이터 + Yahoo Finance 시세 병렬 조회
   const [fredData, ...quoteResults] = await Promise.allSettled([

@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { apiAccessPolicy, isApprovedRole } from "./lib/server/api-security-policy";
+import { apiAccessPolicy, isApprovedRole, isForeignMutation } from "./lib/server/api-security-policy";
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -9,6 +9,11 @@ export async function middleware(request: NextRequest) {
 
   const isApi = pathname.startsWith("/api/");
   const policy = isApi ? apiAccessPolicy(pathname) : null;
+  // Cron routes authenticate with a bearer secret and are never called from a browser.
+  if (isApi && !pathname.startsWith("/api/cron/")
+      && isForeignMutation(request.method, request.headers, request.headers?.get("host") ?? request.nextUrl.host)) {
+    return NextResponse.json({ error: "허용되지 않은 요청 출처입니다." }, { status: 403 });
+  }
   // Public auth endpoints self-authenticate where needed; cron uses its own secret.
   if (
     pathname.startsWith("/_next/") ||

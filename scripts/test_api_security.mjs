@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import ts from "typescript";
+import { createRequire } from "node:module";
 import * as policy from "../frontend/lib/server/api-security-policy.ts";
 import { isApprovedRole, apiAccessPolicy, parseTicker, parseTickerBatch, readBoundedJson, boundedSettled } from "../frontend/lib/server/api-security-policy.ts";
 
@@ -15,6 +16,7 @@ async function loadHandler(path, modules, env = {}) {
   new Function("require", "exports", "process", compiled)(name => {
     if (name === "next/server") return { NextResponse: responseStub };
     if (modules[name]) return modules[name];
+    if (name.startsWith("node:")) return createRequire(import.meta.url)(name);
     throw new Error(`unexpected dependency ${name}`);
   }, exports, { env });
   return exports;
@@ -55,6 +57,7 @@ test("signup cannot bootstrap admin from a supplied email or role", async () => 
   const handler = await loadHandler("frontend/app/api/auth/signup/route.ts", {
     "@/lib/server/api-security-policy": policy,
     "@/lib/supabase/server": { createSupabaseAdminClient: () => ({
+      rpc: async () => ({ data: true, error: null }),
       auth: { admin: { createUser: async input => { created = input; return { data: { user: { id: "new" } } }; } } },
       from: () => ({ upsert: async () => ({ error: null }) }),
     }) },
@@ -62,6 +65,70 @@ test("signup cannot bootstrap admin from a supplied email or role", async () => 
   const response = await handler.POST(new Request("https://offline.invalid", { method: "POST", body: JSON.stringify({ email: "godkosj@gmail.com", password: "valid-password", role: "admin" }) }));
   assert.equal(response.status, 200);
   assert.deepEqual(created.app_metadata, { role: "pending" });
+});
+
+test("signup is throttled before any account is created and fails closed without the limiter", async () => {
+  for (const [quota, expected] of [[{ data: false, error: null }, 429], [{ data: null, error: { message: "missing function" } }, 503], [{ data: true, error: null }, 200]]) {
+    let created = 0, client;
+    const handler = await loadHandler("frontend/app/api/auth/signup/route.ts", {
+      "@/lib/server/api-security-policy": policy,
+      "@/lib/supabase/server": { createSupabaseAdminClient: () => ({
+        rpc: async (name, args) => { assert.equal(name, "consume_signup_quota"); client = args.p_client; return quota; },
+        auth: { admin: { createUser: async () => { created++; return { data: { user: { id: "new" } } }; } } },
+        from: () => ({ upsert: async () => ({ error: null }) }),
+      }) },
+    }, { SUPABASE_SERVICE_ROLE_KEY: "offline-dummy" });
+    const response = await handler.POST(new Request("https://offline.invalid", { method: "POST", headers: { "x-real-ip": "203.0.113.7" },
+      body: JSON.stringify({ email: "applicant@example.invalid", password: "valid-password" }) }));
+    assert.equal(response.status, expected);
+    assert.equal(created, expected === 200 ? 1 : 0, "no account before the quota allows it");
+    assert.match(client, /^[0-9a-f]{64}$/, "only a keyed hash of the client address is sent");
+    assert.ok(!client.includes("203.0.113.7"));
+  }
+});
+
+test("cross-site state changes are rejected while same-origin, read-only and cron requests pass", async () => {
+  const h = values => new Headers(values);
+  assert.equal(policy.isForeignMutation("POST", h({ origin: "https://evil.example" }), "app.example"), true);
+  assert.equal(policy.isForeignMutation("POST", h({ origin: "null" }), "app.example"), true);
+  assert.equal(policy.isForeignMutation("DELETE", h({ "sec-fetch-site": "same-site" }), "app.example"), true);
+  assert.equal(policy.isForeignMutation("POST", h({ "sec-fetch-site": "cross-site", origin: "https://app.example" }), "app.example"), true);
+  assert.equal(policy.isForeignMutation("POST", h({ origin: "https://app.example", "sec-fetch-site": "same-origin" }), "app.example"), false);
+  assert.equal(policy.isForeignMutation("GET", h({ origin: "https://evil.example" }), "app.example"), false);
+  assert.equal(policy.isForeignMutation("POST", h({}), "app.example"), false, "server-to-server calls carry no browser cookies");
+
+  const handler = await loadHandler("frontend/middleware.ts", {
+    "./lib/server/api-security-policy": policy,
+    "@supabase/ssr": { createServerClient: () => ({ auth: { getUser: async () => ({ data: { user: { app_metadata: { role: "admin" } } } }) } }) },
+  }, { NEXT_PUBLIC_SUPABASE_URL: "https://offline.invalid", NEXT_PUBLIC_SUPABASE_ANON_KEY: "dummy" });
+  const req = (pathname, method, headers) => ({ method, headers: new Headers({ host: "app.example", ...headers }), nextUrl: { pathname, host: "app.example" },
+    url: `https://app.example${pathname}`, cookies: { getAll: () => [], set() {} } });
+  for (const path of ["/api/mock/account/reset", "/api/admin/users/x/approve", "/api/auth/signup"]) {
+    assert.equal((await handler.middleware(req(path, "POST", { origin: "https://evil.example" }))).status, 403, path);
+  }
+  assert.equal((await handler.middleware(req("/api/mock/account/reset", "POST", { origin: "https://app.example" }))).status, 200);
+  assert.equal((await handler.middleware(req("/api/cron/auto-trade", "POST", { origin: "https://evil.example" }))).status, 200, "cron uses its own bearer secret");
+});
+
+test("cron secret check fails closed and rejects wrong or missing bearer tokens", async () => {
+  const load = env => loadHandler("frontend/lib/server/cron-auth.ts", {}, env);
+  const call = async (env, authorization) => (await load(env)).cronAuthFailure(new Request("https://offline.invalid", { headers: authorization ? { authorization } : {} }));
+  assert.equal((await call({}, "Bearer anything")).status, 500);
+  assert.equal((await call({ CRON_SECRET: "s3cret" }, undefined)).status, 401);
+  assert.equal((await call({ CRON_SECRET: "s3cret" }, "Bearer s3cre")).status, 401);
+  assert.equal((await call({ CRON_SECRET: "s3cret" }, "Bearer s3cret")), null);
+});
+
+test("admin user actions cannot target the actor, other admins or malformed ids", async () => {
+  const actor = "00000000-0000-4000-8000-000000000001";
+  const roles = { "00000000-0000-4000-8000-000000000002": "admin", "00000000-0000-4000-8000-000000000003": "pending" };
+  const { managedTargetFailure } = await loadHandler("frontend/lib/server/admin-target.ts", { "@/lib/supabase/server": {} });
+  const admin = { auth: { admin: { getUserById: async id => roles[id] ? { data: { user: { id, app_metadata: { role: roles[id] } } }, error: null } : { data: { user: null }, error: { message: "not found" } } } } };
+  assert.equal((await managedTargetFailure(admin, actor, "../../etc")).status, 400);
+  assert.equal((await managedTargetFailure(admin, actor, actor)).status, 400);
+  assert.equal((await managedTargetFailure(admin, actor, "00000000-0000-4000-8000-000000000002")).status, 409);
+  assert.equal((await managedTargetFailure(admin, actor, "00000000-0000-4000-8000-000000000009")).status, 404);
+  assert.equal(await managedTargetFailure(admin, actor, "00000000-0000-4000-8000-000000000003"), null);
 });
 
 test("actual analysis request validates before quota and fails closed on quota failure", async () => {

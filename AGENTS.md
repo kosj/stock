@@ -48,3 +48,7 @@ zero cache rows or failed provider authentication as successful recovery.
 Weekly price snapshot input: `docs/weekly-price-snapshot-fix-20261111.md`.
 Normalise provider rows to the snapshot RPC contract before publishing; keep stored
 rows append-only and report only PostgREST code/message on RPC failures.
+
+Security hardening: `docs/security-hardening-20261115.md`. Keep cross-origin API
+mutations blocked, cron secrets compared in constant time, broker keys out of request
+headers, and new public tables/functions server-only (default privileges migration).

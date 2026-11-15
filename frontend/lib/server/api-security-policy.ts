@@ -9,6 +9,24 @@ export function apiAccessPolicy(pathname: string): "public" | "approved" | "admi
   return pathname === "/api/admin" || pathname.startsWith("/api/admin/") ? "admin" : "approved";
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * Cookie-authenticated state changes must come from this origin. SameSite=Lax cookies
+ * still ride along on requests from sibling subdomains, and body-less POST routes
+ * (account reset, admin approve) need no CORS preflight. Requests without browser
+ * provenance headers (cron, server-to-server) carry no session cookie and pass.
+ */
+export function isForeignMutation(method: string | undefined, headers: Headers | undefined, host: string | undefined): boolean {
+  if (!headers || SAFE_METHODS.has((method ?? "GET").toUpperCase())) return false;
+  const site = headers.get("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") return true;
+  const origin = headers.get("origin");
+  if (!origin) return false;
+  if (origin === "null") return true;
+  try { return !host || new URL(origin).host !== host; } catch { return true; }
+}
+
 export class ApiInputError extends Error {
   status: number;
   constructor(message: string, status = 400) { super(message); this.status = status; }

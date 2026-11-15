@@ -12,7 +12,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabase }                  from "@/lib/server/supabase";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireApprovedUser } from "@/lib/server/require-user";
+import { boundedSettled } from "@/lib/server/api-security-policy";
 import { getChart, getQuote }        from "@/lib/server/yahoo-finance";
 import { calcSignals, calcIndicators } from "@/lib/server/indicators";
 import {
@@ -44,12 +45,10 @@ const PYRAMIDING_DONE_FLAG = "[pyramided]";
 
 export async function GET(req: NextRequest, { params }: Ctx) {
   // ── 인증 ──────────────────────────────────────────────────────────────────
-  const [serverClient, { id }] = await Promise.all([
-    createSupabaseServerClient(),
-    params,
-  ]);
-  const { data: { user } } = await serverClient.auth.getUser();
-  if (!user) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  // Approved role is checked here as well as in middleware (defence in depth).
+  const [auth, { id }] = await Promise.all([requireApprovedUser(), params]);
+  if (!auth.ok) return auth.response;
+  const user = { id: auth.userId };
 
   // ── 포트폴리오 소유권 검증 + 포지션 조회 ────────────────────────────────
   const [{ data: pf }, { data: positions }] = await Promise.all([
@@ -71,9 +70,10 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ results: [] });
 
   // ── 종목별 차트 + 현재가 병렬 조회 ─────────────────────────────────────
+  // Bounded fan-out: a large portfolio must not burst hundreds of upstream requests at once.
   const [chartResults, quoteResults] = await Promise.all([
-    Promise.allSettled(positions.map((p) => getChart(p.ticker, "1y"))),
-    Promise.allSettled(positions.map((p) => getQuote(p.ticker))),
+    boundedSettled(positions, (p) => getChart(p.ticker, "1y"), 4),
+    boundedSettled(positions, (p) => getQuote(p.ticker), 4),
   ]);
 
   // ── 종목별 분석 ───────────────────────────────────────────────────────────

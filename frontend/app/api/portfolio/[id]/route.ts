@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireApprovedUser } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+// Approved role is checked here as well as in middleware (defence in depth).
 async function getUserId(): Promise<string | null> {
-  const client = await createSupabaseServerClient();
-  const { data: { user } } = await client.auth.getUser();
-  return user?.id ?? null;
+  const auth = await requireApprovedUser();
+  return auth.ok ? auth.userId : null;
 }
 
 export async function GET(_: NextRequest, { params }: Ctx) {

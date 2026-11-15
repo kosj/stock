@@ -1,7 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getQuote, getIndexFromNaver } from "@/lib/server/yahoo-finance";
-import { createBrokerProvider } from "@/lib/server/providers";
-import type { BrokerType } from "@/lib/server/providers";
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 30;
@@ -16,18 +14,11 @@ const INDEX_MAP = [
 
 const KR_INDICES = new Set(["KOSPI", "KOSDAQ"]);
 
-export async function GET(req: NextRequest) {
-  const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
-  const appKey     = req.headers.get("x-app-key");
-  const appSecret  = req.headers.get("x-app-secret");
-  const hasBroker  = !!(brokerType && appKey && appSecret);
-
-  // Yahoo + KIS + Naver 완전 병렬 조회
-  const [yahooSettled, kisSettled, naverKospiSettled, naverKosdaqSettled] = await Promise.allSettled([
+// Broker keys are never accepted from request headers; saved keys live server-side only.
+export async function GET() {
+  // Yahoo + Naver 병렬 조회
+  const [yahooSettled, naverKospiSettled, naverKosdaqSettled] = await Promise.allSettled([
     Promise.allSettled(INDEX_MAP.map(({ ticker }) => getQuote(ticker))),
-    hasBroker
-      ? createBrokerProvider(brokerType!, { appKey: appKey!, appSecret: appSecret! }).getIndices()
-      : Promise.resolve(null),
     getIndexFromNaver("^KS11"),
     getIndexFromNaver("^KQ11"),
   ]);
@@ -62,16 +53,6 @@ export async function GET(req: NextRequest) {
     if (KR_INDICES.has(name) && data && data.price > 0) {
       // Yahoo가 null인 경우 또는 Yahoo보다 Naver 우선 (Yahoo Vercel 차단)
       indices[name] = data;
-    }
-  }
-
-  // 국내 지수는 KIS 데이터로 최종 덮어쓰기 (KIS > Naver > Yahoo 우선순위)
-  if (kisSettled.status === "fulfilled" && kisSettled.value) {
-    const kis = kisSettled.value;
-    for (const [name, data] of Object.entries(kis)) {
-      if (KR_INDICES.has(name) && data.price > 0) {
-        indices[name] = { price: data.price, change: data.change, change_pct: data.change_pct };
-      }
     }
   }
 

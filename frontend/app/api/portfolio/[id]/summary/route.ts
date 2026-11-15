@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireApprovedUser } from "@/lib/server/require-user";
 import { getQuote } from "@/lib/server/yahoo-finance";
-import { createBrokerProvider } from "@/lib/server/providers";
-import type { BrokerType, BrokerProvider } from "@/lib/server/providers";
+import type { BrokerProvider } from "@/lib/server/providers";
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 30;
@@ -31,12 +30,10 @@ async function fetchQuoteWithFallback(
 
 export async function GET(req: NextRequest, { params }: Ctx) {
   // auth + params 병렬 처리
-  const [serverClient, { id }] = await Promise.all([
-    createSupabaseServerClient(),
-    params,
-  ]);
-  const { data: { user } } = await serverClient.auth.getUser();
-  if (!user) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  // Approved role is checked here as well as in middleware (defence in depth).
+  const [auth, { id }] = await Promise.all([requireApprovedUser(), params]);
+  if (!auth.ok) return auth.response;
+  const user = { id: auth.userId };
 
   // portfolios + positions 병렬 조회 + 필요 컬럼만 select
   const [{ data: pf }, { data: positions }] = await Promise.all([
@@ -66,14 +63,8 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     });
   }
 
-  // 브로커 초기화
-  const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
-  const appKey     = req.headers.get("x-app-key");
-  const appSecret  = req.headers.get("x-app-secret");
-  let broker: BrokerProvider | null = null;
-  if (brokerType && appKey && appSecret) {
-    try { broker = createBrokerProvider(brokerType, { appKey, appSecret }); } catch {}
-  }
+  // Broker keys are never accepted from request headers; quotes come from public sources.
+  const broker: BrokerProvider | null = null;
 
   // 모든 종목 시세 병렬 조회 — 10개씩 배치 (개인 대시보드 기준 충분, Naver 폴백으로 Yahoo 차단 대응)
   async function batchAllSettled<T, R>(

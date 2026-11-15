@@ -27,7 +27,7 @@ async function fetchFred(
     const startDate = new Date();
     startDate.setFullYear(startDate.getFullYear() - 3);
     const url =
-      `${BASE}?series_id=${seriesId}&api_key=${apiKey}&file_type=json` +
+      `${BASE}?series_id=${encodeURIComponent(seriesId)}&api_key=${encodeURIComponent(apiKey)}&file_type=json` +
       `&sort_order=asc&observation_start=${startDate.toISOString().slice(0, 10)}`;
 
     // 타임아웃이 없으면 FRED 지연이 라우트 전체(maxDuration)를 잡아먹는다

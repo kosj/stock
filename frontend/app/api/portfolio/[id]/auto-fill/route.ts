@@ -4,6 +4,8 @@ import { supabase } from "@/lib/server/supabase";
 import { getFinancials, getChart } from "@/lib/server/yahoo-finance";
 import { calcSignals } from "@/lib/server/indicators";
 import { analyzeStock } from "@/lib/server/ai-analysis";
+import { boundedSettled, readBoundedJson } from "@/lib/server/api-security-policy";
+import { chargeAnalysisQuota } from "@/lib/server/analysis-request";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -28,8 +30,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (!(await assertPortfolioOwner(supabase, id, auth.userId))) {
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
   }
-  const body = await req.json().catch(() => ({}));
-  const anthropicKey = body.anthropic_api_key ?? "";
+  const body = await readBoundedJson(req, 4096).catch(() => ({})) as { anthropic_api_key?: unknown };
+  const anthropicKey = typeof body?.anthropic_api_key === "string" && body.anthropic_api_key.length <= 256
+    ? body.anthropic_api_key : "";
 
   const { data: pf } = await supabase.from("portfolios").select("id").eq("id", id).single();
   if (!pf) return NextResponse.json({ error: "포트폴리오를 찾을 수 없습니다." }, { status: 404 });
@@ -37,8 +40,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const { data: positions } = await supabase.from("positions").select("id, ticker").eq("portfolio_id", id);
   if (!positions || positions.length === 0) return NextResponse.json({ updated: 0 });
 
-  const results = await Promise.allSettled(
-    positions.map(async (pos) => {
+  // Each position costs two market-data fetches and possibly an LLM call: charge the shared
+  // per-user analysis quota and keep at most three positions in flight.
+  const denied = await chargeAnalysisQuota(auth.userId, positions.length);
+  if (denied) return denied;
+
+  const results = await boundedSettled(
+    positions, async (pos) => {
       const [financials, candles] = await Promise.allSettled([
         getFinancials(pos.ticker),
         getChart(pos.ticker, "1y"),
@@ -59,8 +67,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       if (analysis.target_price) updates.take_profit = analysis.target_price;
 
       await supabase.from("positions").update(updates).eq("id", pos.id);
-    })
-  );
+    }, 3);
 
   const updated = results.filter((r) => r.status === "fulfilled").length;
   return NextResponse.json({ updated });

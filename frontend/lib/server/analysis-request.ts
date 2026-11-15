@@ -17,6 +17,15 @@ async function quota(userId: string, cost: number): Promise<NextResponse | null>
   }
 }
 
+/** Charge `units` ticker analyses (in RPC-sized chunks of at most 20) before fan-out. */
+export async function chargeAnalysisQuota(userId: string, units: number): Promise<NextResponse | null> {
+  for (let remaining = Math.max(1, Math.ceil(units)); remaining > 0; remaining -= 20) {
+    const denied = await quota(userId, Math.min(20, remaining));
+    if (denied) return denied;
+  }
+  return null;
+}
+
 export async function analysisBatchRequest(request: Request, max = 20) {
   const auth = await requireApprovedUser();
   if (!auth.ok) return { ok: false as const, response: auth.response };

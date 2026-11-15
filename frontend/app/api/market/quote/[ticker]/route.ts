@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getQuote } from "@/lib/server/yahoo-finance";
-import { createBrokerProvider } from "@/lib/server/providers";
-import type { BrokerType } from "@/lib/server/providers";
 import { marketTickerRequest } from "@/lib/server/market-request";
 
 export const dynamic     = "force-dynamic";
@@ -9,41 +7,12 @@ export const maxDuration = 30;
 
 type Ctx = { params: Promise<{ ticker: string }> };
 
+// Broker keys are never accepted from request headers; saved keys live server-side only.
 export async function GET(req: NextRequest, { params }: Ctx) {
   const { ticker } = await params;
   const input = await marketTickerRequest(ticker);
   if (!input.ok) return input.response;
   const t = input.ticker;
-
-  // 요청 헤더에 증권사 자격증명이 있으면 broker API 우선 사용
-  const brokerType = req.headers.get("x-broker-type") as BrokerType | null;
-  const appKey    = req.headers.get("x-app-key");
-  const appSecret = req.headers.get("x-app-secret");
-
-  if (brokerType && appKey && appSecret) {
-    try {
-      const provider = createBrokerProvider(brokerType, { appKey, appSecret });
-      const q = await provider.getQuote(t);
-      // StockQuoteResponse → QuoteData 형식으로 정규화
-      return NextResponse.json({
-        ticker:     t,
-        name:       q.name,
-        price:      q.price,
-        change:     q.change,
-        change_pct: q.change_rate,
-        volume:     q.volume,
-        high:       q.high,
-        low:        q.low,
-        open:       q.open,
-        prev_close: q.prev_close,
-        timestamp:  q.timestamp,
-        source:     brokerType,
-      });
-    } catch (err) {
-      console.warn(`[quote] broker(${brokerType}) 실패, Yahoo 폴백:`, err);
-      // 실패 시 Yahoo Finance로 폴백
-    }
-  }
 
   // Yahoo Finance (nocache=1 쿼리 파라미터 시 캐시 우회 — 수동 새로고침용)
   const nocache = req.nextUrl.searchParams.get("nocache") === "1";

@@ -129,7 +129,7 @@ async def broker_quote(ticker: str, body: BrokerRequest):
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=f"KIS API 오류: {e.response.status_code}")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"증권사 API 오류: {e}")
+        raise HTTPException(status_code=502, detail="증권사 API 오류")
 
 
 @router.post("/indices")
@@ -162,4 +162,4 @@ async def broker_indices(body: BrokerRequest):
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=f"KIS API 오류: {e.response.status_code}")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"증권사 API 오류: {e}")
+        raise HTTPException(status_code=502, detail="증권사 API 오류")

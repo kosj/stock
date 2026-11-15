@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/server/require-user";
+import { managedTargetFailure } from "@/lib/server/admin-target";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const { id } = await params;
   const admin  = createSupabaseAdminClient();
+  const denied = await managedTargetFailure(admin, auth.userId, id);
+  if (denied) return denied;
 
   const { error } = await admin.auth.admin.updateUserById(id, { app_metadata: { role: "rejected" } });
   if (error) return NextResponse.json({ error: "계정 권한 변경 실패" }, { status: 500 });

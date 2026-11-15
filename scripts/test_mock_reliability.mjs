@@ -23,6 +23,13 @@ function moduleFrom(path, require, globals={}){
  return exports;
 }
 
+/** Real cron bearer check (timing-safe digest comparison) with the fixture secret. */
+const cronAuth=(secret,NextResponse)=>moduleFrom('../frontend/lib/server/cron-auth.ts',name=>{
+ if(name==='node:crypto')return createRequire(import.meta.url)('node:crypto');
+ if(name==='next/server')return {NextResponse};
+ throw Error(name);
+},{process:{env:{CRON_SECRET:secret}}});
+
 test('KIS uses the newest returned business-date observation, not HTTP time or row order',()=>{
  const quote=kisMinuteQuote('005930',[row({stck_cntg_hour:'143900',stck_prpr:'900'}),row()],now);
  assert.equal(quote.price,1000);assert.equal(quote.tradedAt,'2026-10-30T05:40:00.000Z');
@@ -165,6 +172,7 @@ test('actual cron risk route authenticates, paginates approved users and reports
   }}};
   if(name.includes('broker-factory'))return {getBrokerForUser:async()=>({})};
   if(name.includes('kr-market-clock'))return {KrMarketClock:class{now(){return new Clock();}isMarketOpen(){return open;}}};
+  if(name.includes('cron-auth'))return cronAuth('fixture-cron',NextResponse);
   throw Error(name);
  },{process:{env:{CRON_SECRET:'fixture-cron'}}});
  const call=(suffix='',token='fixture-cron')=>route.POST(new NextRequest(`http://isolated.test/api/cron/auto-trade?mode=risk${suffix}`,{method:'POST',headers:{Authorization:`Bearer ${token}`}}));
@@ -267,6 +275,7 @@ test('daily queue finishes recommendation wait once, reports it, and preserves g
   if(name.includes('trading-engine-service'))return {TradingEngineService:class{async executeTrading(user){executions++;return receipts[user];}}};
   if(name.includes('broker-factory'))return {getBrokerForUser:async()=>({})};
   if(name.includes('kr-market-clock'))return {KrMarketClock:class{now(){return new Clock();}isMarketOpen(){return true;}}};
+  if(name.includes('cron-auth'))return cronAuth('fixture',NextResponse);
   throw Error(name);
  },{process:{env:{CRON_SECRET:'fixture'}}});
  const call=()=>route.POST(new NextRequest('http://isolated.test/api/cron/auto-trade',{method:'POST',headers:{Authorization:'Bearer fixture'}}));
