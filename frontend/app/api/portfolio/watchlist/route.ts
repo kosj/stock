@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
-async function getCurrentUserId(): Promise<string | null> {
-  const client = await createSupabaseServerClient();
-  const { data: { user } } = await client.auth.getUser();
-  return user?.id ?? null;
-}
-
 export async function GET() {
-  const userId = await getCurrentUserId();
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   const { data, error } = await supabase
     .from("watchlist")
@@ -26,11 +21,12 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   // userId·body를 병렬로 읽어 순차 대기 제거
-  const [userId, body] = await Promise.all([
-    getCurrentUserId(),
+  const [auth, body] = await Promise.all([
+    requireUser(),
     req.json(),
   ]);
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   const { ticker, name, sector } = body ?? {};
   if (!ticker) {

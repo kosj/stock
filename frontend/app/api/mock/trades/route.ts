@@ -1,18 +1,13 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
-async function getUserId(): Promise<string | null> {
-  const client = await createSupabaseServerClient();
-  const { data: { user } } = await client.auth.getUser();
-  return user?.id ?? null;
-}
-
 export async function GET() {
-  const userId = await getUserId();
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   const { data, error } = await supabase
     .from("mock_trades")

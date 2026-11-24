@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-async function getCurrentUserId(): Promise<string | null> {
-  const client = await createSupabaseServerClient();
-  const { data: { user } } = await client.auth.getUser();
-  return user?.id ?? null;
-}
-
 /** 포지션 수정 — RPC update_position_owned (소유권 검증 + UPDATE 단일 왕복) */
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const [userId, { id }, body] = await Promise.all([getCurrentUserId(), params, req.json()]);
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const [auth, { id }, body] = await Promise.all([requireUser(), params, req.json()]);
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   const { data, error } = await supabase.rpc("update_position_owned", {
     p_position_id: Number(id),
@@ -44,8 +39,9 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 
 /** 포지션 삭제 — RPC delete_position_owned (소유권 검증 + DELETE 단일 왕복) */
 export async function DELETE(_: NextRequest, { params }: Ctx) {
-  const [userId, { id }] = await Promise.all([getCurrentUserId(), params]);
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const [auth, { id }] = await Promise.all([requireUser(), params]);
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   const { data: deleted, error } = await supabase.rpc("delete_position_owned", {
     p_position_id: Number(id),

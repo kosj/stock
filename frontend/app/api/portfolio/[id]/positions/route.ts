@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-async function getCurrentUserId(): Promise<string | null> {
-  const client = await createSupabaseServerClient();
-  const { data: { user } } = await client.auth.getUser();
-  return user?.id ?? null;
-}
-
 export async function GET(_: NextRequest, { params }: Ctx) {
   // auth + params 병렬 처리
-  const [userId, { id }] = await Promise.all([getCurrentUserId(), params]);
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const [auth, { id }] = await Promise.all([requireUser(), params]);
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   // 소유권 확인 + 데이터 조회 병렬 실행 (2페이즈: auth‖params → verify‖fetch)
   const [{ data: pf }, { data, error }] = await Promise.all([
@@ -34,8 +29,9 @@ export async function GET(_: NextRequest, { params }: Ctx) {
 
 /** 포트폴리오의 모든 포지션 삭제 */
 export async function DELETE(_: NextRequest, { params }: Ctx) {
-  const [userId, { id }] = await Promise.all([getCurrentUserId(), params]);
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const [auth, { id }] = await Promise.all([requireUser(), params]);
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   // 소유권 확인 후 삭제 (delete는 안전을 위해 순차 실행)
   const { data: pf } = await supabase
@@ -49,8 +45,9 @@ export async function DELETE(_: NextRequest, { params }: Ctx) {
 
 /** 포지션 추가 — RPC insert_position_owned (소유권 검증 + INSERT 단일 왕복) */
 export async function POST(req: NextRequest, { params }: Ctx) {
-  const [userId, { id }, body] = await Promise.all([getCurrentUserId(), params, req.json()]);
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const [auth, { id }, body] = await Promise.all([requireUser(), params, req.json()]);
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   const { data, error } = await supabase.rpc("insert_position_owned", {
     p_portfolio_id: Number(id),

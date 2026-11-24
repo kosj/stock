@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/server/require-user";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-async function getUserId(): Promise<string | null> {
-  const client = await createSupabaseServerClient();
-  const { data: { user } } = await client.auth.getUser();
-  return user?.id ?? null;
-}
-
 export async function GET(_: NextRequest, { params }: Ctx) {
-  const [userId, { id }] = await Promise.all([getUserId(), params]);
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const [auth, { id }] = await Promise.all([requireUser(), params]);
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   const { data, error } = await supabase
     .from("portfolios")
@@ -28,8 +23,9 @@ export async function GET(_: NextRequest, { params }: Ctx) {
 }
 
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const [userId, { id }, body] = await Promise.all([getUserId(), params, req.json()]);
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const [auth, { id }, body] = await Promise.all([requireUser(), params, req.json()]);
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   const { data, error } = await supabase
     .from("portfolios")
@@ -44,8 +40,9 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(_: NextRequest, { params }: Ctx) {
-  const [userId, { id }] = await Promise.all([getUserId(), params]);
-  if (!userId) return NextResponse.json({ error: "인증 필요" }, { status: 401 });
+  const [auth, { id }] = await Promise.all([requireUser(), params]);
+  if (!auth.ok) return auth.response;
+  const userId = auth.userId;
 
   const { error } = await supabase
     .from("portfolios")
