@@ -86,7 +86,7 @@ ETF 요청 사전 계산/적재, 전체 요청 deadline/취소, 화면 polling·
 
 세부 문서: [거래 안전성](trading-safety-handoff.md), [모의 원장](mock-ledger-20261020.md),
 [모델/가격](model-data-handoff-20261019.md), [빌드/CI](build-ci-runbook.md),
-[자격증명](credential-security.md), [레거시 서버](../backend/SECURITY_HANDOFF.md).
+[자격증명](credential-security.md), 레거시 서버(`backend/`, 2026-11-25 삭제 — git 이력의 `backend/SECURITY_HANDOFF.md` 참조).
 
 ## 운영 DB 적용 완료 — 2026-10-19 KST 추가 기록
 

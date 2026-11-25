@@ -7,7 +7,8 @@ Run `npm ci` from the repository root, then `npm run typecheck`,
 `npm run lint:baseline`, `node --test scripts/test_*.mjs`,
 `node --experimental-strip-types scripts/test_news_curation.mts`,
 `python3 scripts/test_model_safety.py`, `python3 scripts/test_data_quality.py`,
-`python3 -m unittest discover -s backend -p 'test_*.py'`, and `npm run build`.
+and `npm run build`. (The legacy `backend/` FastAPI service and its unittest
+suite were removed on 2026-11-25.)
 The Python offline checks use `scripts/requirements-ci.txt`; this is not a
 complete lock for the networked training pipeline.
 

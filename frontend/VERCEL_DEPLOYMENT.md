@@ -52,6 +52,6 @@ HTTP 200과 `{"status":"ok","version":"1.0.0"}`이다.
 Python 테스트 의존성과 환경변수 설정은 운영 runbook을 따른다.
 개발 서버는 저장소 루트에서 `npm run dev`로 실행한다.
 
-현재 웹 클라이언트는 같은 배포의 `/api`를 사용한다. 별도 Python backend는
-레거시 내부 서비스이며, `NEXT_PUBLIC_BACKEND_URL` 설정만으로 현재
+현재 웹 클라이언트는 같은 배포의 `/api`를 사용한다. 별도 Python backend(`backend/`)는
+2026-11-25 저장소에서 삭제됐다. `NEXT_PUBLIC_BACKEND_URL` 설정만으로 현재
 클라이언트의 API 경로가 전환된다고 가정하지 않는다.

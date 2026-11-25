@@ -17,8 +17,8 @@ export interface PriceUpdate {
  *
  * Vercel 서버리스에는 WebSocket 서버(localhost:8000)가 없어 연결하지 않는다.
  * 호출부는 반드시 폴백(SWR로 받은 current_price)을 함께 써야 하며, 이 값이
- * 채워질 것이라고 가정하면 안 된다. 실시간이 필요하면 별도 상시가동 서버
- * (backend/ FastAPI) 연결이 선행돼야 한다.
+ * 채워질 것이라고 가정하면 안 된다. 실시간이 필요하면 별도 상시가동 시세 서버를
+ * 새로 마련해야 한다(구 backend/ FastAPI 는 2026-11-25 삭제).
  */
 export function useRealtimePrices(tickers: string[]) {
   const [prices] = useState<Record<string, PriceUpdate>>({});

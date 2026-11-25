@@ -229,3 +229,16 @@ API 경계와 회계가 흔들리는 상태에서 모델 가중치나 매수 조
 
 위 문서는 최초 리뷰 당시 기록이다. 이후 사용자 요청으로 병렬 구현을 진행했다.
 최신 구현·검증·잔여 작업은 [병렬 구현 인수인계](parallel-implementation-handoff-20261019.md)를 참조한다.
+
+## 2026-11-25 결정 — 레거시 FastAPI(`backend/`) 퇴역
+
+SEC-04·LEG-01·LEG-02의 "폐기/격리/편입" 결정은 **폐기**로 확정했다(사용자 결정).
+`backend/` 41개 파일을 삭제하고 CI·`npm run test:safety`의 backend unittest/compileall 단계를 뺐다.
+
+- 근거: 프런트는 같은 배포의 `/api`만 호출하고 backend를 부르는 코드가 없었다.
+  실시간 훅(`frontend/lib/websocket.ts`)은 이미 비활성이며 빈 객체를 반환한다.
+  backend의 사용자 테이블에는 소유권 컬럼이 없어, 살리려면 인증 체계 편입부터 다시 해야 했다.
+- 저장소 밖 상태는 확인하지 않았다. `backend/railway.json`이 있었으므로 Railway 등에
+  이 서비스가 떠 있다면 저장소 삭제만으로 내려가지 않는다 — 해당 콘솔에서 서비스를 중지하고
+  `LEGACY_INTERNAL_API_SECRET`을 폐기해야 한다.
+- 복구가 필요하면 git 이력에서 되살린다(삭제 직전 보안 조치 기록: `backend/SECURITY_HANDOFF.md`).
