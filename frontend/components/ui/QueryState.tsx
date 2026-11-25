@@ -41,31 +41,7 @@ export function QueryState({
     );
   }
 
-  if (error) {
-    return (
-      <div
-        className="rounded-lg border p-4 text-sm"
-        style={{ borderColor: "var(--border)", background: "var(--card)" }}
-        role="alert"
-      >
-        <div className="flex items-start gap-2 text-red-400">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <div className="min-w-0">
-            <p className="font-medium">데이터를 불러오지 못했습니다</p>
-            <p className="text-xs text-muted-foreground mt-0.5 break-words">{errorMessage(error)}</p>
-          </div>
-        </div>
-        {onRetry && (
-          <button
-            onClick={onRetry}
-            className="mt-3 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded bg-muted hover:bg-white/10 transition-colors"
-          >
-            <RefreshCw size={12} /> 다시 시도
-          </button>
-        )}
-      </div>
-    );
-  }
+  if (error) return <ErrorState error={error} onRetry={onRetry} />;
 
   if (isEmpty) {
     return (
@@ -77,4 +53,50 @@ export function QueryState({
   }
 
   return <>{children}</>;
+}
+
+/**
+ * ErrorState — 실패 표시 단독 컴포넌트.
+ *
+ * 기존 화면은 저마다 스켈레톤·빈 상태 디자인이 있어 QueryState 로 통째로
+ * 감싸면 모양이 바뀐다. 그런 화면은 기존 삼항 분기에 이것만 끼워 넣는다:
+ *   isLoading ? <스켈레톤/> : error ? <ErrorState/> : rows.length === 0 ? <빈상태/> : <목록/>
+ * 핵심은 "실패"와 "0건"을 다른 문구로 보여주는 것이다.
+ *
+ * title 로 무엇을 못 불러왔는지 밝힌다(한 화면에 패널이 여럿일 때 필요).
+ */
+export function ErrorState({
+  error,
+  onRetry,
+  title = "데이터를 불러오지 못했습니다",
+  className = "",
+}: {
+  error: unknown;
+  onRetry?: () => void;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`rounded-lg border p-4 text-sm ${className}`}
+      style={{ borderColor: "var(--border)", background: "var(--card)" }}
+      role="alert"
+    >
+      <div className="flex items-start gap-2 text-red-400">
+        <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="font-medium">{title}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 break-words">{errorMessage(error)}</p>
+        </div>
+      </div>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="mt-3 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded bg-muted hover:bg-white/10 transition-colors"
+        >
+          <RefreshCw size={12} /> 다시 시도
+        </button>
+      )}
+    </div>
+  );
 }

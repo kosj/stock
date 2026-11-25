@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import useSWR from "swr";
+import { BROKER_CONFIGURED_KEY, fetchConfiguredBrokers } from "@/lib/client/broker-settings";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ApiKeyManager } from "@/lib/apiConfig";
@@ -36,13 +37,6 @@ const BROKER_TYPES: BrokerType[] = ["kis", "miraeasset", "kb", "shinhan", "merit
 
 // ── API 헬퍼 ──────────────────────────────────────────────────────────────────
 
-async function fetchConfigured(): Promise<string[]> {
-  const res = await fetch("/api/settings/broker");
-  // 실패를 빈 목록으로 위장하면 '등록된 계정 없음'으로 오해된다
-  if (!res.ok) throw new Error(`요청 실패 (HTTP ${res.status})`);
-  const data = await res.json();
-  return data.configured ?? [];
-}
 
 // ── 브로커 카드 ───────────────────────────────────────────────────────────────
 
@@ -283,8 +277,8 @@ function SimpleApiKeyCard({
 
 export function BrokerSettingsPage() {
   const { data: configured = [], mutate } = useSWR<string[]>(
-    "broker-settings-configured",
-    fetchConfigured,
+    BROKER_CONFIGURED_KEY,
+    fetchConfiguredBrokers,
     { revalidateOnFocus: false },
   );
 

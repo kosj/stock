@@ -15,6 +15,11 @@ import useSWR from "swr";
 import { X, Info, TrendingUp, TrendingDown } from "lucide-react";
 import { StockChart } from "@/components/charts/StockChart";
 import { colorByChange, formatPercent } from "@/lib/utils";
+import { ErrorState } from "@/components/ui/QueryState";
+import { ApiError, jsonFetcher } from "@/lib/fetcher";
+import type { NaverEtf } from "@/lib/server/naver-etf";
+import type { EntryPointResult } from "@/lib/server/entry-point-analysis";
+import type { CandleData } from "@/lib/server/yahoo-finance";
 
 const PERIODS = ["3m", "6m", "1y"] as const;
 type ChartPeriod = (typeof PERIODS)[number];
@@ -27,22 +32,41 @@ const STATE_LABEL: Record<string, { text: string; cls: string }> = {
   weak:       { text: "진입 보류",  cls: "bg-red-500/15 text-red-400" },
 };
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+/** GET /api/etfs/[ticker] 응답 중 화면이 쓰는 필드 */
+interface EtfDetailResponse {
+  meta: NaverEtf | null;
+  entry: EntryPointResult | null;
+  accounts: { account: string; label: string; eligible: boolean; reason: string | null }[];
+}
+/** GET /api/market/chart/[ticker] 응답 중 화면이 쓰는 필드 */
+interface ChartResponse {
+  candles: CandleData[];
+  indicators?: React.ComponentProps<typeof StockChart>["indicators"];
+}
+
+/**
+ * 차트 API 는 캔들이 없으면 404 {error:"차트 데이터 없음"} 을 준다.
+ * 이건 장애가 아니라 "없음"이다 — 오류로 띄우면 정상 상태를 장애처럼 보여준다.
+ */
+const isNoChartData = (e: unknown) => e instanceof ApiError && e.status === 404;
 const won = (v: number | null | undefined) => (v != null ? v.toLocaleString() + "원" : "—");
 
 export function EtfDetailModal({ ticker, onClose }: { ticker: string; onClose: () => void }) {
   const [period, setPeriod] = useState<ChartPeriod>("6m");
 
-  const { data: detail, isLoading } = useSWR(`/api/etfs/${ticker}`, fetcher, {
+  const { data: detail, error: detailError, isLoading, mutate: retryDetail } = useSWR<EtfDetailResponse>(`/api/etfs/${ticker}`, jsonFetcher, {
     revalidateOnFocus: false,
   });
-  const { data: chart, isLoading: chartLoading } = useSWR(
-    `/api/market/chart/${ticker}?period=${period}`, fetcher, { revalidateOnFocus: false },
+  const { data: chart, error: chartError, isLoading: chartLoading, mutate: retryChart } = useSWR<ChartResponse>(
+    `/api/market/chart/${ticker}?period=${period}`, jsonFetcher, { revalidateOnFocus: false },
   );
 
   const meta  = detail?.meta;
   const entry = detail?.entry;
-  const st    = STATE_LABEL[entry?.state ?? "weak"] ?? STATE_LABEL.weak;
+  // 분석 결과가 있을 때만 상태 배지를 띄운다. 예전엔 entry 가 없으면 "weak"로
+  // 폴백해, 로딩 중·API 실패에도 빨간 "진입 보류"가 표시됐다 — 데이터 없이
+  // "들어가지 마라"는 신호를 준 셈이다.
+  const st    = entry && !entry.insufficient_data ? STATE_LABEL[entry.state] ?? null : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -113,6 +137,8 @@ export function EtfDetailModal({ ticker, onClose }: { ticker: string; onClose: (
 
             {chartLoading ? (
               <div className="h-[320px] rounded animate-pulse bg-muted" />
+            ) : chartError && !isNoChartData(chartError) ? (
+              <ErrorState error={chartError} onRetry={() => retryChart()} title="차트를 불러오지 못했습니다" />
             ) : chart?.candles?.length ? (
               <StockChart
                 candles={chart.candles}
@@ -132,11 +158,13 @@ export function EtfDetailModal({ ticker, onClose }: { ticker: string; onClose: (
           <div className="rounded-lg p-3" style={{ background: "var(--background)" }}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium">진입·리스크 레벨 (ATR 적응형)</span>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded ${st.cls}`}>{st.text}</span>
+              {st && <span className={`text-xs font-semibold px-2 py-0.5 rounded ${st.cls}`}>{st.text}</span>}
             </div>
 
             {isLoading ? (
               <div className="h-20 rounded animate-pulse bg-muted" />
+            ) : detailError ? (
+              <ErrorState error={detailError} onRetry={() => retryDetail()} title="진입·리스크 레벨을 불러오지 못했습니다" />
             ) : entry && !entry.insufficient_data ? (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
@@ -171,11 +199,11 @@ export function EtfDetailModal({ ticker, onClose }: { ticker: string; onClose: (
           </div>
 
           {/* 계좌별 편입 가능 여부 */}
-          {detail?.accounts?.length > 0 && (
+          {detail?.accounts && detail.accounts.length > 0 && (
             <div className="rounded-lg p-3" style={{ background: "var(--background)" }}>
               <span className="text-sm font-medium">계좌별 편입 가능</span>
               <div className="grid grid-cols-3 gap-2 mt-2">
-                {detail.accounts.map((a: { account: string; label: string; eligible: boolean; reason: string | null }) => (
+                {detail.accounts.map((a) => (
                   <div key={a.account} className="rounded p-2 text-center" style={{ background: "var(--card)" }}>
                     <div className="text-xs text-muted-foreground mb-1">{a.label}</div>
                     <div className={`text-xs font-semibold flex items-center justify-center gap-1 ${

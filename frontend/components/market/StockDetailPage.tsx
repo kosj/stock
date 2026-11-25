@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { StockChart, RsiChart, MacdChart } from "@/components/charts/StockChart";
 import { formatNumber, formatPercent, colorByChange, recommendationColor } from "@/lib/utils";
-import { ApiError } from "@/lib/fetcher";
+import { ApiError, errorMessage, jsonFetcher } from "@/lib/fetcher";
 import { TrendingUp, TrendingDown, RefreshCw, Zap, Calendar, DollarSign, Target } from "lucide-react";
 import { PullbackCard } from "./PullbackCard";
 import { ProfitTakingCard } from "./ProfitTakingCard";
@@ -191,11 +191,20 @@ export function StockDetailPage({
   );
   const pullbackResult = pullbackRaw?.[0] ?? null;
 
-  const { data: dartRaw, isLoading: isDartLoading } = useSWR<DartCompanyInfo & { available?: boolean }>(
-    `dart-company-${ticker}`,
-    () => fetch(`/api/market/dart-company/${ticker}`).then(r => r.json()),
+  // DART 는 국내 6자리 코드만 지원한다(해외 종목은 API 가 400). 해외 종목까지
+  // 조회하면 jsonFetcher 가 그 400 을 장애로 올려 모든 미국 주식에 오류가 뜬다.
+  const isKrTicker = /^\d{6}$/.test(ticker);
+  const { data: dartData, error: dartError, isLoading: isDartLoading } = useSWR<DartCompanyInfo & { available?: boolean }>(
+    isKrTicker ? `/api/market/dart-company/${ticker}` : null,
+    jsonFetcher,
     { revalidateOnFocus: false, dedupingInterval: 86_400_000 },
   );
+  // 요청 자체가 실패하면 카드의 기존 실패 경로({available:false, reason})로 넘긴다.
+  // 예전엔 500 본문 {error} 가 그대로 들어가 reason 이 비어, 카드가 "DART 조회
+  // 실패" 안내 없이 조용히 축소됐다.
+  const dartRaw = dartError
+    ? { available: false as const, reason: errorMessage(dartError) }
+    : dartData;
 
   const q = quote as any;
   const c = chart as any;

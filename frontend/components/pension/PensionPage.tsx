@@ -20,6 +20,8 @@ import {
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { formatNumber } from "@/lib/utils";
+import { ErrorState } from "@/components/ui/QueryState";
+import { jsonFetcher, postFetcher } from "@/lib/fetcher";
 import {
   ACCOUNTS,
   ACCOUNT_ORDER,
@@ -79,6 +81,11 @@ interface EntryInfo {
   insufficient_data?: boolean;
 }
 
+/** GET /api/etfs/drawdown 응답 — 종목별 실패는 ok:false 로 온다(요청 자체 실패와 다르다) */
+interface DrawdownResponse {
+  items: ({ ticker: string; ok: true; price: number; drawdownPct: number } | { ticker: string; ok: false })[];
+}
+
 /** 상태 배지 표기 — ETF 랭킹/추천 화면과 동일한 라벨 체계 유지 */
 const ENTRY_STATE_BADGE: Record<string, { text: string; cls: string }> = {
   buy_zone:   { text: "분할매수권", cls: "bg-green-500/15 text-green-400" },
@@ -104,27 +111,23 @@ export function PensionPage() {
     .map((h) => ETF_UNIVERSE[h.etf]?.ticker)
     .filter(Boolean)
     .join(",");
-  const { data: ddData } = useSWR(
+  const { data: ddData, error: ddError, mutate: retryDd } = useSWR<DrawdownResponse>(
     tickerCsv ? `/api/etfs/drawdown?tickers=${tickerCsv}` : null,
-    (url: string) => fetch(url).then((r) => r.json()),
+    jsonFetcher,
     { revalidateOnFocus: false, dedupingInterval: 1_800_000 },
   );
   const drawdowns = useMemo(() => {
     const m: Record<string, { price: number; drawdownPct: number }> = {};
-    for (const it of ddData?.items ?? []) if (it?.ok) m[it.ticker] = it;
+    for (const it of ddData?.items ?? []) if (it.ok) m[it.ticker] = it;
     return m;
   }, [ddData]);
 
   // 진입 상태(분할매수권/눌림 대기/과열/보류) — ATR 기반 기술적 레벨 판정.
   // ETF는 바스켓이므로 basket:true로 눌림목(개별주 기준봉) 판정을 제외한다.
-  const { data: epData } = useSWR(
+  const { data: epData, error: epError, mutate: retryEp } = useSWR<EntryInfo[]>(
     tickerCsv ? ["entry-point", tickerCsv] : null,
     ([, csv]: [string, string]) =>
-      fetch("/api/analysis/entry-point", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers: csv.split(","), basket: true }),
-      }).then((r) => r.json()),
+      postFetcher<EntryInfo[]>(["/api/analysis/entry-point", { tickers: csv.split(","), basket: true }]),
     { revalidateOnFocus: false, dedupingInterval: 1_800_000 },
   );
   const entries = useMemo(() => {
@@ -134,6 +137,11 @@ export function PensionPage() {
     }
     return m;
   }, [epData]);
+
+  // 전고점 등락·진입 상태는 시세에서 파생된다. 실패하면 표 셀이 전부 "—"가 되고
+  // 하락장 트리거 블록이 통째로 사라져 "해당 없음·트리거 미도달"로 읽혔다.
+  const marketError = ddError ?? epError;
+  const retryMarket = () => { void retryDd(); void retryEp(); };
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
@@ -207,6 +215,8 @@ export function PensionPage() {
           breakdown={breakdown}
           drawdowns={drawdowns}
           entries={entries}
+          marketError={marketError}
+          onRetryMarket={retryMarket}
         />
       </section>
 
@@ -225,7 +235,13 @@ export function PensionPage() {
       {/* ── 매수 타점 가이드 ─────────────────────────────────────────────── */}
       <section className="space-y-3">
         <SectionTitle icon={<Clock size={16} />} title="매수 타점 가이드" />
-        <TimingGuide holdings={portfolio.holdings} drawdowns={drawdowns} entries={entries} />
+        <TimingGuide
+          holdings={portfolio.holdings}
+          drawdowns={drawdowns}
+          entries={entries}
+          marketError={marketError}
+          onRetryMarket={retryMarket}
+        />
       </section>
 
       {/* ── 투자 방법 가이드 ─────────────────────────────────────────────── */}
@@ -351,6 +367,8 @@ function PortfolioCard({
   breakdown,
   drawdowns,
   entries,
+  marketError,
+  onRetryMarket,
 }: {
   account: AccountType;
   risk: RiskProfile;
@@ -359,6 +377,8 @@ function PortfolioCard({
   breakdown: Record<AssetClass, number>;
   drawdowns: Record<string, { price: number; drawdownPct: number }>;
   entries: Record<string, EntryInfo>;
+  marketError?: unknown;
+  onRetryMarket?: () => void;
 }) {
   const portfolio = PORTFOLIOS[account][risk];
   const profile = RISK_PROFILES[risk];
@@ -393,6 +413,16 @@ function PortfolioCard({
             <span className="text-red-400"> · 한도 초과</span>
           )}
         </p>
+      )}
+
+      {/* 시세 파생 열(전고점 대비·진입 상태) 실패 — "—"가 "해당 없음"으로 읽히지 않게 */}
+      {marketError != null && (
+        <ErrorState
+          className="mt-4"
+          error={marketError}
+          onRetry={onRetryMarket}
+          title="전고점 대비 등락·진입 상태를 불러오지 못했습니다 — 아래 표의 해당 열은 비어 있습니다"
+        />
       )}
 
       {/* 종목 테이블 */}
@@ -866,10 +896,14 @@ function TimingGuide({
   holdings,
   drawdowns,
   entries,
+  marketError,
+  onRetryMarket,
 }: {
   holdings: Holding[];
   drawdowns: Record<string, { price: number; drawdownPct: number }>;
   entries: Record<string, EntryInfo>;
+  marketError?: unknown;
+  onRetryMarket?: () => void;
 }) {
   // 현재 포트폴리오에 존재하는 자산군만, 비중 큰 순으로
   const classes = useMemo(() => {
@@ -946,6 +980,16 @@ function TimingGuide({
           주식형 ETF에 적용합니다. &lsquo;예비현금&rsquo;은 월 정기 적립과 별도로 CD금리 ETF 등에 모아둔
           대기 자금을 말하며, 트리거가 없더라도 정기 적립은 계속합니다.
         </p>
+
+        {/* 실측 낙폭 조회 실패 — 예전엔 이 블록이 통째로 사라져 "트리거 미도달"로 읽혔다 */}
+        {marketError != null && (
+          <ErrorState
+            className="mb-3"
+            error={marketError}
+            onRetry={onRetryMarket}
+            title="실측 낙폭을 불러오지 못해 트리거 도달 여부를 판단할 수 없습니다"
+          />
+        )}
 
         {/* 현재 포트폴리오 ETF의 실측 낙폭 — 트리거 도달 여부를 바로 판단 */}
         {Object.keys(drawdowns).length > 0 && (

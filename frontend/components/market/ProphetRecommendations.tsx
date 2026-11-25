@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatNumber } from "@/lib/utils";
+import { ErrorState } from "@/components/ui/QueryState";
+import { jsonFetcher } from "@/lib/fetcher";
 import type { StockInvestorDay } from "@/lib/server/krx-service";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -194,9 +196,9 @@ function AccuracyTable({ json }: { json: string | null }) {
 // ── 행 상세 패널 (투자자 차트 + 예측 정확도) ──────────────────────────────────
 
 function ExpandedRow({ ticker, accuracyJson }: { ticker: string; accuracyJson: string | null }) {
-  const { data: invData, isLoading: invLoading } = useSWR<{ data: StockInvestorDay[] }>(
-    `investor-trend-${ticker}`,
-    () => fetch(`/api/analysis/investor-trend/${ticker}`).then(r => r.json()),
+  const { data: invData, error: invError, isLoading: invLoading, mutate: retryInv } = useSWR<{ data: StockInvestorDay[] }>(
+    `/api/analysis/investor-trend/${ticker}`,
+    jsonFetcher,
     { revalidateOnFocus: false, dedupingInterval: 1_800_000 },
   );
 
@@ -208,6 +210,8 @@ function ExpandedRow({ ticker, accuracyJson }: { ticker: string; accuracyJson: s
         <div className="text-xs font-semibold text-muted-foreground">5거래일 투자자별 순매수 (주)</div>
         {invLoading ? (
           <div className="h-28 bg-white/3 rounded animate-pulse" />
+        ) : invError ? (
+          <ErrorState error={invError} onRetry={() => retryInv()} title="투자자 동향을 불러오지 못했습니다" />
         ) : (
           <InvestorChart data={invData?.data ?? []} />
         )}

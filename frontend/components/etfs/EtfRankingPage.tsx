@@ -14,6 +14,8 @@ import useSWR from "swr";
 import { TrendingUp, RefreshCw, Info, ShieldCheck } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { EtfDetailModal } from "./EtfDetailModal";
+import { ErrorState } from "@/components/ui/QueryState";
+import { jsonFetcher } from "@/lib/fetcher";
 import { colorByChange, formatPercent } from "@/lib/utils";
 
 const PERIODS = ["1D", "1W", "1M", "3M", "6M", "1Y"] as const;
@@ -60,7 +62,19 @@ interface EntryPoint {
 }
 interface Pick extends EtfRow { entry: EntryPoint | null; drawdownPct?: number | null }
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+/** GET /api/etfs/ranking 응답 중 화면이 쓰는 필드 */
+interface RankingResponse {
+  ranking: EtfRow[];
+  total: number;
+  covered: number;
+  note: string | null;
+}
+/** GET /api/etfs/account-picks 응답 중 화면이 쓰는 필드 */
+interface AccountPicksResponse {
+  account_label: string;
+  picks: Pick[];
+}
+
 const won = (v: number | null | undefined) => (v != null ? v.toLocaleString() + "원" : "—");
 
 export function EtfRankingPage() {
@@ -78,10 +92,10 @@ export function EtfRankingPage() {
     + (isSafe ? "&asset=safe" : "");
   const picksUrl = isAccount ? `/api/etfs/account-picks?account=${account}&period=${period}&limit=10` : null;
 
-  const { data: rankData, isLoading, mutate } = useSWR(rankUrl, fetcher, {
+  const { data: rankData, error: rankError, isLoading, mutate } = useSWR<RankingResponse>(rankUrl, jsonFetcher, {
     revalidateOnFocus: false, dedupingInterval: 3_600_000,
   });
-  const { data: picksData } = useSWR(picksUrl, fetcher, {
+  const { data: picksData, error: picksError, mutate: mutatePicks } = useSWR<AccountPicksResponse>(picksUrl, jsonFetcher, {
     revalidateOnFocus: false, dedupingInterval: 3_600_000,
   });
 
@@ -165,7 +179,11 @@ export function EtfRankingPage() {
         </p>
       )}
 
-      {/* 계좌 선택 시: 추천 + 진입타점 */}
+      {/* 계좌 선택 시: 추천 + 진입타점
+          실패하면 패널이 통째로 사라져 "추천 없음"으로 읽혔다 — 실패를 드러낸다 */}
+      {isAccount && picksError && (
+        <ErrorState error={picksError} onRetry={() => mutatePicks()} title="계좌별 ETF 추천을 불러오지 못했습니다" />
+      )}
       {isAccount && picks.length > 0 && (
         <Card>
           <CardHeader>
@@ -251,6 +269,10 @@ export function EtfRankingPage() {
         {isLoading ? (
           <div className="p-4 space-y-2">
             {Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-9 rounded animate-pulse bg-muted" />)}
+          </div>
+        ) : rankError ? (
+          <div className="p-4">
+            <ErrorState error={rankError} onRetry={() => mutate()} title="ETF 순위를 불러오지 못했습니다" />
           </div>
         ) : ranking.length === 0 ? (
           <div className="p-10 text-center text-sm text-muted-foreground">데이터가 없습니다.</div>

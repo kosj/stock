@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import useSWR from "swr";
+import { BROKER_CONFIGURED_KEY, fetchConfiguredBrokers } from "@/lib/client/broker-settings";
 import { api } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -38,13 +39,13 @@ export function PortfolioPage() {
   const [autoSyncing, setAutoSyncing] = useState(false);
   const autoSyncedRef = useRef(false); // 자동 동기화는 세션당 1회만
 
-  // DB 기반 브로커 설정 확인
-  // ※ BrokerSettingsPage와 동일한 fetcher + 동일한 반환 형식(string[])으로 SWR 캐시 공유
+  // DB 기반 브로커 설정 확인 — BrokerSettingsPage 와 키·fetcher 를 공유한다.
+  // 조회 실패 시 configuredBrokers 는 undefined 로 남아 자동 동기화를 건너뛴다
+  // (연동 여부를 모르는 상태에서 동기화를 시도하지 않는다). 예전처럼 [] 로
+  // 위장하면 그 값이 공유 캐시에 들어가 설정 화면이 "등록된 계정 없음"을 띄웠다.
   const { data: configuredBrokers } = useSWR<string[]>(
-    "broker-settings-configured",
-    () => fetch("/api/settings/broker")
-      .then((r) => r.ok ? r.json() : { configured: [] })
-      .then((d: { configured?: string[] }) => d.configured ?? []),
+    BROKER_CONFIGURED_KEY,
+    fetchConfiguredBrokers,
     { revalidateOnFocus: false },
   );
   const hasBrokerConfig = (configuredBrokers?.length ?? 0) > 0;

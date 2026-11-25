@@ -17,6 +17,8 @@ import useSWR from "swr";
 import { Target, RefreshCw, Info, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { EtfDetailModal } from "./EtfDetailModal";
+import { ErrorState } from "@/components/ui/QueryState";
+import { jsonFetcher } from "@/lib/fetcher";
 import { colorByChange, formatPercent } from "@/lib/utils";
 
 const TABS = [
@@ -58,7 +60,12 @@ interface PickRow {
   entry: Entry | null;
 }
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+/** GET /api/etfs/account-picks 응답 중 화면이 쓰는 필드 */
+interface AccountPicksResponse {
+  picks: PickRow[];
+  universe_total: number;
+}
+
 const won = (v: number | null | undefined) => (v != null ? v.toLocaleString() + "원" : "—");
 
 export function EtfPicksPage() {
@@ -66,9 +73,9 @@ export function EtfPicksPage() {
   const [period, setPeriod] = useState<Period>("3M");
   const [openTicker, setOpenTicker] = useState<string | null>(null);
 
-  const { data, isLoading, mutate } = useSWR(
+  const { data, error, isLoading, mutate } = useSWR<AccountPicksResponse>(
     `/api/etfs/account-picks?account=${tab}&period=${period}&limit=10`,
-    fetcher,
+    jsonFetcher,
     { revalidateOnFocus: false, dedupingInterval: 1_800_000 },
   );
   const picks: PickRow[] = data?.picks ?? [];
@@ -144,8 +151,10 @@ export function EtfPicksPage() {
             <div key={i} className="h-28 rounded-xl animate-pulse bg-muted" />
           ))}
         </div>
+      ) : error ? (
+        <ErrorState error={error} onRetry={() => mutate()} title="ETF 추천을 불러오지 못했습니다" />
       ) : picks.length === 0 ? (
-        <Card><p className="text-sm text-muted-foreground">추천 데이터를 불러오지 못했습니다.</p></Card>
+        <Card><p className="text-sm text-muted-foreground">이 기간·계좌 조건에 맞는 추천 ETF가 없습니다.</p></Card>
       ) : (
         <div className="space-y-2">
           {picks.map((p) => {

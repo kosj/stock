@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { colorByChange, formatPercent } from "@/lib/utils";
+import { ErrorState } from "@/components/ui/QueryState";
+import { jsonFetcher } from "@/lib/fetcher";
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 
@@ -42,10 +44,6 @@ interface RotationData {
   lagging:  string[];
   sectors:  SectorMomentum[];
 }
-
-// ── fetcher ──────────────────────────────────────────────────────────────────
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 // ── 바 색상 ──────────────────────────────────────────────────────────────────
 
@@ -107,9 +105,9 @@ function SectorDetailCard({ sector }: { sector: SectorMomentum }) {
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export function SectorsPage() {
-  const { data, isLoading, mutate } = useSWR<RotationData>(
+  const { data, error, isLoading, mutate } = useSWR<RotationData>(
     "/api/sectors/rotation",
-    fetcher,
+    jsonFetcher,
     { revalidateOnFocus: false, dedupingInterval: 3_600_000 }
   );
 
@@ -147,8 +145,13 @@ export function SectorsPage() {
         </button>
       </div>
 
-      {/* 데이터 없음 안내 */}
-      {!isLoading && !hasData && (
+      {/* 조회 실패 — 예전엔 아래 "아직 수집 전" 안내가 떠서 장애를 정상 대기로 보이게 했다 */}
+      {!isLoading && error && (
+        <ErrorState error={error} onRetry={() => mutate()} title="섹터 데이터를 불러오지 못했습니다" />
+      )}
+
+      {/* 데이터 없음 안내 (조회는 성공했으나 수집된 종가가 없을 때만) */}
+      {!isLoading && !error && !hasData && (
         <Card>
           <div className="flex flex-col items-center gap-3 py-10 text-center">
             <Database size={32} className="text-muted-foreground/40" />

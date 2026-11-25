@@ -31,7 +31,10 @@ import type { FinancialsData } from "@/lib/server/yahoo-finance";
 
 interface Props {
   ticker:     string;
-  dart:       (DartCompanyInfo & { available?: boolean; reason?: string }) | null;
+  // API 는 성공 시 전체 필드, "데이터 없음"·조회 실패 시 {available:false, reason} 만 준다.
+  // 카드는 모든 필드를 dart?.x || 대체값 으로 읽으므로 Partial 이 실제 계약이다
+  // (예전 타입은 실패 응답에 없는 필수 필드를 약속하고 있었다).
+  dart:       (Partial<DartCompanyInfo> & { available?: boolean; reason?: string }) | null;
   financials: FinancialsData | null;
   loading:    boolean;
 }
