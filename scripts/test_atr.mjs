@@ -29,7 +29,7 @@ async function load(path, modules = {}) {
 }
 
 const atr = await load("frontend/lib/server/atr.ts");
-const { VolatilityCalculator } = await load("frontend/lib/server/position-manager-service.ts", { "./atr": atr });
+const { VolatilityCalculator, PositionManagerService } = await load("frontend/lib/server/position-manager-service.ts", { "./atr": atr });
 
 /** 리팩터 전 VolatilityCalculator 의 ATR 계산 (기준 구현, 값을 바꾸지 말 것) */
 function referenceAtr(candles, currentPrice) {
@@ -74,8 +74,11 @@ test("TR 은 갭을 반영한다 — 문서화된 예시(전일 10,000 / 고 10,
 test("캔들 2개 미만이면 ATR 을 만들 수 없다(null) — 폴백은 호출부가 정한다", () => {
   assert.equal(atr.averageTrueRange([]), null);
   assert.equal(atr.averageTrueRange([{ high: 1, low: 1, close: 1 }]), null);
-  // VolatilityCalculator 의 폴백은 0.5%(손절용)
+  // VolatilityCalculator 는 0.5% 자리채움 값을 주되 atrAvailable=false 로 표시한다
   assert.equal(VolatilityCalculator.compute([], 1000).atrPct, 0.5);
+  assert.equal(VolatilityCalculator.compute([], 1000).atrAvailable, false);
+  assert.equal(VolatilityCalculator.compute([{ high: 1, low: 1, close: 1 }, { high: 2, low: 1, close: 2 }], 0).atrAvailable, false);
+  assert.equal(VolatilityCalculator.compute([{ high: 1, low: 1, close: 1 }, { high: 2, low: 1, close: 2 }], 2).atrAvailable, true);
 });
 
 test("클램프: 0.5% 미만은 0.5%, 12% 초과는 12%", () => {
@@ -109,4 +112,34 @@ test("리팩터 전후 비트 단위 동일 — VolatilityCalculator atr·atrPct
     // config 는 _buildConfig(atrPct, atr, price) 결과 — 입력이 같으면 손절선도 같다
     assert.deepEqual(got.config, VolatilityCalculator._buildConfig(ref.atrPct, ref.atr, price), `config ${label}`);
   }
+});
+
+const position = (over = {}) => ({
+  ticker: "005930", name: "삼성전자", quantity: 10, avgPrice: 100000, currentPrice: 95000, peakPrice: 100000,
+  recentCandles: [], rsi: null, ma5Now: null, ma5Prev: null, volumeToday: null, volumeMa5: null,
+  pyramidingDone: false, ...over,
+});
+
+test("ATR 을 못 구하면 판단 보류 — 차트 조회 실패가 '전량 손절'로 바뀌지 않는다", () => {
+  // 예전: 캔들 0개 → ATR 0.5% 자리채움 → 손절선 −1% → −5% 포지션에 "전량 10주 매도"
+  for (const currentPrice of [95000, 99000, 60000, 130000]) {
+    const a = PositionManagerService.analyze(position({ currentPrice }));
+    assert.equal(a.type, "HOLD", String(currentPrice));
+    assert.equal(a.quantity, 0);
+    assert.equal(a.meta.atr_available, false);
+    assert.match(a.reason, /판단 보류/);
+  }
+});
+
+test("ATR 이 있으면 기존 판단 그대로 — 2×ATR 손절은 여전히 발동한다", () => {
+  // 매일 고저폭 2,000원(현재가 대비 ≈2.1%) → 손절선 ≈ −4.2%
+  const candles = Array.from({ length: 15 }, () => ({ high: 96000, low: 94000, close: 95000, volume: 1 }));
+  const sell = PositionManagerService.analyze(position({ recentCandles: candles, currentPrice: 95000 }));
+  assert.equal(sell.meta.atr_available, true);
+  assert.equal(sell.type, "SELL");
+  assert.equal(sell.quantity, 10);
+
+  const hold = PositionManagerService.analyze(position({ recentCandles: candles, currentPrice: 99000 }));
+  assert.equal(hold.type, "HOLD");
+  assert.doesNotMatch(hold.reason, /판단 보류/);
 });

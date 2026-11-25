@@ -9,10 +9,11 @@
  *   TR[i] = max(High−Low, |High−PrevClose|, |Low−PrevClose|)
  * Wilder 평활이 아니라 단순평균이다(기존 두 구현이 모두 그랬다 — 값을 바꾸지 않는다).
  *
- * 데이터 부족 시 폴백 값은 호출부마다 다르며 여기서 정하지 않는다:
- *   VolatilityCalculator  → ATR_PCT_FLOOR(0.5%)   손절 계산
- *   prophet-forecast      → 3.0%                  예측 시나리오 폭
- * 의도된 차이인지 기록이 없어 각자 유지하고 이름 붙은 상수로 드러내 둔다.
+ * ATR 을 만들 수 없을 때(averageTrueRange → null) 호출부 처리 (2026-11-25 통일):
+ *   VolatilityCalculator  → ATR_PCT_FLOOR 자리채움 + atrAvailable=false.
+ *                            포지션 분석은 이때 손절·익절 신호를 내지 않는다(판단 보류).
+ *   prophet-forecast      → ATR_PCT_FLOOR (예전 3.0%). 표시용 값이고, 캔들 40개 이상에서만
+ *                            불려 종가 ≤ 0 손상 데이터에서만 도달한다.
  */
 
 /**

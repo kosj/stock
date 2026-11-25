@@ -470,6 +470,13 @@ export function PortfolioPage() {
                                 </span>
                               );
                             }
+                            if (pa.action.meta.atr_available === false) {
+                              return (
+                                <span className="text-xs text-muted-foreground" title="시세 데이터가 부족해 변동성(ATR)을 계산할 수 없습니다">
+                                  산출 불가
+                                </span>
+                              );
+                            }
                             const stopPrice   = pa.action.meta.stop_loss_price;
                             const profitPrice = pa.avg_price * (1 + pa.action.meta.config.take_profit_pct / 100);
                             const nearStop    = currentPrice <= stopPrice * 1.03;

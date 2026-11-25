@@ -30,7 +30,9 @@ export function PositionDetailCard({ result, loading }: Props) {
   const { action, rsi, ma5, peak_price, gross_pnl_pct, net_pnl_pct, atr_pct, volume_ratio, pyramiding_done } = result;
   const { meta } = action;
   const config   = meta.config;
-  const style    = ACTION_STYLE[action.type];
+  // ATR 을 못 구했으면 config 는 자리채움 값 — 기준가를 그리지 않고 "판단 보류"로 표시한다
+  const atrAvailable = meta.atr_available !== false;
+  const style    = atrAvailable ? ACTION_STYLE[action.type] : { ...ACTION_STYLE.HOLD, label: "판단 보류" };
 
   const takeProfitPrice = result.avg_price * (1 + config.take_profit_pct / 100);
 
@@ -66,8 +68,8 @@ export function PositionDetailCard({ result, loading }: Props) {
           />
           <Metric
             label="ATR(14) 변동성"
-            value={`${atr_pct.toFixed(2)}%`}
-            sub="14일 평균 진폭"
+            value={atrAvailable ? `${atr_pct.toFixed(2)}%` : "—"}
+            sub={atrAvailable ? "14일 평균 진폭" : "데이터 부족"}
             color="text-muted-foreground"
             icon={<Activity size={10} />}
           />
@@ -85,8 +87,8 @@ export function PositionDetailCard({ result, loading }: Props) {
           />
         </div>
 
-        {/* ATR 동적 임계값 기준가 */}
-        <div className="space-y-1.5">
+        {/* ATR 동적 임계값 기준가 — ATR 이 없으면 기준가를 만들어 보여주지 않는다 */}
+        {atrAvailable && <div className="space-y-1.5">
           <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
             ATR 기반 동적 기준가 (ATR% {atr_pct.toFixed(2)})
           </div>
@@ -120,7 +122,7 @@ export function PositionDetailCard({ result, loading }: Props) {
               dangerBelow={false}
             />
           </div>
-        </div>
+        </div>}
 
         {/* MA5 추세 + 피라미딩 상태 */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">

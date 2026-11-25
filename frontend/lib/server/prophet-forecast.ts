@@ -107,12 +107,6 @@ const HOLT_ALPHA    = 0.3;
 const HOLT_BETA     = 0.1;
 const RIDGE_LAMBDA  = 1e-4;
 const N_FOLDS       = 4;
-/**
- * 캔들이 부족해 ATR 을 만들 수 없을 때 예측 시나리오 폭에 쓰는 기본 변동성(%).
- * 포지션 분석(VolatilityCalculator)은 같은 상황에서 ATR_PCT_FLOOR(0.5%)를 쓴다.
- * 의도된 차이인지 기록이 없어 값을 바꾸지 않고 이름만 붙여 드러낸다.
- */
-const ATR_FALLBACK_PCT = 3.0;
 
 // TFT 하이퍼파라미터
 const TFT_HEADS = 4;
@@ -222,10 +216,13 @@ class StandardScaler {
 // ── ATR(14) ───────────────────────────────────────────────────────────────────
 
 // 계산은 lib/server/atr.ts 단일 구현(VolatilityCalculator 와 공유).
+// ATR 을 만들 수 없을 때의 값은 이 파일의 다른 데이터 부족 경로(EMPTY·DB 행 폴백)와
+// 같은 ATR_PCT_FLOOR 로 통일한다. 이 함수는 캔들 MIN_SAMPLES(40)개 이상에서만 불리므로
+// 실제로는 종가가 0 이하인 손상 데이터에서만 도달한다.
 function calcAtrPct(candles: CandleData[], currentPrice: number): number {
-  if (currentPrice <= 0) return ATR_FALLBACK_PCT;
+  if (currentPrice <= 0) return ATR_PCT_FLOOR;
   const atr = averageTrueRange(candles, ATR_PERIOD);
-  if (atr === null) return ATR_FALLBACK_PCT;
+  if (atr === null) return ATR_PCT_FLOOR;
   return clampAtrPct((atr / currentPrice) * 100);
 }
 

@@ -40,9 +40,11 @@ export function PositionActionBadge({ result, onMarkPyramided, markingPyramided 
   const [open, setOpen] = useState(false);
 
   const { action, rsi, ma5, peak_price, gross_pnl_pct, net_pnl_pct, atr_pct, volume_ratio, pyramiding_done } = result;
-  const cfg     = ACTION_CONFIG[action.type];
   const { meta } = action;
   const config  = meta.config;
+  // ATR 을 못 구했으면 config 는 자리채움 값 — 기준가를 그리지 않고 "보류"로 표시한다
+  const atrAvailable = meta.atr_available !== false;
+  const cfg     = atrAvailable ? ACTION_CONFIG[action.type] : { ...ACTION_CONFIG.HOLD, label: "보류" };
 
   const Icon =
     action.type === "SELL" ? TrendingDown :
@@ -83,9 +85,15 @@ export function PositionActionBadge({ result, onMarkPyramided, markingPyramided 
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             <Activity size={10} />
             <span>ATR(14) 변동성</span>
-            <span className="font-semibold text-foreground">{atr_pct.toFixed(2)}%</span>
-            <span className="opacity-60">·</span>
-            <span>임계값 자동 조정됨</span>
+            {atrAvailable ? (
+              <>
+                <span className="font-semibold text-foreground">{atr_pct.toFixed(2)}%</span>
+                <span className="opacity-60">·</span>
+                <span>임계값 자동 조정됨</span>
+              </>
+            ) : (
+              <span className="font-semibold text-foreground">계산 불가 (시세 데이터 부족)</span>
+            )}
           </div>
 
           {/* 판단 근거 */}
@@ -105,9 +113,9 @@ export function PositionActionBadge({ result, onMarkPyramided, markingPyramided 
             {/* 고점 대비 하락률 */}
             <Metric
               label="고점 대비"
-              value={`${meta.trailing_drop_pct.toFixed(2)}%`}
-              color={meta.trailing_drop_pct <= config.trailing_stop_pct * 0.8 ? "text-red-400" : "text-muted-foreground"}
-              sub={`기준 ${config.trailing_stop_pct.toFixed(1)}%`}
+              value={atrAvailable ? `${meta.trailing_drop_pct.toFixed(2)}%` : "—"}
+              color={atrAvailable && meta.trailing_drop_pct <= config.trailing_stop_pct * 0.8 ? "text-red-400" : "text-muted-foreground"}
+              sub={atrAvailable ? `기준 ${config.trailing_stop_pct.toFixed(1)}%` : "데이터 없음"}
             />
             {/* RSI */}
             <Metric
@@ -135,8 +143,8 @@ export function PositionActionBadge({ result, onMarkPyramided, markingPyramided 
             </div>
           )}
 
-          {/* ATR 기반 동적 임계값 */}
-          <div className="space-y-1 border-t pt-2" style={{ borderColor: "var(--border)" }}>
+          {/* ATR 기반 동적 임계값 — ATR 이 없으면 기준가를 만들어 보여주지 않는다 */}
+          {atrAvailable && <div className="space-y-1 border-t pt-2" style={{ borderColor: "var(--border)" }}>
             <div className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
               ATR 기반 동적 임계값 (ATR% {atr_pct.toFixed(2)})
             </div>
@@ -168,7 +176,7 @@ export function PositionActionBadge({ result, onMarkPyramided, markingPyramided 
               dangerBelow={false}
               icon={<Flame size={10} className="text-emerald-400" />}
             />
-          </div>
+          </div>}
 
           {/* MA5 정보 */}
           {ma5 !== null && (

@@ -193,6 +193,11 @@ export interface OrderAction {
      * Math.max(1, Math.floor(quantity × 0.5))
      */
     half_qty:              number;
+    /**
+     * 실제 시세로 ATR 을 계산했는가. false 면 config·기준가는 자리채움 값이라
+     * 매매 신호를 내지 않는다(판단 보류). UI 는 이때 기준가를 표시하지 않는다.
+     */
+    atr_available:         boolean;
   };
 }
 
@@ -250,10 +255,12 @@ export class VolatilityCalculator {
   static compute(
     candles:      OHLCVCandle[],
     currentPrice: number,
-  ): { atr: number; atrPct: number; config: StrategyConfig } {
-    // ─ 엣지 케이스 방어: 캔들이 2개 미만이면 TR 계산 자체가 불가 ──────────
-    // 캔들이 없거나 1개면 TR = High - Low만 계산 가능 (갭 정보 없음).
-    // 이 경우 ATR%를 FLOOR 값으로 설정하여 최소 보수적 임계값을 보장한다.
+  ): { atr: number; atrPct: number; config: StrategyConfig; atrAvailable: boolean } {
+    // ─ 엣지 케이스: 캔들 2개 미만(차트 조회 실패 포함)이거나 가격이 0 이하 ──
+    // ATR 을 만들 수 없다. 형태를 맞추려 FLOOR(0.5%) 자리채움 값을 돌려주지만
+    // atrAvailable=false 로 표시한다. 이 값은 실제 변동성이 아니다 — 그대로 쓰면
+    // 손절선이 −1%(2×0.5%)로 잡혀 데이터가 없다는 이유만으로 "전량 손절"이 뜬다.
+    // analyze() 는 이 경우 판단을 보류한다.
     const atrValue = averageTrueRange(candles, ATR_PERIOD);
     if (atrValue === null || currentPrice <= 0) {
       const fallbackAtrPct = ATR_PCT_FLOOR;
@@ -261,6 +268,7 @@ export class VolatilityCalculator {
         atr:    currentPrice * (fallbackAtrPct / 100),
         atrPct: fallbackAtrPct,
         config: VolatilityCalculator._buildConfig(fallbackAtrPct, currentPrice * (fallbackAtrPct / 100), currentPrice),
+        atrAvailable: false,
       };
     }
 
@@ -290,6 +298,7 @@ export class VolatilityCalculator {
       atr,
       atrPct,
       config: VolatilityCalculator._buildConfig(atrPct, atr, currentPrice),
+      atrAvailable: true,
     };
   }
 
@@ -354,7 +363,7 @@ export class PositionManagerService {
     } = input;
 
     // ── § 4-A. ATR 계산 및 동적 StrategyConfig 생성 ───────────────────────
-    const { config } = VolatilityCalculator.compute(recentCandles, currentPrice);
+    const { config, atrAvailable } = VolatilityCalculator.compute(recentCandles, currentPrice);
 
     // ── § 4-B. 세전/세후 손익률 계산 ────────────────────────────────────────
 
@@ -493,7 +502,25 @@ export class PositionManagerService {
       trailing_stop_price:   Math.round(trailingStopPrice),
       pyramid_trigger_price: Math.round(pyramidTriggerPrice),
       half_qty:              halfQty,
+      atr_available:         atrAvailable,
     };
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 0순위: 판단 보류 — 변동성(ATR)을 계산할 수 없음
+    // ══════════════════════════════════════════════════════════════════════════
+    /**
+     * 차트 조회 실패·캔들 부족이면 손절/익절/피라미딩 기준선 자체가 없다.
+     * 자리채움 ATR(0.5%)로 판단하면 −1% 만 내려도 전량 손절이 뜨므로,
+     * 데이터 부재를 매매 신호로 바꾸지 않는다.
+     */
+    if (!atrAvailable) {
+      return {
+        type:     "HOLD",
+        quantity: 0,
+        reason:   "[판단 보류] 시세 데이터가 부족해 변동성(ATR)을 계산할 수 없습니다 — 손절·익절 신호를 내지 않습니다",
+        meta,
+      };
+    }
 
     // ══════════════════════════════════════════════════════════════════════════
     // 1순위: 손절 (Stop-Loss)
