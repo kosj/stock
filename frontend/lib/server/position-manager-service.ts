@@ -13,16 +13,12 @@
  * 모든 데이터는 호출 측(API Route)에서 계산 후 주입(Dependency Injection)한다.
  */
 
+import { ATR_PERIOD, ATR_PCT_FLOOR, averageTrueRange, clampAtrPct } from "./atr";
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // § 1. 모델 파라미터 상수 (Named Constants — 하드코딩 수치 없음)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * ATR 계산 윈도우 (거래일 수)
- * Wilder의 원조 정의와 업계 표준을 따라 14일로 설정.
- * 14거래일 ≈ 약 3주 = 단기 변동성의 통계적 대표 구간.
- */
-const ATR_PERIOD = 14;
 
 /**
  * ATR 승수 — 손절(Stop-Loss)
@@ -58,21 +54,7 @@ const ATR_MULT_TAKE_PROFIT = 3;
  */
 const ATR_MULT_PYRAMIDING = 1;
 
-/**
- * ATR% 하한 클램핑 (%)
- * 초저변동성 종목(국채·우선주 등)에서 ATR%가 0.1% 수준으로 나오면
- * stopLoss가 -0.2%가 되어 장중 노이즈에도 즉시 발동되는 문제 방지.
- * 한국 대형 KOSPI 우량주의 최소 일평균 변동폭 ≈ 0.5%.
- */
-const ATR_PCT_FLOOR = 0.5;
 
-/**
- * ATR% 상한 클램핑 (%)
- * 초고변동성 종목(코스닥 소형주·테마주)에서 ATR%가 15% 이상 나오면
- * stopLoss가 -30%가 되어 사실상 손절 불가 포지션이 되는 문제 방지.
- * 합리적 리스크 관리 가능한 최대 변동성 상한선.
- */
-const ATR_PCT_CEIL = 12.0;
 
 /**
  * 매도 총 비용률 (증권거래세 + 수수료, 소수 표기)
@@ -272,7 +254,8 @@ export class VolatilityCalculator {
     // ─ 엣지 케이스 방어: 캔들이 2개 미만이면 TR 계산 자체가 불가 ──────────
     // 캔들이 없거나 1개면 TR = High - Low만 계산 가능 (갭 정보 없음).
     // 이 경우 ATR%를 FLOOR 값으로 설정하여 최소 보수적 임계값을 보장한다.
-    if (candles.length < 2 || currentPrice <= 0) {
+    const atrValue = averageTrueRange(candles, ATR_PERIOD);
+    if (atrValue === null || currentPrice <= 0) {
       const fallbackAtrPct = ATR_PCT_FLOOR;
       return {
         atr:    currentPrice * (fallbackAtrPct / 100),
@@ -281,37 +264,11 @@ export class VolatilityCalculator {
       };
     }
 
-    // ─ True Range 계산 ────────────────────────────────────────────────────
-    // candles[i].close = 전일 종가로서 candles[i+1]의 TR 계산에 사용됨.
-    // i=0은 이전 캔들이 없으므로 스킵 → i=1부터 시작.
-    const trueRanges: number[] = [];
-    for (let i = 1; i < candles.length; i++) {
-      const { high, low }   = candles[i];
-      const prevClose       = candles[i - 1].close;
-
-      /**
-       * TR[i] = max(당일 고저폭, 전일대비 고가 갭, 전일대비 저가 갭)
-       *
-       * 수식 예시 (갭 상승 케이스):
-       *   전일 종가: 10,000원
-       *   당일 고가: 10,800원, 당일 저가: 10,200원
-       *   ① High - Low         = 10,800 - 10,200 = 600원
-       *   ② |High - PrevClose| = |10,800 - 10,000| = 800원  ← 최대 → TR = 800원
-       *   ③ |Low  - PrevClose| = |10,200 - 10,000| = 200원
-       */
-      const tr = Math.max(
-        high - low,
-        Math.abs(high - prevClose),
-        Math.abs(low  - prevClose),
-      );
-      trueRanges.push(tr);
-    }
-
-    // ─ ATR(14) = 최근 14개 TR의 단순 평균 ─────────────────────────────────
-    // 캔들이 15개 미만이면 가용한 TR 전체를 사용 (단, 최소 1개 보장됨).
-    const window = Math.min(ATR_PERIOD, trueRanges.length);
-    const recentTR = trueRanges.slice(-window);
-    const atr = recentTR.reduce((sum, v) => sum + v, 0) / recentTR.length;
+    // ─ ATR(14) = 최근 14개 True Range 의 단순 평균 ───────────────────────
+    // TR[i] = max(당일 고저폭, |고가−전일종가|, |저가−전일종가|) — 갭을 반영한다.
+    // 예: 전일 10,000 / 당일 고 10,800·저 10,200 → max(600, 800, 200) = 800원.
+    // 계산은 lib/server/atr.ts 단일 구현(prophet-forecast 와 공유).
+    const atr = atrValue;
 
     // ─ ATR% 계산 및 클램핑 ────────────────────────────────────────────────
     /**
@@ -327,7 +284,7 @@ export class VolatilityCalculator {
      *      사실상 "손절 없음"과 동일 → 리스크 관리 파탄.
      */
     const rawAtrPct = currentPrice > 0 ? (atr / currentPrice) * 100 : ATR_PCT_FLOOR;
-    const atrPct    = Math.min(ATR_PCT_CEIL, Math.max(ATR_PCT_FLOOR, rawAtrPct));
+    const atrPct    = clampAtrPct(rawAtrPct);
 
     return {
       atr,

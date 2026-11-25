@@ -32,6 +32,7 @@
 import { supabase } from "./supabase";
 import { getChart } from "./yahoo-finance";
 import type { CandleData } from "./yahoo-finance";
+import { ATR_PERIOD, ATR_PCT_FLOOR, averageTrueRange, clampAtrPct } from "./atr";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -106,9 +107,12 @@ const HOLT_ALPHA    = 0.3;
 const HOLT_BETA     = 0.1;
 const RIDGE_LAMBDA  = 1e-4;
 const N_FOLDS       = 4;
-const ATR_PERIOD    = 14;
-const ATR_PCT_FLOOR = 0.5;
-const ATR_PCT_CEIL  = 12.0;
+/**
+ * 캔들이 부족해 ATR 을 만들 수 없을 때 예측 시나리오 폭에 쓰는 기본 변동성(%).
+ * 포지션 분석(VolatilityCalculator)은 같은 상황에서 ATR_PCT_FLOOR(0.5%)를 쓴다.
+ * 의도된 차이인지 기록이 없어 값을 바꾸지 않고 이름만 붙여 드러낸다.
+ */
+const ATR_FALLBACK_PCT = 3.0;
 
 // TFT 하이퍼파라미터
 const TFT_HEADS = 4;
@@ -217,26 +221,12 @@ class StandardScaler {
 
 // ── ATR(14) ───────────────────────────────────────────────────────────────────
 
+// 계산은 lib/server/atr.ts 단일 구현(VolatilityCalculator 와 공유).
 function calcAtrPct(candles: CandleData[], currentPrice: number): number {
-  if (candles.length < 2 || currentPrice <= 0) return 3.0;
-
-  const recent = candles.slice(-(ATR_PERIOD + 1));
-  const trs: number[] = [];
-  for (let i = 1; i < recent.length; i++) {
-    const high      = recent[i].high  ?? recent[i].close;
-    const low       = recent[i].low   ?? recent[i].close;
-    const prevClose = recent[i - 1].close;
-    trs.push(Math.max(
-      high - low,
-      Math.abs(high - prevClose),
-      Math.abs(low  - prevClose),
-    ));
-  }
-  if (trs.length === 0) return 3.0;
-
-  const atrWindow = Math.min(ATR_PERIOD, trs.length);
-  const atr       = trs.slice(-atrWindow).reduce((s, v) => s + v, 0) / atrWindow;
-  return Math.min(ATR_PCT_CEIL, Math.max(ATR_PCT_FLOOR, (atr / currentPrice) * 100));
+  if (currentPrice <= 0) return ATR_FALLBACK_PCT;
+  const atr = averageTrueRange(candles, ATR_PERIOD);
+  if (atr === null) return ATR_FALLBACK_PCT;
+  return clampAtrPct((atr / currentPrice) * 100);
 }
 
 // ── Layer 1 — Model D: TFT (Temporal Fusion Transformer 근사) ─────────────────
