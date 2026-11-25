@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readJsonObject } from "@/lib/server/read-json";
 import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
@@ -9,9 +10,11 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /** 포지션 수정 — RPC update_position_owned (소유권 검증 + UPDATE 단일 왕복) */
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const [auth, { id }, body] = await Promise.all([requireUser(), params, req.json()]);
+  const [auth, { id }, parsed] = await Promise.all([requireUser(), params, readJsonObject(req)]);
   if (!auth.ok) return auth.response;
   const userId = auth.userId;
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   const { data, error } = await supabase.rpc("update_position_owned", {
     p_position_id: Number(id),

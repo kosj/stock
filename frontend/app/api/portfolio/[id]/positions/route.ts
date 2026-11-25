@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readJsonObject } from "@/lib/server/read-json";
 import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
@@ -46,9 +47,11 @@ export async function DELETE(_: NextRequest, { params }: Ctx) {
 
 /** 포지션 추가 — RPC insert_position_owned (소유권 검증 + INSERT 단일 왕복) */
 export async function POST(req: NextRequest, { params }: Ctx) {
-  const [auth, { id }, body] = await Promise.all([requireUser(), params, req.json()]);
+  const [auth, { id }, parsed] = await Promise.all([requireUser(), params, readJsonObject(req)]);
   if (!auth.ok) return auth.response;
   const userId = auth.userId;
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   const { data, error } = await supabase.rpc("insert_position_owned", {
     p_portfolio_id: Number(id),

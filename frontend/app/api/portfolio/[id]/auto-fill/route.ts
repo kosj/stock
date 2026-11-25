@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readJsonObject } from "@/lib/server/read-json";
 import { requireUser, assertPortfolioOwner } from "@/lib/server/require-user";
 import { supabase } from "@/lib/server/supabase";
 import { getFinancials, getChart } from "@/lib/server/yahoo-finance";
@@ -28,8 +29,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (!(await assertPortfolioOwner(supabase, id, auth.userId))) {
     return NextResponse.json({ error: "권한이 없습니다." }, { status: 403 });
   }
-  const body = await req.json().catch(() => ({}));
-  const anthropicKey = body.anthropic_api_key ?? "";
+  const parsed = await readJsonObject(req, { allowEmpty: true });
+  if (!parsed.ok) return parsed.response;
+  const anthropicKey = typeof parsed.body.anthropic_api_key === "string" ? parsed.body.anthropic_api_key : "";
 
   const { data: pf } = await supabase.from("portfolios").select("id").eq("id", id).single();
   if (!pf) return NextResponse.json({ error: "포트폴리오를 찾을 수 없습니다." }, { status: 404 });

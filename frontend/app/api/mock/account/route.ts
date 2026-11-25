@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readJsonObject } from "@/lib/server/read-json";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 import { getQuote } from "@/lib/server/yahoo-finance";
@@ -48,13 +49,18 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
-  const body = await req.json().catch(() => null);
-  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "잘못된 요청" }, { status: 400 });
-  for (const key of ["cash", "auto_trade_capital"]) {
-    if (key in body && !(key === "auto_trade_capital" && body[key] === null)
-      && (typeof body[key] !== "number" || !Number.isFinite(body[key]) || body[key] < 0 || body[key] > 1_000_000_000))
+  const parsed = await readJsonObject(req);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
+  const update: { cash?: number; auto_trade_capital?: number | null } = {};
+  for (const key of ["cash", "auto_trade_capital"] as const) {
+    if (!(key in body)) continue;
+    const value = body[key];
+    if (key === "auto_trade_capital" && value === null) { update.auto_trade_capital = null; continue; }
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1_000_000_000)
       return NextResponse.json({ error: "금액은 0~10억원 범위여야 합니다." }, { status: 400 });
+    update[key] = value;
   }
-  try { return NextResponse.json(await updateAccount(auth.userId, body)); }
+  try { return NextResponse.json(await updateAccount(auth.userId, update)); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "계좌 변경 실패" }, { status: 409 }); }
 }

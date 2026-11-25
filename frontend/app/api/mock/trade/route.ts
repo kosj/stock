@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readJsonObject } from "@/lib/server/read-json";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 import { ExecutionMarketDataAdapter } from "@/lib/server/adapters/execution-market-data-adapter";
@@ -21,12 +22,14 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
-  const body = await req.json().catch(() => null);
-  const { ticker, name, trade_type, quantity, client_order_id, account_epoch } = body ?? {};
+  const parsed = await readJsonObject(req);
+  if (!parsed.ok) return parsed.response;
+  const { ticker, name, trade_type, quantity, client_order_id, account_epoch } = parsed.body;
   if (typeof ticker !== "string" || !/^\d{6}$/.test(ticker) || typeof name !== "string" || !name.trim() || name.length > 100
-    || !["BUY", "SELL"].includes(trade_type) || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 1_000_000
+    || (trade_type !== "BUY" && trade_type !== "SELL")
+    || typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 1_000_000
     || typeof client_order_id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(client_order_id)
-    || !Number.isSafeInteger(account_epoch) || account_epoch < 0)
+    || typeof account_epoch !== "number" || !Number.isSafeInteger(account_epoch) || account_epoch < 0)
     return NextResponse.json({ error: "국내 종목·정수 수량·주문 UUID·계좌 세대가 필요합니다." }, { status: 400 });
   const lock = new SupabaseExecutionControl();
   try {

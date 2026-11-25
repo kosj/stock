@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readJsonObject } from "@/lib/server/read-json";
 import { requireUser } from "@/lib/server/require-user";
 import { getFirstBrokerConfig } from "@/lib/server/broker-config";
 import { createBrokerProvider } from "@/lib/server/providers";
@@ -31,14 +32,15 @@ export async function POST(request: NextRequest) {
 
     // 3. isDemo 플래그 (KIS 모의투자 전용)
     const isDemo = config.isDemo ?? false;
-    try {
-      const body = await request.json();
-      if (body?.isDemo !== undefined) {
-        if (typeof body.isDemo !== "boolean" || body.isDemo !== isDemo) {
-          return NextResponse.json({ error: "조회 환경은 저장된 증권사 설정과 같아야 합니다." }, { status: 400 });
-        }
-      }
-    } catch { /* body 없어도 진행 */ }
+    // 본문은 선택이다(없어도 진행). 다만 크기는 제한하고, 깨진 JSON 은 예전처럼
+    // 조용히 무시하지 않고 400 으로 돌려준다 — isDemo 불일치 검사를 깨진 본문으로
+    // 우회할 수 없게 한다.
+    const parsed = await readJsonObject(request, { allowEmpty: true });
+    if (!parsed.ok) return parsed.response;
+    const requestedDemo = parsed.body.isDemo;
+    if (requestedDemo !== undefined && (typeof requestedDemo !== "boolean" || requestedDemo !== isDemo)) {
+      return NextResponse.json({ error: "조회 환경은 저장된 증권사 설정과 같아야 합니다." }, { status: 400 });
+    }
 
     // 4. 증권사 프로바이더 생성 및 잔고 조회
     const provider = createBrokerProvider(config.type as BrokerType, {

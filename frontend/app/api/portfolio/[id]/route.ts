@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readJsonObject } from "@/lib/server/read-json";
 import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
@@ -26,13 +27,19 @@ export async function GET(_: NextRequest, { params }: Ctx) {
 }
 
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const [auth, { id }, body] = await Promise.all([requireUser(), params, req.json()]);
+  const [auth, { id }, parsed] = await Promise.all([requireUser(), params, readJsonObject(req)]);
   if (!auth.ok) return auth.response;
   const userId = auth.userId;
+  if (!parsed.ok) return parsed.response;
+  const { name, description } = parsed.body;
+  if (name !== undefined && (typeof name !== "string" || !name.trim() || name.length > 100))
+    return NextResponse.json({ error: "포트폴리오 이름은 1~100자여야 합니다." }, { status: 400 });
+  if (description !== undefined && description !== null && typeof description !== "string")
+    return NextResponse.json({ error: "설명은 문자열이어야 합니다." }, { status: 400 });
 
   const { data, error } = await supabase
     .from("portfolios")
-    .update({ name: body.name, description: body.description, updated_at: new Date().toISOString() })
+    .update({ name, description, updated_at: new Date().toISOString() })
     .eq("id", id)
     .eq("user_id", userId)
     .select("id, name, description, created_at, updated_at")

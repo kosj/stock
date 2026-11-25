@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readJsonObject } from "@/lib/server/read-json";
 import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
@@ -22,14 +23,15 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   // userId·body를 병렬로 읽어 순차 대기 제거
-  const [auth, body] = await Promise.all([
+  const [auth, parsed] = await Promise.all([
     requireUser(),
-    req.json(),
+    readJsonObject(req),
   ]);
   if (!auth.ok) return auth.response;
   const userId = auth.userId;
+  if (!parsed.ok) return parsed.response;
 
-  const { ticker, name, sector } = body ?? {};
+  const { ticker, name, sector } = parsed.body;
   if (!ticker) {
     return NextResponse.json({ error: "ticker 필드가 필요합니다." }, { status: 400 });
   }

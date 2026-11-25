@@ -91,7 +91,9 @@ async function fixture(){
    return nativeRequire(name);
   };
   // Host Error makes instanceof Error behavior equivalent across VM boundaries.
-  vm.runInNewContext(compiled,{exports,require:localRequire,Error,Date,Number,console,process:{env:{}}},{filename:file});
+  // TextDecoder is a runtime global in both Node and Edge (not a JS builtin, so a
+  // fresh VM context lacks it); routes read bounded JSON bodies through it.
+  vm.runInNewContext(compiled,{exports,require:localRequire,Error,Date,Number,TextDecoder,console,process:{env:{}}},{filename:file});
   return exports;
  }
  const handlers=Object.fromEntries(["account","account/reset","trade","auto-trade/logs"].map(path=>[path,load(resolve(root,"frontend/app/api/mock",path,"route.ts"))]));

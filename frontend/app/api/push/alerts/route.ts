@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readJsonObject } from "@/lib/server/read-json";
 import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
@@ -26,8 +27,9 @@ export async function POST(req: NextRequest) {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
 
-  const body = await req.json();
-  const { ticker, alert_type, direction, threshold, position_id, message } = body ?? {};
+  const parsed = await readJsonObject(req);
+  if (!parsed.ok) return parsed.response;
+  const { ticker, alert_type, direction, threshold, position_id, message } = parsed.body;
 
   if (!ticker || !alert_type || !direction || threshold == null) {
     return NextResponse.json({ error: "필수 필드가 누락되었습니다." }, { status: 400 });
