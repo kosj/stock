@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -22,6 +23,6 @@ export async function DELETE(_: NextRequest, { params }: Ctx) {
     .eq("id", id)
     .eq("user_id", user.id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "watchlist/[id] DELETE", "관심 종목을 삭제하지 못했습니다.");
   return new NextResponse(null, { status: 204 });
 }

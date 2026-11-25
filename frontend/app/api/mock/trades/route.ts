@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 
@@ -16,6 +17,6 @@ export async function GET() {
     .order("created_at", { ascending: false })
     .limit(100);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "mock/trades GET", "체결 내역을 불러오지 못했습니다.");
   return NextResponse.json(data ?? []);
 }

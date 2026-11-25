@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 
@@ -28,6 +29,6 @@ export async function GET() {
     .or("stop_loss.not.is.null,take_profit.not.is.null")
     .order("ticker");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "positions GET", "포지션을 불러오지 못했습니다.");
   return NextResponse.json(data ?? []);
 }

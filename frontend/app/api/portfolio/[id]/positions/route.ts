@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 
@@ -23,7 +24,7 @@ export async function GET(_: NextRequest, { params }: Ctx) {
   ]);
 
   if (!pf) return NextResponse.json({ error: "권한 없음" }, { status: 403 });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "portfolio/[id]/positions GET", "포지션을 불러오지 못했습니다.");
   return NextResponse.json(data ?? []);
 }
 
@@ -39,7 +40,7 @@ export async function DELETE(_: NextRequest, { params }: Ctx) {
   if (!pf) return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
   const { error } = await supabase.from("positions").delete().eq("portfolio_id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "portfolio/[id]/positions DELETE", "포지션을 삭제하지 못했습니다.");
   return NextResponse.json({ ok: true });
 }
 
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     if (error.message.includes("permission_denied")) {
       return NextResponse.json({ error: "권한 없음" }, { status: 403 });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return dbErrorResponse(error, "portfolio/[id]/positions POST", "포지션을 추가하지 못했습니다.");
   }
 
   const row = Array.isArray(data) ? data[0] : data;

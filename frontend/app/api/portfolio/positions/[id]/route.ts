@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 
@@ -29,7 +30,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     if (error.message.includes("permission_denied")) {
       return NextResponse.json({ error: "권한 없음" }, { status: 403 });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return dbErrorResponse(error, "positions/[id] PUT", "포지션을 수정하지 못했습니다.");
   }
 
   const row = Array.isArray(data) ? data[0] : data;
@@ -48,7 +49,7 @@ export async function DELETE(_: NextRequest, { params }: Ctx) {
     p_user_id:     userId,
   });
 
-  if (error)    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error)    return dbErrorResponse(error, "positions/[id] DELETE", "포지션을 삭제하지 못했습니다.");
   if (!deleted) return NextResponse.json({ error: "권한 없음" }, { status: 403 });
   return new NextResponse(null, { status: 204 });
 }

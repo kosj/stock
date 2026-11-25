@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 
@@ -17,7 +18,7 @@ export async function GET() {
     .eq("user_id", auth.userId)
     .order("created_at", { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "push/alerts GET", "가격 알림을 불러오지 못했습니다.");
   return NextResponse.json(data ?? []);
 }
 
@@ -50,6 +51,6 @@ export async function POST(req: NextRequest) {
     .select("id, ticker, position_id, alert_type, direction, threshold, message, is_active, last_triggered, created_at")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "push/alerts POST", "가격 알림을 만들지 못했습니다.");
   return NextResponse.json(data, { status: 201 });
 }

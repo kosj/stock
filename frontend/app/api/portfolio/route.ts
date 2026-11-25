@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 
@@ -15,7 +16,7 @@ export async function GET() {
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "portfolio GET", "포트폴리오 목록을 불러오지 못했습니다.");
   return NextResponse.json(data ?? []);
 }
 
@@ -31,6 +32,6 @@ export async function POST(req: NextRequest) {
     .select("id, name, description, created_at, updated_at")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "portfolio POST", "포트폴리오를 만들지 못했습니다.");
   return NextResponse.json(data, { status: 201 });
 }

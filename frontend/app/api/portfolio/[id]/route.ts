@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 
@@ -18,7 +19,9 @@ export async function GET(_: NextRequest, { params }: Ctx) {
     .eq("user_id", userId)
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+  if (error) return error.code === "PGRST116"
+      ? NextResponse.json({ error: "포트폴리오를 찾을 수 없습니다." }, { status: 404 })
+      : dbErrorResponse(error, "portfolio/[id] GET", "포트폴리오를 불러오지 못했습니다.");
   return NextResponse.json(data);
 }
 
@@ -35,7 +38,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     .select("id, name, description, created_at, updated_at")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "portfolio/[id] PUT", "포트폴리오를 수정하지 못했습니다.");
   return NextResponse.json(data);
 }
 
@@ -50,6 +53,6 @@ export async function DELETE(_: NextRequest, { params }: Ctx) {
     .eq("id", id)
     .eq("user_id", userId);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "portfolio/[id] DELETE", "포트폴리오를 삭제하지 못했습니다.");
   return new NextResponse(null, { status: 204 });
 }

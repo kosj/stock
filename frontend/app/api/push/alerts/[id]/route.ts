@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dbErrorResponse } from "@/lib/server/db-error";
 import { supabase } from "@/lib/server/supabase";
 import { requireUser } from "@/lib/server/require-user";
 
@@ -22,6 +23,6 @@ export async function DELETE(_: NextRequest, { params }: Ctx) {
     .eq("id", alertId)
     .eq("user_id", auth.userId);   // 남의 알림 삭제 차단
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return dbErrorResponse(error, "push/alerts/[id] DELETE", "가격 알림을 삭제하지 못했습니다.");
   return new NextResponse(null, { status: 204 });
 }
